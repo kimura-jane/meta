@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>メタバース空間</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 3D空間を表示するキャンバス -->
+  <div id="canvas-container"></div>
+
+  <!-- UI オーバーレイ -->
+  <div id="ui-overlay">
+    <!-- 上部：ルーム情報 -->
+    <div id="room-info">
+      <span id="room-name">ルーム: メインステージ</span>
+      <span id="user-count">0人</span>
+    </div>
+
+    <!-- チャット表示エリア -->
+    <div id="chat-container">
+      <div id="chat-messages"></div>
+      <form id="chat-form">
+        <input type="text" id="chat-input" placeholder="メッセージを入力..." autocomplete="off">
+        <button type="submit">送信</button>
+      </form>
+    </div>
+
+    <!-- 下部：応援ボタン -->
+    <div id="reaction-buttons">
+      <button class="reaction-btn" data-type="penlight" data-color="#ff00ff">
+        <span class="icon">🔦</span>
+        <span class="label">ペンライト</span>
+      </button>
+      <button class="reaction-btn" data-type="jump">
+        <span class="icon">⬆️</span>
+        <span class="label">ジャンプ</span>
+      </button>
+      <button class="reaction-btn" data-type="clap">
+        <span class="icon">👏</span>
+        <span class="label">拍手</span>
+      </button>
+      <button class="reaction-btn" data-type="otagei" data-motion="1">
+        <span class="icon">🙌</span>
+        <span class="label">オタ芸</span>
+      </button>
+    </div>
+
+    <!-- ペンライト色選択（非表示、ペンライト押したら出る） -->
+    <div id="penlight-colors" class="hidden">
+      <button class="color-btn" data-color="#ff0000" style="background:#ff0000"></button>
+      <button class="color-btn" data-color="#ff00ff" style="background:#ff00ff"></button>
+      <button class="color-btn" data-color="#00ffff" style="background:#00ffff"></button>
+      <button class="color-btn" data-color="#00ff00" style="background:#00ff00"></button>
+      <button class="color-btn" data-color="#ffff00" style="background:#ffff00"></button>
+      <button class="color-btn" data-color="#ffffff" style="background:#ffffff"></button>
+    </div>
+  </div>
+
+  <!-- ステージ参加ボタン（リスナー用） -->
+  <div id="stage-controls">
+    <button id="request-stage-btn">🎤 登壇リクエスト</button>
+  </div>
+
+  <!-- スピーカー用コントロール（登壇中のみ表示） -->
+  <div id="speaker-controls" class="hidden">
+    <button id="mic-toggle-btn">🎙️ マイク ON</button>
+    <button id="leave-stage-btn">ステージを降りる</button>
+  </div>
+
+  <!-- Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  
+  <!-- アプリケーション -->
+  <script src="js/main.js" type="module"></script>
+</body>
+</html>

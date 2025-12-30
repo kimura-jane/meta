@@ -37,7 +37,7 @@ function init() {
 
   // レンダラー設定（スマホ最適化）
   renderer = new THREE.WebGLRenderer({
-    antialias: false, // スマホ用にオフ
+    antialias: false,
     powerPreference: 'low-power'
   });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -144,7 +144,7 @@ function createStage() {
 // --------------------------------------------
 function createAvatar(userId, userName, color) {
   const group = new THREE.Group();
-  group.userData = { oduserId: oduserId, userName: userName };
+  group.userData = { userId: userId, userName: userName };
 
   // 体（カプセル型を簡易的にシリンダーで）
   const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.35, 1, 8);
@@ -159,8 +159,6 @@ function createAvatar(userId, userName, color) {
   const head = new THREE.Mesh(headGeometry, headMaterial);
   head.position.y = 1.2;
   group.add(head);
-
-  // 名前タグ（後で2Dで描画するので、ここではスキップ）
 
   return group;
 }
@@ -225,7 +223,6 @@ function setPenlightColor(color) {
 function wavePenlight() {
   if (!penlightOn) return;
   
-  // 簡単な振りアニメーション
   const startRotation = myPenlight.rotation.z;
   const swingAmount = 0.3;
   let progress = 0;
@@ -271,9 +268,7 @@ function doOtagei(motionId) {
   function otageiAnimation() {
     progress += 0.12;
     if (progress <= duration) {
-      // 体を左右に揺らす
       myAvatar.rotation.z = Math.sin(progress * 3) * 0.2;
-      // ペンライトを激しく振る
       if (myPenlight.visible) {
         myPenlight.rotation.z = Math.PI / 6 + Math.sin(progress * 5) * 0.5;
       }
@@ -287,10 +282,9 @@ function doOtagei(motionId) {
 }
 
 // --------------------------------------------
-// 拍手エフェクト（パーティクル的な）
+// 拍手エフェクト
 // --------------------------------------------
 function doClap() {
-  // 簡単なスケールアニメーションで表現
   const originalScale = myAvatar.scale.x;
   let progress = 0;
   
@@ -323,7 +317,6 @@ function setupEventListeners() {
         case 'penlight':
           penlightOn = !penlightOn;
           myPenlight.visible = penlightOn;
-          // 色選択パネルの表示切り替え
           document.getElementById('penlight-colors').classList.toggle('hidden', !penlightOn);
           if (penlightOn) {
             wavePenlight();
@@ -339,8 +332,6 @@ function setupEventListeners() {
           doOtagei(btn.dataset.motion);
           break;
       }
-      
-      // TODO: PartyKitで他ユーザーに同期
     });
   });
 
@@ -362,14 +353,12 @@ function setupEventListeners() {
     if (message) {
       addChatMessage(myUserName, message);
       input.value = '';
-      // TODO: PartyKitで送信
     }
   });
 
   // 登壇リクエスト
   document.getElementById('request-stage-btn').addEventListener('click', () => {
     alert('登壇リクエストを送信しました（デモ）');
-    // TODO: PartyKitでオーナーにリクエスト送信
   });
 
   // マイクトグル
@@ -377,10 +366,9 @@ function setupEventListeners() {
     e.target.classList.toggle('muted');
     const isMuted = e.target.classList.contains('muted');
     e.target.textContent = isMuted ? '🎙️ マイク OFF' : '🎙️ マイク ON';
-    // TODO: Cloudflare Callsでミュート切り替え
   });
 
-  // タッチでアバター移動（簡易版）
+  // タッチでアバター移動
   let touchStartX, touchStartY;
   renderer.domElement.addEventListener('touchstart', (e) => {
     touchStartX = e.touches[0].clientX;
@@ -396,14 +384,11 @@ function setupEventListeners() {
     myAvatar.position.x += deltaX;
     myAvatar.position.z += deltaZ;
     
-    // 移動範囲を制限
     myAvatar.position.x = Math.max(-14, Math.min(14, myAvatar.position.x));
     myAvatar.position.z = Math.max(-2, Math.min(9, myAvatar.position.z));
     
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
-    
-    // TODO: PartyKitで位置を同期
   });
 
   renderer.domElement.addEventListener('touchend', () => {
@@ -423,7 +408,6 @@ function addChatMessage(name, message) {
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
   
-  // 古いメッセージを削除（最大20件）
   while (container.children.length > 20) {
     container.removeChild(container.firstChild);
   }
@@ -444,7 +428,6 @@ function onWindowResize() {
 function animate() {
   requestAnimationFrame(animate);
   
-  // カメラを自分のアバターに追従（軽く）
   const targetX = myAvatar.position.x * 0.3;
   const targetZ = myAvatar.position.z + 8;
   camera.position.x += (targetX - camera.position.x) * 0.05;

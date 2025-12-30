@@ -18,7 +18,7 @@ jobs:
           node-version: '18'
 
       - name: Deploy to PartyKit
-        run: npx partykit@latest deploy party/room.js --name metaroom
+        run: npx partykit@latest deploy
         env:
           PARTYKIT_TOKEN: ${{ secrets.PARTYKIT_TOKEN }}
           PARTYKIT_LOGIN: ${{ secrets.PARTYKIT_LOGIN }}

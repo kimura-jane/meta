@@ -1,5 +1,8 @@
 {
-  "name": "kimurameta",
-  "main": "party/server.ts",
-  "compatibilityDate": "2024-01-01"
+  "name": "meta",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "partykit": "0.0.108"
+  }
 }

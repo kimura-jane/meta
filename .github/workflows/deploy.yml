@@ -2,8 +2,7 @@ name: Deploy PartyKit
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -17,10 +16,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: "npm"
 
-      - run: npm install
+      - run: npm ci
 
-      - run: npx partykit deploy
+      - name: Deploy
         env:
           PARTYKIT_TOKEN: ${{ secrets.PARTYKIT_TOKEN }}
           PARTYKIT_LOGIN: ${{ secrets.PARTYKIT_LOGIN }}
+        run: |
+          set -euo pipefail
+          # GitHub Secretsに混ざりがちな改行(CR/LF)を除去
+          export PARTYKIT_LOGIN="$(printf %s "$PARTYKIT_LOGIN" | tr -d '\r\n')"
+          npx partykit deploy

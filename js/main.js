@@ -1,7 +1,7 @@
 // ============================================
 // メタバース空間 - メインスクリプト
 // PartyKit + Cloudflare Calls 対応版
-// デバッグコンソール付き
+// iOS Safari 対応版
 // ============================================
 
 // --------------------------------------------
@@ -60,8 +60,11 @@ let myPublishedTrackName = null;
 const remoteAudios = new Map();
 let speakerCount = 0;
 
-// TURN認証情報（サーバーから取得）
+// TURN認証情報
 let turnCredentials = null;
+
+// iOS Safari 用: 音声再生が有効化されたか
+let audioUnlocked = false;
 
 // --------------------------------------------
 // 初期設定
@@ -77,7 +80,15 @@ const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
 const myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
 
 // --------------------------------------------
-// ICE サーバー設定を取得
+// iOS検出
+// --------------------------------------------
+function isIOS() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+// --------------------------------------------
+// ICE サーバー設定
 // --------------------------------------------
 function getIceServers() {
     const servers = [
@@ -101,17 +112,84 @@ function getIceServers() {
 }
 
 // --------------------------------------------
+// 音声アンロック（iOS Safari用）
+// --------------------------------------------
+function showAudioUnlockButton() {
+    if (audioUnlocked) return;
+    
+    // 既存のボタンがあれば削除
+    const existing = document.getElementById('audio-unlock-btn');
+    if (existing) existing.remove();
+    
+    const btn = document.createElement('button');
+    btn.id = 'audio-unlock-btn';
+    btn.textContent = '🔊 タップして音声を有効化';
+    btn.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 20px 40px;
+        font-size: 18px;
+        background: #ff6b6b;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        z-index: 20000;
+        cursor: pointer;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    `;
+    
+    btn.onclick = async () => {
+        debugLog('音声アンロック開始', 'info');
+        
+        // 全ての音声を再生試行
+        for (const [odUserId, obj] of remoteAudios) {
+            if (obj.audio) {
+                try {
+                    await obj.audio.play();
+                    debugLog(`音声再生成功: ${odUserId}`, 'success');
+                } catch (e) {
+                    debugLog(`音声再生失敗: ${odUserId}: ${e.message}`, 'warn');
+                }
+            }
+        }
+        
+        audioUnlocked = true;
+        btn.remove();
+        debugLog('音声アンロック完了', 'success');
+    };
+    
+    document.body.appendChild(btn);
+    debugLog('音声アンロックボタン表示', 'warn');
+}
+
+// --------------------------------------------
 // 全ての音声を再開
 // --------------------------------------------
 function resumeAllAudio() {
     debugLog('全音声再開処理', 'info');
+    
+    let hasAudio = false;
     remoteAudios.forEach((obj, odUserId) => {
         if (obj.audio) {
+            hasAudio = true;
             obj.audio.play()
                 .then(() => debugLog(`音声再開: ${odUserId}`, 'success'))
-                .catch(e => debugLog(`音声再開失敗: ${odUserId}: ${e.message}`, 'warn'));
+                .catch(e => {
+                    debugLog(`音声再開失敗: ${odUserId}: ${e.message}`, 'warn');
+                    // iOS の場合、アンロックボタンを表示
+                    if (isIOS() && !audioUnlocked) {
+                        showAudioUnlockButton();
+                    }
+                });
         }
     });
+    
+    // 音声がある場合、iOS でアンロックボタンを表示
+    if (hasAudio && isIOS() && !audioUnlocked) {
+        showAudioUnlockButton();
+    }
 }
 
 // --------------------------------------------
@@ -156,6 +234,10 @@ function createDebugUI() {
     document.body.appendChild(btn);
     
     debugLog('デバッグコンソール初期化', 'success');
+    
+    if (isIOS()) {
+        debugLog('iOS検出: 音声はタップで有効化が必要', 'warn');
+    }
 }
 
 // --------------------------------------------
@@ -389,7 +471,6 @@ async function startPublishing() {
     try {
         debugLog('Step1: マイク取得中...', 'info');
         
-        // マイク許可（成功でもキャンセルでも）後に音声を再開するため try-finally を使用
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
@@ -400,13 +481,15 @@ async function startPublishing() {
                 video: false 
             });
             debugLog('Step1: マイク取得成功！', 'success');
+            
+            // マイク取得成功 = 音声再生も許可される（iOS）
+            audioUnlocked = true;
+            const unlockBtn = document.getElementById('audio-unlock-btn');
+            if (unlockBtn) unlockBtn.remove();
+            
         } catch (micError) {
             debugLog(`マイク取得失敗: ${micError.message}`, 'error');
-            // マイク取得失敗でも音声再開を試みる
-            setTimeout(resumeAllAudio, 500);
             addChatMessage('システム', 'マイクにアクセスできませんでした');
-            
-            // 状態をリセット
             isSpeaker = false;
             mySessionId = null;
             updateSpeakerButton();
@@ -415,7 +498,7 @@ async function startPublishing() {
         }
         
         // マイク許可後、他の音声を再開
-        setTimeout(resumeAllAudio, 300);
+        setTimeout(resumeAllAudio, 100);
         
         debugLog('Step2: PeerConnection作成中...', 'info');
         peerConnection = new RTCPeerConnection({
@@ -437,7 +520,6 @@ async function startPublishing() {
         if (!audioTrack) {
             throw new Error('CLIENT_ERR_NO_AUDIO_TRACK');
         }
-        debugLog(`Step3: トラック: ${audioTrack.kind}`, 'info');
         
         const transceiver = peerConnection.addTransceiver(audioTrack, { 
             direction: 'sendonly' 
@@ -446,22 +528,17 @@ async function startPublishing() {
         
         debugLog('Step4: Offer作成中...', 'info');
         const offer = await peerConnection.createOffer();
-        if (!offer || !offer.sdp) {
-            throw new Error('CLIENT_ERR_NO_OFFER');
-        }
         debugLog('Step4: Offer作成完了', 'success');
         
         debugLog('Step5: setLocalDescription中...', 'info');
         await peerConnection.setLocalDescription(offer);
         debugLog('Step5: setLocalDescription完了', 'success');
         
-        debugLog('Step6: mid取得中...', 'info');
         let mid = transceiver.mid;
         if (!mid) {
             const sdp = peerConnection.localDescription?.sdp || '';
             const midMatch = sdp.match(/a=mid:(\S+)/);
             mid = midMatch ? midMatch[1] : "0";
-            debugLog(`Step6: SDP から mid 抽出: "${mid}"`, 'warn');
         }
         debugLog(`Step6: mid="${mid}"`, 'success');
         
@@ -474,12 +551,7 @@ async function startPublishing() {
             trackName: trackName
         }];
         
-        if (!mySessionId) {
-            throw new Error('CLIENT_ERR_NO_SESSION_ID');
-        }
-        
         debugLog('Step7: publishTrack送信中...', 'info');
-        debugLog(`trackName: ${trackName}`, 'info');
         socket.send(JSON.stringify({
             type: 'publishTrack',
             sessionId: mySessionId,
@@ -495,8 +567,6 @@ async function startPublishing() {
         debugLog(`publishエラー: ${error.message}`, 'error');
         addChatMessage('システム', 'マイクにアクセスできませんでした');
         stopSpeaking();
-        // エラー時も音声再開を試みる
-        setTimeout(resumeAllAudio, 500);
     }
 }
 
@@ -520,24 +590,22 @@ async function handleTrackPublished(data) {
         debugLog('setRemoteDescription成功！', 'success');
         addChatMessage('システム', '音声配信を開始しました');
         
-        // 配信開始後も音声再開を試みる
-        setTimeout(resumeAllAudio, 500);
+        // 配信開始後も音声再開
+        setTimeout(resumeAllAudio, 100);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
     }
 }
 
 // --------------------------------------------
-// トラック購読（リスナー用）- マイク不要
+// トラック購読（リスナー用）
 // --------------------------------------------
 async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     if (odUserId === myServerConnectionId) {
-        debugLog(`自分(${myServerConnectionId})のトラックはスキップ`);
         return;
     }
     
     if (trackName === myPublishedTrackName) {
-        debugLog(`自分のトラック名(${myPublishedTrackName})はスキップ`);
         return;
     }
     
@@ -552,30 +620,32 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     }
     
     debugLog(`=== subscribeToTrack 開始: ${odUserId} ===`, 'info');
-    debugLog(`remoteSessionId: ${remoteSessionId}, trackName: ${trackName}`, 'info');
     
     const pc = new RTCPeerConnection({
         iceServers: getIceServers(),
         bundlePolicy: 'max-bundle'
     });
     
-    // 受信専用 - マイク不要
     pc.addTransceiver('audio', { direction: 'recvonly' });
-    debugLog('recvonly transceiver 追加', 'info');
     
     pc.ontrack = (event) => {
         debugLog(`ontrack発火！: ${odUserId}`, 'success');
         const audio = new Audio();
         audio.srcObject = event.streams[0] || new MediaStream([event.track]);
         audio.autoplay = true;
+        
+        // 再生試行
         audio.play()
-            .then(() => debugLog(`再生開始: ${odUserId}`, 'success'))
+            .then(() => {
+                debugLog(`再生開始: ${odUserId}`, 'success');
+                audioUnlocked = true;
+            })
             .catch(e => {
-                debugLog(`再生待機（タップで再生）: ${e.message}`, 'warn');
-                document.addEventListener('click', function playOnClick() {
-                    audio.play().then(() => debugLog(`タップ後再生: ${odUserId}`, 'success'));
-                    document.removeEventListener('click', playOnClick);
-                }, { once: true });
+                debugLog(`再生失敗（タップ必要）: ${odUserId}`, 'warn');
+                // iOS の場合、アンロックボタンを表示
+                if (isIOS()) {
+                    showAudioUnlockButton();
+                }
             });
         
         const obj = remoteAudios.get(odUserId);
@@ -591,9 +661,7 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     
     pc.oniceconnectionstatechange = () => {
         debugLog(`[${odUserId}] ICE: ${pc.iceConnectionState}`);
-        
         if (pc.iceConnectionState === 'failed') {
-            debugLog(`[${odUserId}] ICE再接続試行...`, 'warn');
             pc.restartIce();
         }
     };
@@ -616,7 +684,6 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         remoteSessionId: remoteSessionId,
         trackName: trackName
     }));
-    debugLog('subscribeTrack送信', 'info');
 }
 
 async function handleSubscribed(data) {
@@ -643,14 +710,9 @@ async function handleSubscribed(data) {
         return;
     }
     
-    debugLog(`${targetUserId}のPC処理`, 'info');
-    
     const pc = targetObj.pc;
     
     try {
-        debugLog('Offer受信、Answer作成開始', 'info');
-        debugLog(`Offer SDP length: ${data.offer.sdp?.length || 0}`, 'info');
-        
         await pc.setRemoteDescription(
             new RTCSessionDescription({
                 type: 'offer',
@@ -660,49 +722,36 @@ async function handleSubscribed(data) {
         debugLog('setRemoteDescription成功', 'success');
         
         const answer = await pc.createAnswer();
-        debugLog('createAnswer成功', 'success');
-        
         await pc.setLocalDescription(answer);
-        debugLog('setLocalDescription成功', 'success');
+        debugLog('Answer作成完了', 'success');
         
+        // ICE収集待機
         await new Promise((resolve) => {
             if (pc.iceGatheringState === 'complete') {
                 resolve();
                 return;
             }
-            
-            const timeout = setTimeout(() => {
-                debugLog('ICE収集タイムアウト（続行）', 'warn');
-                resolve();
-            }, 2000);
-            
+            const timeout = setTimeout(resolve, 2000);
             pc.onicegatheringstatechange = () => {
                 if (pc.iceGatheringState === 'complete') {
                     clearTimeout(timeout);
                     resolve();
                 }
             };
-            
-            pc.onicecandidate = (event) => {
-                if (event.candidate === null) {
+            pc.onicecandidate = (e) => {
+                if (e.candidate === null) {
                     clearTimeout(timeout);
                     resolve();
                 }
             };
         });
         
-        debugLog('ICE収集完了', 'success');
-        
         const finalSdp = pc.localDescription?.sdp || answer.sdp;
-        debugLog(`Answer SDP length: ${finalSdp?.length || 0}`, 'info');
         
         socket.send(JSON.stringify({
             type: 'subscribeAnswer',
             sessionId: data.sessionId,
-            answer: { 
-                type: 'answer', 
-                sdp: finalSdp
-            }
+            answer: { type: 'answer', sdp: finalSdp }
         }));
         debugLog('subscribeAnswer送信', 'success');
         
@@ -722,7 +771,6 @@ function removeRemoteAudio(odUserId) {
             obj.pc.close();
         }
         remoteAudios.delete(odUserId);
-        debugLog(`音声削除: ${odUserId}`);
     }
 }
 
@@ -890,19 +938,11 @@ function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
 
-    camera = new THREE.PerspectiveCamera(
-        60,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        1000
-    );
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 5, 10);
     camera.lookAt(0, 2, 0);
 
-    renderer = new THREE.WebGLRenderer({
-        antialias: false,
-        powerPreference: 'low-power'
-    });
+    renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     document.getElementById('canvas-container').appendChild(renderer.domElement);
@@ -924,11 +964,7 @@ function init() {
     createStage();
 
     myAvatar = createAvatar(myUserId, myUserName, 0x4fc3f7);
-    myAvatar.position.set(
-        (Math.random() - 0.5) * 8,
-        0.5,
-        5 + Math.random() * 3
-    );
+    myAvatar.position.set((Math.random() - 0.5) * 8, 0.5, 5 + Math.random() * 3);
     scene.add(myAvatar);
 
     myPenlight = createPenlight(penlightColor);
@@ -946,18 +982,11 @@ function init() {
     debugLog('初期化完了', 'success');
 }
 
-// --------------------------------------------
-// 床の作成
-// --------------------------------------------
 function createFloor() {
     const geometry = new THREE.PlaneGeometry(30, 20);
-    const material = new THREE.MeshStandardMaterial({
-        color: 0x2d2d44,
-        roughness: 0.8
-    });
+    const material = new THREE.MeshStandardMaterial({ color: 0x2d2d44, roughness: 0.8 });
     floor = new THREE.Mesh(geometry, material);
     floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
     scene.add(floor);
 
     const grid = new THREE.GridHelper(30, 30, 0x444466, 0x333355);
@@ -965,15 +994,9 @@ function createFloor() {
     scene.add(grid);
 }
 
-// --------------------------------------------
-// ステージの作成
-// --------------------------------------------
 function createStage() {
     const stageGeometry = new THREE.BoxGeometry(10, 1, 5);
-    const stageMaterial = new THREE.MeshStandardMaterial({
-        color: 0x4a4a6a,
-        roughness: 0.5
-    });
+    const stageMaterial = new THREE.MeshStandardMaterial({ color: 0x4a4a6a, roughness: 0.5 });
     stage = new THREE.Mesh(stageGeometry, stageMaterial);
     stage.position.set(0, 0.5, -5);
     scene.add(stage);
@@ -985,30 +1008,24 @@ function createStage() {
     scene.add(stageLine);
 
     const screenGeometry = new THREE.PlaneGeometry(12, 5);
-    const screenMaterial = new THREE.MeshBasicMaterial({
-        color: 0x1a1a3e,
-        side: THREE.DoubleSide
-    });
+    const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x1a1a3e, side: THREE.DoubleSide });
     const screen = new THREE.Mesh(screenGeometry, screenMaterial);
     screen.position.set(0, 3.5, -7.4);
     scene.add(screen);
 }
 
-// --------------------------------------------
-// アバター作成
-// --------------------------------------------
 function createAvatar(odUserId, userName, color) {
     const group = new THREE.Group();
-    group.userData = { odUserId: odUserId, userName: userName };
+    group.userData = { odUserId, userName };
 
     const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.35, 1, 8);
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color: color });
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color });
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
     body.position.y = 0.5;
     group.add(body);
 
     const headGeometry = new THREE.SphereGeometry(0.25, 8, 8);
-    const headMaterial = new THREE.MeshStandardMaterial({ color: color });
+    const headMaterial = new THREE.MeshStandardMaterial({ color });
     const head = new THREE.Mesh(headGeometry, headMaterial);
     head.position.y = 1.2;
     group.add(head);
@@ -1016,9 +1033,6 @@ function createAvatar(odUserId, userName, color) {
     return group;
 }
 
-// --------------------------------------------
-// ペンライト作成
-// --------------------------------------------
 function createPenlight(color) {
     const group = new THREE.Group();
 
@@ -1028,11 +1042,7 @@ function createPenlight(color) {
     group.add(handle);
 
     const lightGeometry = new THREE.CylinderGeometry(0.05, 0.03, 0.3, 8);
-    const lightMaterial = new THREE.MeshBasicMaterial({ 
-        color: color,
-        transparent: true,
-        opacity: 0.9
-    });
+    const lightMaterial = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
     const light = new THREE.Mesh(lightGeometry, lightMaterial);
     light.position.y = 0.25;
     light.name = 'penlightLight';
@@ -1049,37 +1059,22 @@ function createPenlight(color) {
     return group;
 }
 
-// --------------------------------------------
-// ペンライトの色を変更
-// --------------------------------------------
 function setPenlightColor(color) {
     penlightColor = color;
-    
     const light = myPenlight.getObjectByName('penlightLight');
-    if (light) {
-        light.material.color.set(color);
-    }
-    
+    if (light) light.material.color.set(color);
     const pointLight = myPenlight.getObjectByName('penlightPointLight');
-    if (pointLight) {
-        pointLight.color.set(color);
-    }
+    if (pointLight) pointLight.color.set(color);
 }
 
-// --------------------------------------------
-// ペンライトを振る
-// --------------------------------------------
 function wavePenlight() {
     if (!penlightOn) return;
-    
     const startRotation = myPenlight.rotation.z;
-    const swingAmount = 0.3;
     let progress = 0;
-    
     function swingAnimation() {
         progress += 0.15;
         if (progress <= Math.PI) {
-            myPenlight.rotation.z = startRotation + Math.sin(progress) * swingAmount;
+            myPenlight.rotation.z = startRotation + Math.sin(progress) * 0.3;
             requestAnimationFrame(swingAnimation);
         } else {
             myPenlight.rotation.z = startRotation;
@@ -1088,13 +1083,9 @@ function wavePenlight() {
     swingAnimation();
 }
 
-// --------------------------------------------
-// ジャンプアニメーション
-// --------------------------------------------
 function doJump() {
     const startY = myAvatar.position.y;
     let progress = 0;
-    
     function jumpAnimation() {
         progress += 0.1;
         if (progress <= Math.PI) {
@@ -1105,20 +1096,14 @@ function doJump() {
         }
     }
     jumpAnimation();
-    
     sendReaction('jump', null);
 }
 
-// --------------------------------------------
-// オタ芸アニメーション
-// --------------------------------------------
 function doOtagei(motionId) {
     let progress = 0;
-    const duration = Math.PI * 2;
-    
     function otageiAnimation() {
         progress += 0.12;
-        if (progress <= duration) {
+        if (progress <= Math.PI * 2) {
             myAvatar.rotation.z = Math.sin(progress * 3) * 0.2;
             if (myPenlight.visible) {
                 myPenlight.rotation.z = Math.PI / 6 + Math.sin(progress * 5) * 0.5;
@@ -1130,17 +1115,12 @@ function doOtagei(motionId) {
         }
     }
     otageiAnimation();
-    
     sendReaction('otagei', penlightColor);
 }
 
-// --------------------------------------------
-// 拍手エフェクト
-// --------------------------------------------
 function doClap() {
     const originalScale = myAvatar.scale.x;
     let progress = 0;
-    
     function clapAnimation() {
         progress += 0.2;
         if (progress <= Math.PI) {
@@ -1152,28 +1132,21 @@ function doClap() {
         }
     }
     clapAnimation();
-    
     sendReaction('clap', null);
 }
 
-// --------------------------------------------
-// イベントリスナー設定
-// --------------------------------------------
 function setupEventListeners() {
     window.addEventListener('resize', onWindowResize);
 
     document.querySelectorAll('.reaction-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const type = btn.dataset.type;
-            
             switch(type) {
                 case 'penlight':
                     penlightOn = !penlightOn;
                     myPenlight.visible = penlightOn;
                     const colorPanel = document.getElementById('penlight-colors');
-                    if (colorPanel) {
-                        colorPanel.classList.toggle('hidden', !penlightOn);
-                    }
+                    if (colorPanel) colorPanel.classList.toggle('hidden', !penlightOn);
                     if (penlightOn) {
                         wavePenlight();
                         sendReaction('penlight', penlightColor);
@@ -1231,7 +1204,6 @@ function setupEventListeners() {
                 if (audioTrack) {
                     audioTrack.enabled = !audioTrack.enabled;
                     updateMicButton(audioTrack.enabled);
-                    debugLog(`マイク: ${audioTrack.enabled ? 'ON' : 'OFF'}`);
                 }
             }
         });
@@ -1245,16 +1217,12 @@ function setupEventListeners() {
 
     renderer.domElement.addEventListener('touchmove', (e) => {
         if (!touchStartX || !touchStartY) return;
-        
         const deltaX = (e.touches[0].clientX - touchStartX) * 0.01;
         const deltaZ = (e.touches[0].clientY - touchStartY) * 0.01;
-        
         myAvatar.position.x += deltaX;
         myAvatar.position.z += deltaZ;
-        
         myAvatar.position.x = Math.max(-14, Math.min(14, myAvatar.position.x));
         myAvatar.position.z = Math.max(-2, Math.min(9, myAvatar.position.z));
-        
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
     });
@@ -1265,39 +1233,27 @@ function setupEventListeners() {
     });
 }
 
-// --------------------------------------------
-// チャットメッセージ追加
-// --------------------------------------------
 function addChatMessage(name, message) {
     const container = document.getElementById('chat-messages');
     if (!container) return;
-    
     const div = document.createElement('div');
     div.className = 'chat-message';
     div.innerHTML = `<span class="name">${name}</span>${message}`;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
-    
     while (container.children.length > 20) {
         container.removeChild(container.firstChild);
     }
 }
 
-// --------------------------------------------
-// ウィンドウリサイズ
-// --------------------------------------------
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// --------------------------------------------
-// アニメーションループ
-// --------------------------------------------
 function animate() {
     requestAnimationFrame(animate);
-    
     if (myAvatar) {
         const targetX = myAvatar.position.x * 0.3;
         const targetZ = myAvatar.position.z + 8;
@@ -1305,11 +1261,7 @@ function animate() {
         camera.position.z += (targetZ - camera.position.z) * 0.05;
         camera.lookAt(myAvatar.position.x * 0.5, 2, myAvatar.position.z - 5);
     }
-    
     renderer.render(scene, camera);
 }
 
-// --------------------------------------------
-// 初期化実行
-// --------------------------------------------
 init();

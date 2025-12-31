@@ -652,9 +652,15 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     debugLog('subscribeTrack送信', 'info');
 }
 
+// --------------------------------------------
+// 購読レスポンス処理（修正版）
+// --------------------------------------------
 async function handleSubscribed(data) {
     debugLog('=== handleSubscribed 開始 ===', 'info');
-    debugLog(`isNewSession: ${data.isNewSession}, requiresRenegotiation: ${data.requiresImmediateRenegotiation}`, 'info');
+    
+    // サーバーからのデータ構造を確認
+    // server.ts は { type: "subscribed", offer, sessionId, trackName, tracks, requiresImmediateRenegotiation } を送る
+    // offer は { type: "offer", sdp: "..." } の形式
     
     if (!data.offer) {
         debugLog('Offerがない！', 'error');
@@ -670,13 +676,17 @@ async function handleSubscribed(data) {
     }
     
     try {
-        // 新しいセッションの場合、またはsubscriberPCがない場合は新規作成
-        if (data.isNewSession || !subscriberPC || subscriberPC.connectionState === 'closed' || subscriberPC.connectionState === 'failed') {
+        // subscriberPCが必要かチェック
+        const needNewPC = !subscriberPC || 
+                          subscriberPC.connectionState === 'closed' || 
+                          subscriberPC.connectionState === 'failed';
+        
+        if (needNewPC) {
             debugLog('新しいsubscriberPC作成', 'info');
             
             // 古いPCがあれば閉じる
-            if (subscriberPC && subscriberPC.connectionState !== 'closed') {
-                subscriberPC.close();
+            if (subscriberPC) {
+                try { subscriberPC.close(); } catch(e) {}
             }
             
             subscriberPC = new RTCPeerConnection({
@@ -685,60 +695,85 @@ async function handleSubscribed(data) {
             });
             
             subscriberPC.ontrack = (event) => {
-                debugLog(`ontrack発火！tracks=${event.streams.length}`, 'success');
+                debugLog(`ontrack発火！kind=${event.track.kind}`, 'success');
                 handleRemoteTrack(event);
             };
             
             subscriberPC.oniceconnectionstatechange = () => {
-                debugLog(`[Subscriber] ICE: ${subscriberPC.iceConnectionState}`);
-                if (subscriberPC.iceConnectionState === 'failed') {
-                    debugLog('[Subscriber] ICE失敗、再接続試行', 'warn');
-                    subscriberPC.restartIce();
+                if (subscriberPC) {
+                    debugLog(`[Subscriber] ICE: ${subscriberPC.iceConnectionState}`);
+                    if (subscriberPC.iceConnectionState === 'failed') {
+                        debugLog('[Subscriber] ICE失敗', 'error');
+                    }
                 }
             };
             
             subscriberPC.onconnectionstatechange = () => {
-                debugLog(`[Subscriber] 接続: ${subscriberPC.connectionState}`);
+                if (subscriberPC) {
+                    debugLog(`[Subscriber] 接続: ${subscriberPC.connectionState}`);
+                }
             };
+        } else {
+            debugLog('既存のsubscriberPCを再利用', 'info');
         }
         
         // セッションIDを保存
         subscriberSessionId = data.sessionId;
         
-        debugLog(`Offer受信、setRemoteDescription開始`, 'info');
         debugLog(`現在のsignalingState: ${subscriberPC.signalingState}`, 'info');
         
-        // signalingStateに応じて処理を分岐
+        // signalingStateがstableでない場合はrollback
         if (subscriberPC.signalingState !== 'stable') {
-            debugLog(`signalingStateが${subscriberPC.signalingState}なのでrollback`, 'warn');
+            debugLog(`rollback実行: ${subscriberPC.signalingState}`, 'warn');
             await subscriberPC.setLocalDescription({ type: 'rollback' });
         }
+        
+        // Offerをセット - サーバーからの形式に対応
+        // data.offer は { type: "offer", sdp: "..." } または直接SDPの場合がある
+        let offerSdp;
+        if (typeof data.offer === 'string') {
+            offerSdp = data.offer;
+        } else if (data.offer.sdp) {
+            offerSdp = data.offer.sdp;
+        } else {
+            debugLog('Offer SDPが見つからない', 'error');
+            return;
+        }
+        
+        debugLog(`Offer SDP長さ: ${offerSdp.length}`, 'info');
         
         await subscriberPC.setRemoteDescription(
             new RTCSessionDescription({
                 type: 'offer',
-                sdp: data.offer.sdp
+                sdp: offerSdp
             })
         );
         debugLog('setRemoteDescription成功', 'success');
         
+        // Answer作成
         const answer = await subscriberPC.createAnswer();
         await subscriberPC.setLocalDescription(answer);
         debugLog('Answer作成完了', 'success');
         
-        // ICE収集待機
+        // ICE収集を待つ
         await new Promise((resolve) => {
             if (subscriberPC.iceGatheringState === 'complete') {
                 resolve();
                 return;
             }
-            const timeout = setTimeout(resolve, 2000);
-            subscriberPC.onicegatheringstatechange = () => {
-                if (subscriberPC.iceGatheringState === 'complete') {
+            const timeout = setTimeout(() => {
+                debugLog('ICE収集タイムアウト', 'warn');
+                resolve();
+            }, 2000);
+            
+            const checkComplete = () => {
+                if (subscriberPC && subscriberPC.iceGatheringState === 'complete') {
                     clearTimeout(timeout);
                     resolve();
                 }
             };
+            
+            subscriberPC.onicegatheringstatechange = checkComplete;
             subscriberPC.onicecandidate = (e) => {
                 if (e.candidate === null) {
                     clearTimeout(timeout);
@@ -748,24 +783,34 @@ async function handleSubscribed(data) {
         });
         debugLog('ICE収集完了', 'success');
         
-        const finalSdp = subscriberPC.localDescription?.sdp || answer.sdp;
+        // Answerを送信
+        const finalSdp = subscriberPC.localDescription?.sdp;
+        if (!finalSdp) {
+            debugLog('localDescription.sdpがない', 'error');
+            return;
+        }
         
         socket.send(JSON.stringify({
             type: 'subscribeAnswer',
             sessionId: data.sessionId,
-            answer: { type: 'answer', sdp: finalSdp }
+            answer: { 
+                type: 'answer', 
+                sdp: finalSdp 
+            }
         }));
-        debugLog('subscribeAnswer送信', 'success');
+        debugLog('subscribeAnswer送信完了', 'success');
         
-        // 購読待ちから削除し、購読済みに追加（audioはontrackで設定）
+        // 購読待ちから購読済みへ移動（audioはontrackで設定される）
         pendingSubscriptions.delete(trackName);
         subscribedTracks.set(trackName, { 
             odUserId: pendingInfo.odUserId, 
             audio: null 
         });
+        debugLog(`購読登録完了: ${trackName}`, 'success');
         
     } catch (e) {
         debugLog(`handleSubscribedエラー: ${e.message}`, 'error');
+        console.error(e);
         pendingSubscriptions.delete(trackName);
     }
 }
@@ -808,19 +853,24 @@ function handleRemoteTrack(event) {
 }
 
 function removeRemoteAudio(odUserId) {
-    const trackName = `audio-${odUserId}`;
-    const obj = subscribedTracks.get(trackName);
-    if (obj) {
-        if (obj.audio) {
-            obj.audio.pause();
-            obj.audio.srcObject = null;
+    // odUserIdに対応するトラックを探して削除
+    for (const [trackName, obj] of subscribedTracks) {
+        if (obj.odUserId === odUserId) {
+            if (obj.audio) {
+                obj.audio.pause();
+                obj.audio.srcObject = null;
+            }
+            subscribedTracks.delete(trackName);
+            debugLog(`音声削除: ${trackName}`, 'info');
         }
-        subscribedTracks.delete(trackName);
-        debugLog(`音声削除: ${trackName}`, 'info');
     }
     
     // 購読待ちからも削除
-    pendingSubscriptions.delete(trackName);
+    for (const [trackName, obj] of pendingSubscriptions) {
+        if (obj.odUserId === odUserId) {
+            pendingSubscriptions.delete(trackName);
+        }
+    }
 }
 
 function updateSpeakerList(speakers) {

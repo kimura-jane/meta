@@ -738,7 +738,7 @@ async function handleSubscribed(data) {
             const timeout = setTimeout(() => {
                 debugLog('ICE収集タイムアウト', 'warn');
                 resolve();
-            }, 300);  // ← ここを300msに変更
+            }}100;  // ← ここを300msに変更
             
             const checkComplete = () => {
                 if (subscriberPC && subscriberPC.iceGatheringState === 'complete') {

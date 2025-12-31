@@ -1,6 +1,6 @@
 // ============================================
 // メタバース空間 - メインスクリプト
-// PartyKit リアルタイム同期対応版
+// PartyKit + Cloudflare Calls 対応版
 // ============================================
 
 // --------------------------------------------
@@ -12,6 +12,15 @@ const ROOM_ID = 'main-stage';
 let socket = null;
 let connected = false;
 const remoteAvatars = new Map();
+
+// --------------------------------------------
+// 音声通話設定
+// --------------------------------------------
+let localStream = null;
+let peerConnection = null;
+let mySessionId = null;
+let isSpeaker = false;
+const remoteAudios = new Map();
 
 // --------------------------------------------
 // 初期設定
@@ -67,6 +76,7 @@ function handleServerMessage(data) {
                 }
             });
             updateUserCount();
+            updateSpeakerList(data.speakers || []);
             break;
             
         case 'userJoin':
@@ -79,8 +89,10 @@ function handleServerMessage(data) {
             
         case 'userLeave':
             removeRemoteAvatar(data.userId);
+            removeRemoteAudio(data.userId);
             addChatMessage('システム', '誰かが退室しました');
             updateUserCount();
+            if (data.speakers) updateSpeakerList(data.speakers);
             break;
             
         case 'position':
@@ -94,9 +106,238 @@ function handleServerMessage(data) {
         case 'chat':
             addChatMessage(data.name, data.message);
             break;
+
+        // 音声通話関連
+        case 'speakApproved':
+            mySessionId = data.sessionId;
+            isSpeaker = true;
+            startPublishing();
+            updateMicButton(true);
+            addChatMessage('システム', '登壇が承認されました！');
+            break;
+
+        case 'speakDenied':
+            addChatMessage('システム', data.reason);
+            break;
+
+        case 'speakerJoined':
+            updateSpeakerList(data.speakers);
+            addChatMessage('システム', '新しい登壇者が参加しました');
+            break;
+
+        case 'speakerLeft':
+            updateSpeakerList(data.speakers);
+            removeRemoteAudio(data.userId);
+            break;
+
+        case 'trackPublished':
+            handleTrackPublished(data);
+            break;
+
+        case 'newTrack':
+            subscribeToTrack(data.userId, data.sessionId, data.trackName);
+            break;
+
+        case 'subscribed':
+            handleSubscribed(data);
+            break;
     }
 }
 
+// --------------------------------------------
+// 音声通話機能
+// --------------------------------------------
+async function requestSpeak() {
+    if (isSpeaker) {
+        stopSpeaking();
+        return;
+    }
+    
+    socket.send(JSON.stringify({ type: 'requestSpeak' }));
+}
+
+function stopSpeaking() {
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+    }
+    
+    isSpeaker = false;
+    mySessionId = null;
+    updateMicButton(false);
+    
+    socket.send(JSON.stringify({ type: 'stopSpeak' }));
+    addChatMessage('システム', '登壇を終了しました');
+}
+
+async function startPublishing() {
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }, 
+            video: false 
+        });
+        
+        peerConnection = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }]
+        });
+        
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+        
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        
+        socket.send(JSON.stringify({
+            type: 'publishTrack',
+            sessionId: mySessionId,
+            offer: { type: 'offer', sdp: offer.sdp },
+            trackName: `audio-${myUserId}`
+        }));
+        
+    } catch (error) {
+        console.error('マイクアクセスエラー:', error);
+        addChatMessage('システム', 'マイクにアクセスできませんでした');
+        stopSpeaking();
+    }
+}
+
+async function handleTrackPublished(data) {
+    if (peerConnection && data.answer) {
+        await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(data.answer)
+        );
+        console.log('音声配信開始！');
+        addChatMessage('システム', '音声配信を開始しました');
+    }
+}
+
+async function subscribeToTrack(userId, remoteSessionId, trackName) {
+    if (userId === myUserId) return;
+    
+    const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }]
+    });
+    
+    pc.ontrack = (event) => {
+        const audio = new Audio();
+        audio.srcObject = event.streams[0];
+        audio.play().catch(e => console.log('Auto-play blocked:', e));
+        remoteAudios.set(userId, { audio, pc });
+        
+        // スピーカーのアバターにインジケーター追加
+        const avatar = remoteAvatars.get(userId);
+        if (avatar) {
+            addSpeakerIndicator(avatar);
+        }
+    };
+    
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+    
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    
+    socket.send(JSON.stringify({
+        type: 'subscribeTrack',
+        sessionId: mySessionId || `listener-${myUserId}`,
+        remoteSessionId: remoteSessionId,
+        trackName: trackName
+    }));
+    
+    remoteAudios.set(userId, { pc, audio: null });
+}
+
+async function handleSubscribed(data) {
+    // リスナー用のPeerConnectionを探して設定
+    for (const [userId, obj] of remoteAudios) {
+        if (obj.pc && obj.pc.signalingState === 'have-local-offer') {
+            await obj.pc.setRemoteDescription(
+                new RTCSessionDescription(data.offer)
+            );
+            
+            const answer = await obj.pc.createAnswer();
+            await obj.pc.setLocalDescription(answer);
+            
+            socket.send(JSON.stringify({
+                type: 'subscribeAnswer',
+                sessionId: mySessionId || `listener-${myUserId}`,
+                answer: { type: 'answer', sdp: answer.sdp }
+            }));
+            break;
+        }
+    }
+}
+
+function removeRemoteAudio(userId) {
+    const obj = remoteAudios.get(userId);
+    if (obj) {
+        if (obj.audio) {
+            obj.audio.pause();
+            obj.audio.srcObject = null;
+        }
+        if (obj.pc) {
+            obj.pc.close();
+        }
+        remoteAudios.delete(userId);
+    }
+}
+
+function updateSpeakerList(speakers) {
+    const count = speakers.length;
+    const btn = document.getElementById('request-stage-btn');
+    if (btn) {
+        btn.textContent = `🎤 登壇リクエスト (${count}/5)`;
+    }
+    
+    // アバターの見た目を更新
+    remoteAvatars.forEach((avatar, odUserId) => {
+        if (speakers.includes(userId)) {
+            addSpeakerIndicator(avatar);
+        } else {
+            removeSpeakerIndicator(avatar);
+        }
+    });
+}
+
+function addSpeakerIndicator(avatar) {
+    if (avatar.getObjectByName('speakerIndicator')) return;
+    
+    const indicator = new THREE.Mesh(
+        new THREE.RingGeometry(0.4, 0.45, 32),
+        new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide })
+    );
+    indicator.name = 'speakerIndicator';
+    indicator.rotation.x = -Math.PI / 2;
+    indicator.position.y = 0.01;
+    avatar.add(indicator);
+}
+
+function removeSpeakerIndicator(avatar) {
+    const indicator = avatar.getObjectByName('speakerIndicator');
+    if (indicator) {
+        avatar.remove(indicator);
+    }
+}
+
+function updateMicButton(isSpeaking) {
+    const btn = document.getElementById('mic-toggle-btn');
+    if (btn) {
+        btn.textContent = isSpeaking ? '🎙️ 配信中' : '🎙️ マイク OFF';
+        btn.classList.toggle('speaking', isSpeaking);
+    }
+}
+
+// --------------------------------------------
+// リモートアバター管理
+// --------------------------------------------
 function createRemoteAvatar(user) {
     if (remoteAvatars.has(user.id)) return;
     
@@ -184,6 +425,7 @@ function sendChat(message) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({
             type: 'chat',
+            name: myUserName,
             message: message
         }));
     }
@@ -243,10 +485,8 @@ function init() {
 
     setupEventListeners();
     
-    // PartyKit接続開始
     connectToPartyKit();
     
-    // 定期的に位置を送信
     setInterval(sendPosition, 100);
 
     animate();
@@ -305,7 +545,7 @@ function createStage() {
 // --------------------------------------------
 function createAvatar(userId, userName, color) {
     const group = new THREE.Group();
-    group.userData = { userId: userId, userName: userName };
+    group.userData = { odUserId: odUserId, userName: userName };
 
     const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.35, 1, 8);
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: color });
@@ -412,7 +652,6 @@ function doJump() {
     }
     jumpAnimation();
     
-    // 他のユーザーに送信
     sendReaction('jump', null);
 }
 
@@ -517,13 +756,17 @@ function setupEventListeners() {
     });
 
     document.getElementById('request-stage-btn').addEventListener('click', () => {
-        alert('登壇リクエストを送信しました（デモ）');
+        requestSpeak();
     });
 
-    document.getElementById('mic-toggle-btn').addEventListener('click', (e) => {
-        e.target.classList.toggle('muted');
-        const isMuted = e.target.classList.contains('muted');
-        e.target.textContent = isMuted ? '🎙️ マイク OFF' : '🎙️ マイク ON';
+    document.getElementById('mic-toggle-btn').addEventListener('click', () => {
+        if (isSpeaker && localStream) {
+            const audioTrack = localStream.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                updateMicButton(audioTrack.enabled);
+            }
+        }
     });
 
     let touchStartX, touchStartY;

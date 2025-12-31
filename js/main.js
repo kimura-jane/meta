@@ -60,6 +60,9 @@ let myPublishedTrackName = null;
 const remoteAudios = new Map();
 let speakerCount = 0;
 
+// ★★★ TURN認証情報（サーバーから取得）★★★
+let turnCredentials = null;
+
 // --------------------------------------------
 // 初期設定
 // --------------------------------------------
@@ -72,6 +75,31 @@ let penlightColor = '#ff00ff';
 
 const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
 const myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
+
+// --------------------------------------------
+// ICE サーバー設定を取得
+// --------------------------------------------
+function getIceServers() {
+    const servers = [
+        { urls: 'stun:stun.cloudflare.com:3478' }
+    ];
+    
+    // TURN認証情報がある場合は追加
+    if (turnCredentials) {
+        servers.push({
+            urls: 'turn:turn.cloudflare.com:3478?transport=udp',
+            username: turnCredentials.username,
+            credential: turnCredentials.credential
+        });
+        servers.push({
+            urls: 'turn:turn.cloudflare.com:3478?transport=tcp',
+            username: turnCredentials.username,
+            credential: turnCredentials.credential
+        });
+    }
+    
+    return servers;
+}
 
 // --------------------------------------------
 // デバッグUIを作成
@@ -166,6 +194,12 @@ function handleServerMessage(data) {
         case 'init':
             myServerConnectionId = data.yourId;
             debugLog(`初期化: ID=${myServerConnectionId}, ${Object.keys(data.users).length}人`);
+            
+            // TURN認証情報を保存
+            if (data.turnCredentials) {
+                turnCredentials = data.turnCredentials;
+                debugLog('TURN認証情報取得', 'success');
+            }
             
             Object.values(data.users).forEach(user => {
                 if (user.id !== myServerConnectionId) {
@@ -286,7 +320,7 @@ function handleServerMessage(data) {
             
             setTimeout(() => {
                 subscribeToTrack(trackUserId, data.sessionId, newTrackName);
-            }, 2000);
+            }, 500);
             break;
 
         case 'subscribed':
@@ -354,7 +388,7 @@ async function startPublishing() {
         
         debugLog('Step2: PeerConnection作成中...', 'info');
         peerConnection = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
+            iceServers: getIceServers(),
             bundlePolicy: 'max-bundle'
         });
         
@@ -472,16 +506,21 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     }
     
     const existing = remoteAudios.get(odUserId);
-    if (existing && existing.pc && existing.pc.connectionState !== 'failed') {
+    if (existing && existing.pc && existing.pc.connectionState !== 'failed' && existing.pc.connectionState !== 'closed') {
         debugLog(`既に購読中: ${odUserId}`);
         return;
+    }
+    
+    // 既存のものがあれば削除
+    if (existing) {
+        removeRemoteAudio(odUserId);
     }
     
     debugLog(`=== subscribeToTrack 開始: ${odUserId} ===`, 'info');
     debugLog(`remoteSessionId: ${remoteSessionId}, trackName: ${trackName}`, 'info');
     
     const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
+        iceServers: getIceServers(),
         bundlePolicy: 'max-bundle'
     });
     
@@ -517,6 +556,12 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     
     pc.oniceconnectionstatechange = () => {
         debugLog(`[${odUserId}] ICE: ${pc.iceConnectionState}`);
+        
+        // 失敗時は再接続を試みる
+        if (pc.iceConnectionState === 'failed') {
+            debugLog(`[${odUserId}] ICE再接続試行...`, 'warn');
+            pc.restartIce();
+        }
     };
     
     pc.onconnectionstatechange = () => {
@@ -538,36 +583,6 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         trackName: trackName
     }));
     debugLog('subscribeTrack送信', 'info');
-}
-
-// ★★★ ICE candidate 収集完了を待つヘルパー関数 ★★★
-function waitForIceGathering(pc, timeout = 3000) {
-    return new Promise((resolve) => {
-        if (pc.iceGatheringState === 'complete') {
-            resolve();
-            return;
-        }
-        
-        const timeoutId = setTimeout(() => {
-            debugLog('ICE収集タイムアウト（続行）', 'warn');
-            resolve();
-        }, timeout);
-        
-        pc.onicegatheringstatechange = () => {
-            if (pc.iceGatheringState === 'complete') {
-                clearTimeout(timeoutId);
-                resolve();
-            }
-        };
-        
-        // 個別の candidate も監視
-        pc.onicecandidate = (event) => {
-            if (event.candidate === null) {
-                clearTimeout(timeoutId);
-                resolve();
-            }
-        };
-    });
 }
 
 async function handleSubscribed(data) {
@@ -596,11 +611,13 @@ async function handleSubscribed(data) {
     
     debugLog(`${targetUserId}のPC処理`, 'info');
     
+    const pc = targetObj.pc;
+    
     try {
         debugLog('Offer受信、Answer作成開始', 'info');
         debugLog(`Offer SDP length: ${data.offer.sdp?.length || 0}`, 'info');
         
-        await targetObj.pc.setRemoteDescription(
+        await pc.setRemoteDescription(
             new RTCSessionDescription({
                 type: 'offer',
                 sdp: data.offer.sdp
@@ -608,19 +625,43 @@ async function handleSubscribed(data) {
         );
         debugLog('setRemoteDescription成功', 'success');
         
-        const answer = await targetObj.pc.createAnswer();
+        const answer = await pc.createAnswer();
         debugLog('createAnswer成功', 'success');
         
-        await targetObj.pc.setLocalDescription(answer);
+        await pc.setLocalDescription(answer);
         debugLog('setLocalDescription成功', 'success');
         
-        // ★★★ ICE candidate 収集を待つ ★★★
-        debugLog('ICE candidate 収集待機...', 'info');
-        await waitForIceGathering(targetObj.pc);
-        debugLog('ICE candidate 収集完了', 'success');
+        // ★★★ ICE candidate 収集を待つ（最大2秒）★★★
+        await new Promise((resolve) => {
+            if (pc.iceGatheringState === 'complete') {
+                resolve();
+                return;
+            }
+            
+            const timeout = setTimeout(() => {
+                debugLog('ICE収集タイムアウト（続行）', 'warn');
+                resolve();
+            }, 2000);
+            
+            pc.onicegatheringstatechange = () => {
+                if (pc.iceGatheringState === 'complete') {
+                    clearTimeout(timeout);
+                    resolve();
+                }
+            };
+            
+            pc.onicecandidate = (event) => {
+                if (event.candidate === null) {
+                    clearTimeout(timeout);
+                    resolve();
+                }
+            };
+        });
         
-        // ★★★ 最終的な SDP を取得 ★★★
-        const finalSdp = targetObj.pc.localDescription?.sdp || answer.sdp;
+        debugLog('ICE収集完了', 'success');
+        
+        // 最終的な SDP を取得
+        const finalSdp = pc.localDescription?.sdp || answer.sdp;
         debugLog(`Answer SDP length: ${finalSdp?.length || 0}`, 'info');
         
         socket.send(JSON.stringify({

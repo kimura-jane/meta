@@ -1,7 +1,7 @@
 // ============================================
 // メタバース空間 - メインスクリプト
 // PartyKit + Cloudflare Calls 対応版
-// iOS Safari 対応版
+// iOS Safari 対応版 - 単一PeerConnection方式
 // ============================================
 
 // --------------------------------------------
@@ -53,11 +53,17 @@ const remoteAvatars = new Map();
 // 音声通話設定
 // --------------------------------------------
 let localStream = null;
-let peerConnection = null;
+let peerConnection = null;  // 配信用（登壇者のみ）
 let mySessionId = null;
 let isSpeaker = false;
 let myPublishedTrackName = null;
-const remoteAudios = new Map();
+
+// リスナー用: 単一のPeerConnectionとセッション
+let subscriberPC = null;
+let subscriberSessionId = null;
+const subscribedTracks = new Map();  // trackName -> { odUserId, audio }
+const pendingSubscriptions = new Map(); // trackName -> { odUserId, remoteSessionId }
+
 let speakerCount = 0;
 
 // TURN認証情報
@@ -144,13 +150,13 @@ function showAudioUnlockButton() {
         debugLog('音声アンロック開始', 'info');
         
         // 全ての音声を再生試行
-        for (const [odUserId, obj] of remoteAudios) {
+        for (const [trackName, obj] of subscribedTracks) {
             if (obj.audio) {
                 try {
                     await obj.audio.play();
-                    debugLog(`音声再生成功: ${odUserId}`, 'success');
+                    debugLog(`音声再生成功: ${trackName}`, 'success');
                 } catch (e) {
-                    debugLog(`音声再生失敗: ${odUserId}: ${e.message}`, 'warn');
+                    debugLog(`音声再生失敗: ${trackName}: ${e.message}`, 'warn');
                 }
             }
         }
@@ -171,13 +177,13 @@ function resumeAllAudio() {
     debugLog('全音声再開処理', 'info');
     
     let hasAudio = false;
-    remoteAudios.forEach((obj, odUserId) => {
+    subscribedTracks.forEach((obj, trackName) => {
         if (obj.audio) {
             hasAudio = true;
             obj.audio.play()
-                .then(() => debugLog(`音声再開: ${odUserId}`, 'success'))
+                .then(() => debugLog(`音声再開: ${trackName}`, 'success'))
                 .catch(e => {
-                    debugLog(`音声再開失敗: ${odUserId}: ${e.message}`, 'warn');
+                    debugLog(`音声再開失敗: ${trackName}: ${e.message}`, 'warn');
                     // iOS の場合、アンロックボタンを表示
                     if (isIOS() && !audioUnlocked) {
                         showAudioUnlockButton();
@@ -276,6 +282,16 @@ function connectToPartyKit() {
         debugLog('接続切断 - 3秒後再接続', 'warn');
         connected = false;
         updateUserCount();
+        
+        // 再接続時にsubscriberをリセット
+        if (subscriberPC) {
+            subscriberPC.close();
+            subscriberPC = null;
+        }
+        subscriberSessionId = null;
+        subscribedTracks.clear();
+        pendingSubscriptions.clear();
+        
         setTimeout(connectToPartyKit, 3000);
     };
     
@@ -598,7 +614,7 @@ async function handleTrackPublished(data) {
 }
 
 // --------------------------------------------
-// トラック購読（リスナー用）
+// トラック購読（リスナー用）- 単一PeerConnection方式
 // --------------------------------------------
 async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     if (odUserId === myServerConnectionId) {
@@ -609,81 +625,31 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         return;
     }
     
-    const existing = remoteAudios.get(odUserId);
-    if (existing && existing.pc && existing.pc.connectionState !== 'failed' && existing.pc.connectionState !== 'closed') {
-        debugLog(`既に購読中: ${odUserId}`);
+    // 既に購読済みかチェック
+    if (subscribedTracks.has(trackName)) {
+        debugLog(`既に購読中: ${trackName}`);
         return;
     }
     
-    if (existing) {
-        removeRemoteAudio(odUserId);
+    // 購読待ちに既にあるかチェック
+    if (pendingSubscriptions.has(trackName)) {
+        debugLog(`既に購読リクエスト中: ${trackName}`);
+        return;
     }
     
-    debugLog(`=== subscribeToTrack 開始: ${odUserId} ===`, 'info');
+    debugLog(`=== subscribeToTrack 開始: ${trackName} ===`, 'info');
     
-    const pc = new RTCPeerConnection({
-        iceServers: getIceServers(),
-        bundlePolicy: 'max-bundle'
-    });
+    // 購読待ちに追加
+    pendingSubscriptions.set(trackName, { odUserId, remoteSessionId });
     
-    pc.addTransceiver('audio', { direction: 'recvonly' });
-    
-    pc.ontrack = (event) => {
-        debugLog(`ontrack発火！: ${odUserId}`, 'success');
-        const audio = new Audio();
-        audio.srcObject = event.streams[0] || new MediaStream([event.track]);
-        audio.autoplay = true;
-        
-        // 再生試行
-        audio.play()
-            .then(() => {
-                debugLog(`再生開始: ${odUserId}`, 'success');
-                audioUnlocked = true;
-            })
-            .catch(e => {
-                debugLog(`再生失敗（タップ必要）: ${odUserId}`, 'warn');
-                // iOS の場合、アンロックボタンを表示
-                if (isIOS()) {
-                    showAudioUnlockButton();
-                }
-            });
-        
-        const obj = remoteAudios.get(odUserId);
-        if (obj) {
-            obj.audio = audio;
-        }
-        
-        const avatar = remoteAvatars.get(odUserId);
-        if (avatar) {
-            addSpeakerIndicator(avatar);
-        }
-    };
-    
-    pc.oniceconnectionstatechange = () => {
-        debugLog(`[${odUserId}] ICE: ${pc.iceConnectionState}`);
-        if (pc.iceConnectionState === 'failed') {
-            pc.restartIce();
-        }
-    };
-    
-    pc.onconnectionstatechange = () => {
-        debugLog(`[${odUserId}] 接続: ${pc.connectionState}`);
-    };
-    
-    remoteAudios.set(odUserId, { 
-        pc: pc, 
-        audio: null,
-        visitorId: odUserId,
-        trackName: trackName,
-        remoteSessionId: remoteSessionId
-    });
-    
+    // サーバーに購読リクエスト送信
     socket.send(JSON.stringify({
         type: 'subscribeTrack',
         visitorId: odUserId,
         remoteSessionId: remoteSessionId,
         trackName: trackName
     }));
+    debugLog('subscribeTrack送信', 'info');
 }
 
 async function handleSubscribed(data) {
@@ -694,26 +660,48 @@ async function handleSubscribed(data) {
         return;
     }
     
-    let targetUserId = null;
-    let targetObj = null;
+    const trackName = data.trackName;
+    const pendingInfo = pendingSubscriptions.get(trackName);
     
-    for (const [odUserId, obj] of remoteAudios) {
-        if (obj.trackName === data.trackName) {
-            targetUserId = odUserId;
-            targetObj = obj;
-            break;
-        }
-    }
-    
-    if (!targetObj || !targetObj.pc) {
-        debugLog(`対応するPCが見つからない: ${data.trackName}`, 'error');
+    if (!pendingInfo) {
+        debugLog(`対応する購読待ちが見つからない: ${trackName}`, 'error');
         return;
     }
     
-    const pc = targetObj.pc;
-    
     try {
-        await pc.setRemoteDescription(
+        // subscriberPCがなければ作成、あれば再利用
+        if (!subscriberPC || subscriberPC.connectionState === 'closed' || subscriberPC.connectionState === 'failed') {
+            debugLog('新しいsubscriberPC作成', 'info');
+            
+            subscriberPC = new RTCPeerConnection({
+                iceServers: getIceServers(),
+                bundlePolicy: 'max-bundle'
+            });
+            
+            subscriberPC.ontrack = (event) => {
+                debugLog(`ontrack発火！tracks=${event.streams.length}`, 'success');
+                handleRemoteTrack(event);
+            };
+            
+            subscriberPC.oniceconnectionstatechange = () => {
+                debugLog(`[Subscriber] ICE: ${subscriberPC.iceConnectionState}`);
+                if (subscriberPC.iceConnectionState === 'failed') {
+                    debugLog('[Subscriber] ICE失敗、再接続試行', 'warn');
+                    subscriberPC.restartIce();
+                }
+            };
+            
+            subscriberPC.onconnectionstatechange = () => {
+                debugLog(`[Subscriber] 接続: ${subscriberPC.connectionState}`);
+            };
+        }
+        
+        // セッションIDを保存
+        subscriberSessionId = data.sessionId;
+        
+        debugLog(`Offer受信、setRemoteDescription開始`, 'info');
+        
+        await subscriberPC.setRemoteDescription(
             new RTCSessionDescription({
                 type: 'offer',
                 sdp: data.offer.sdp
@@ -721,32 +709,33 @@ async function handleSubscribed(data) {
         );
         debugLog('setRemoteDescription成功', 'success');
         
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+        const answer = await subscriberPC.createAnswer();
+        await subscriberPC.setLocalDescription(answer);
         debugLog('Answer作成完了', 'success');
         
         // ICE収集待機
         await new Promise((resolve) => {
-            if (pc.iceGatheringState === 'complete') {
+            if (subscriberPC.iceGatheringState === 'complete') {
                 resolve();
                 return;
             }
             const timeout = setTimeout(resolve, 2000);
-            pc.onicegatheringstatechange = () => {
-                if (pc.iceGatheringState === 'complete') {
+            subscriberPC.onicegatheringstatechange = () => {
+                if (subscriberPC.iceGatheringState === 'complete') {
                     clearTimeout(timeout);
                     resolve();
                 }
             };
-            pc.onicecandidate = (e) => {
+            subscriberPC.onicecandidate = (e) => {
                 if (e.candidate === null) {
                     clearTimeout(timeout);
                     resolve();
                 }
             };
         });
+        debugLog('ICE収集完了', 'success');
         
-        const finalSdp = pc.localDescription?.sdp || answer.sdp;
+        const finalSdp = subscriberPC.localDescription?.sdp || answer.sdp;
         
         socket.send(JSON.stringify({
             type: 'subscribeAnswer',
@@ -755,23 +744,70 @@ async function handleSubscribed(data) {
         }));
         debugLog('subscribeAnswer送信', 'success');
         
+        // 購読待ちから削除し、購読済みに追加（audioはontrackで設定）
+        pendingSubscriptions.delete(trackName);
+        subscribedTracks.set(trackName, { 
+            odUserId: pendingInfo.odUserId, 
+            audio: null 
+        });
+        
     } catch (e) {
         debugLog(`handleSubscribedエラー: ${e.message}`, 'error');
+        pendingSubscriptions.delete(trackName);
+    }
+}
+
+// リモートトラック受信時のハンドラー
+function handleRemoteTrack(event) {
+    debugLog(`リモートトラック受信: kind=${event.track.kind}, id=${event.track.id}`, 'success');
+    
+    const audio = new Audio();
+    audio.srcObject = event.streams[0] || new MediaStream([event.track]);
+    audio.autoplay = true;
+    
+    // 再生試行
+    audio.play()
+        .then(() => {
+            debugLog(`音声再生開始`, 'success');
+            audioUnlocked = true;
+        })
+        .catch(e => {
+            debugLog(`再生失敗（タップ必要）: ${e.message}`, 'warn');
+            if (isIOS()) {
+                showAudioUnlockButton();
+            }
+        });
+    
+    // subscribedTracksの中でaudioがnullのものを探して関連付け
+    for (const [trackName, obj] of subscribedTracks) {
+        if (!obj.audio) {
+            obj.audio = audio;
+            debugLog(`${trackName}に音声を関連付け`, 'success');
+            
+            // アバターにスピーカーインジケーター追加
+            const avatar = remoteAvatars.get(obj.odUserId);
+            if (avatar) {
+                addSpeakerIndicator(avatar);
+            }
+            break;
+        }
     }
 }
 
 function removeRemoteAudio(odUserId) {
-    const obj = remoteAudios.get(odUserId);
+    const trackName = `audio-${odUserId}`;
+    const obj = subscribedTracks.get(trackName);
     if (obj) {
         if (obj.audio) {
             obj.audio.pause();
             obj.audio.srcObject = null;
         }
-        if (obj.pc) {
-            obj.pc.close();
-        }
-        remoteAudios.delete(odUserId);
+        subscribedTracks.delete(trackName);
+        debugLog(`音声削除: ${trackName}`, 'info');
     }
+    
+    // 購読待ちからも削除
+    pendingSubscriptions.delete(trackName);
 }
 
 function updateSpeakerList(speakers) {

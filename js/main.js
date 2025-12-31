@@ -107,7 +107,6 @@ function handleServerMessage(data) {
             addChatMessage(data.name, data.message);
             break;
 
-        // 音声通話関連
         case 'speakApproved':
             mySessionId = data.sessionId;
             isSpeaker = true;
@@ -233,7 +232,6 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
         audio.play().catch(e => console.log('Auto-play blocked:', e));
         remoteAudios.set(userId, { audio, pc });
         
-        // スピーカーのアバターにインジケーター追加
         const avatar = remoteAvatars.get(userId);
         if (avatar) {
             addSpeakerIndicator(avatar);
@@ -256,7 +254,6 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
 }
 
 async function handleSubscribed(data) {
-    // リスナー用のPeerConnectionを探して設定
     for (const [userId, obj] of remoteAudios) {
         if (obj.pc && obj.pc.signalingState === 'have-local-offer') {
             await obj.pc.setRemoteDescription(
@@ -297,9 +294,8 @@ function updateSpeakerList(speakers) {
         btn.textContent = `🎤 登壇リクエスト (${count}/5)`;
     }
     
-    // アバターの見た目を更新
     remoteAvatars.forEach((avatar, odUserId) => {
-        if (speakers.includes(userId)) {
+        if (speakers.includes(odUserId)) {
             addSpeakerIndicator(avatar);
         } else {
             removeSpeakerIndicator(avatar);
@@ -545,7 +541,7 @@ function createStage() {
 // --------------------------------------------
 function createAvatar(userId, userName, color) {
     const group = new THREE.Group();
-    group.userData = { odUserId: odUserId, userName: userName };
+    group.userData = { userId: userId, userName: userName };
 
     const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.35, 1, 8);
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: color });

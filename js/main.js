@@ -46,6 +46,7 @@ const ROOM_ID = 'main-stage';
 
 let socket = null;
 let connected = false;
+let myServerConnectionId = null; // サーバーから割り当てられたID
 const remoteAvatars = new Map();
 
 // --------------------------------------------
@@ -55,6 +56,7 @@ let localStream = null;
 let peerConnection = null;
 let mySessionId = null;
 let isSpeaker = false;
+let myPublishedTrackName = null; // 自分が公開したトラック名
 const remoteAudios = new Map();
 
 // --------------------------------------------
@@ -161,9 +163,12 @@ function connectToPartyKit() {
 function handleServerMessage(data) {
     switch(data.type) {
         case 'init':
-            debugLog(`初期化: ${Object.keys(data.users).length}人`);
+            // サーバーから割り当てられたIDを保存
+            myServerConnectionId = data.yourId;
+            debugLog(`初期化: ID=${myServerConnectionId}, ${Object.keys(data.users).length}人`);
+            
             Object.values(data.users).forEach(user => {
-                if (user.id !== myUserId) {
+                if (user.id !== myServerConnectionId) {
                     createRemoteAvatar(user);
                 }
             });
@@ -171,7 +176,6 @@ function handleServerMessage(data) {
             updateSpeakerList(data.speakers || []);
             
             // 既存のトラックを購読（遅延付き）
-            // サーバーからは配列で来る: [[odUserId, trackName], ...]
             if (data.tracks && data.sessions) {
                 const tracksArray = Array.isArray(data.tracks) ? data.tracks : [];
                 const sessionsArray = Array.isArray(data.sessions) ? data.sessions : [];
@@ -179,8 +183,13 @@ function handleServerMessage(data) {
                 
                 setTimeout(() => {
                     tracksArray.forEach(([odUserId, trackName]) => {
+                        // 自分のトラックは購読しない
+                        if (odUserId === myServerConnectionId) {
+                            debugLog(`自分のトラックはスキップ: ${trackName}`);
+                            return;
+                        }
                         const speakerSessionId = sessionsMap.get(odUserId);
-                        if (speakerSessionId && odUserId !== myUserId) {
+                        if (speakerSessionId) {
                             debugLog(`既存トラック購読: ${odUserId}`);
                             subscribeToTrack(odUserId, speakerSessionId, trackName);
                         }
@@ -191,7 +200,7 @@ function handleServerMessage(data) {
             
         case 'userJoin':
             debugLog(`参加: ${data.user.id}`);
-            if (data.user.id !== myUserId) {
+            if (data.user.id !== myServerConnectionId) {
                 createRemoteAvatar(data.user);
                 addChatMessage('システム', `${data.user.name || '誰か'}が入室しました`);
             }
@@ -199,7 +208,6 @@ function handleServerMessage(data) {
             break;
             
         case 'userLeave':
-            // サーバーは odUserId を送信
             const leaveUserId = data.odUserId || data.userId;
             debugLog(`退出: ${leaveUserId}`);
             removeRemoteAvatar(leaveUserId);
@@ -209,7 +217,6 @@ function handleServerMessage(data) {
             break;
             
         case 'position':
-            // サーバーは odUserId を送信
             const posUserId = data.odUserId || data.userId;
             updateRemoteAvatarPosition(posUserId, data.x, data.y, data.z);
             break;
@@ -240,7 +247,6 @@ function handleServerMessage(data) {
         case 'speakerJoined':
             const joinedUserId = data.odUserId || data.userId;
             debugLog(`登壇者追加: ${joinedUserId}`);
-            // speakersリストがある場合は使用、なければ空配列
             if (data.speakers) {
                 updateSpeakerList(data.speakers);
             }
@@ -263,17 +269,29 @@ function handleServerMessage(data) {
 
         case 'newTrack':
             const trackUserId = data.odUserId || data.userId;
-            debugLog(`新トラック: ${trackUserId} - ${data.trackName}`);
-            if (trackUserId !== myUserId) {
-                // 2秒遅延させてから購読（トラックの準備を待つ）
-                setTimeout(() => {
-                    subscribeToTrack(trackUserId, data.sessionId, data.trackName);
-                }, 2000);
+            const newTrackName = data.trackName;
+            debugLog(`新トラック: ${trackUserId} - ${newTrackName}`);
+            
+            // ★★★ 自分のトラックは絶対に購読しない ★★★
+            if (trackUserId === myServerConnectionId) {
+                debugLog(`自分のトラックなのでスキップ`);
+                return;
             }
+            
+            // 自分が公開したトラック名と一致する場合もスキップ
+            if (myPublishedTrackName && newTrackName === myPublishedTrackName) {
+                debugLog(`自分が公開したトラック名なのでスキップ`);
+                return;
+            }
+            
+            // 2秒遅延させてから購読
+            setTimeout(() => {
+                subscribeToTrack(trackUserId, data.sessionId, newTrackName);
+            }, 2000);
             break;
 
         case 'subscribed':
-            debugLog(`購読レスポンス受信`);
+            debugLog(`購読レスポンス受信: ${data.trackName}`);
             handleSubscribed(data);
             break;
             
@@ -313,6 +331,7 @@ function stopSpeaking() {
     
     isSpeaker = false;
     mySessionId = null;
+    myPublishedTrackName = null;
     updateMicButton(false);
     
     socket.send(JSON.stringify({ type: 'stopSpeak' }));
@@ -382,7 +401,10 @@ async function startPublishing() {
         }
         debugLog(`Step6: mid="${mid}"`, 'success');
         
-        const trackName = `audio-${myUserId}`;
+        // ★★★ サーバーから割り当てられたIDを使用 ★★★
+        const trackName = `audio-${myServerConnectionId}`;
+        myPublishedTrackName = trackName; // 自分のトラック名を保存
+        
         const tracks = [{
             location: 'local',
             mid: mid,
@@ -394,6 +416,7 @@ async function startPublishing() {
         }
         
         debugLog('Step7: publishTrack送信中...', 'info');
+        debugLog(`trackName: ${trackName}`, 'info');
         socket.send(JSON.stringify({
             type: 'publishTrack',
             sessionId: mySessionId,
@@ -439,9 +462,15 @@ async function handleTrackPublished(data) {
 // --------------------------------------------
 // トラック購読（リスナー用）
 // --------------------------------------------
-async function subscribeToTrack(odUserId, remoteSessionId, trackName, retryCount = 0) {
-    if (odUserId === myUserId) {
-        debugLog('自分のトラックはスキップ');
+async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
+    // ★★★ 自分のトラックは絶対に購読しない（複数チェック）★★★
+    if (odUserId === myServerConnectionId) {
+        debugLog(`自分(${myServerConnectionId})のトラックはスキップ`);
+        return;
+    }
+    
+    if (trackName === myPublishedTrackName) {
+        debugLog(`自分のトラック名(${myPublishedTrackName})はスキップ`);
         return;
     }
     
@@ -452,7 +481,8 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName, retryCount
         return;
     }
     
-    debugLog(`=== subscribeToTrack 開始: ${odUserId} (retry: ${retryCount}) ===`, 'info');
+    debugLog(`=== subscribeToTrack 開始: ${odUserId} ===`, 'info');
+    debugLog(`remoteSessionId: ${remoteSessionId}, trackName: ${trackName}`, 'info');
     
     const pc = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
@@ -486,27 +516,22 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName, retryCount
     
     pc.oniceconnectionstatechange = () => {
         debugLog(`[${odUserId}] ICE: ${pc.iceConnectionState}`);
-        
-        // 接続失敗時にリトライ
-        if (pc.iceConnectionState === 'failed' && retryCount < 3) {
-            debugLog(`接続失敗、リトライ ${retryCount + 1}/3`, 'warn');
-            pc.close();
-            remoteAudios.delete(odUserId);
-            setTimeout(() => {
-                subscribeToTrack(odUserId, remoteSessionId, trackName, retryCount + 1);
-            }, 2000);
-        }
     };
     
-    // Mapに保存（odUserIdは使わない、必要な情報だけ）
+    pc.onconnectionstatechange = () => {
+        debugLog(`[${odUserId}] 接続: ${pc.connectionState}`);
+    };
+    
+    // Mapに保存
     remoteAudios.set(odUserId, { 
         pc: pc, 
-        audio: null, visitorId: odUserId, 
+        audio: null,
+        visitorId: odUserId,
         trackName: trackName,
         remoteSessionId: remoteSessionId
     });
     
-    // サーバーにリクエスト（サーバーがOfferを返す）
+    // サーバーにリクエスト
     socket.send(JSON.stringify({
         type: 'subscribeTrack',
         visitorId: odUserId,
@@ -518,6 +543,11 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName, retryCount
 
 async function handleSubscribed(data) {
     debugLog('=== handleSubscribed 開始 ===', 'info');
+    
+    if (!data.offer) {
+        debugLog('Offerがない！サーバーエラーの可能性', 'error');
+        return;
+    }
     
     // trackNameで対応するPeerConnectionを探す
     let targetUserId = null;
@@ -532,18 +562,13 @@ async function handleSubscribed(data) {
     }
     
     if (!targetObj || !targetObj.pc) {
-        debugLog('対応するPCが見つからない', 'error');
+        debugLog(`対応するPCが見つからない: ${data.trackName}`, 'error');
         return;
     }
     
     debugLog(`${targetUserId}のPCにOffer設定`, 'info');
     
     try {
-        if (!data.offer) {
-            debugLog('Offerがない！', 'error');
-            return;
-        }
-        
         // サーバーからのOfferを設定
         await targetObj.pc.setRemoteDescription(
             new RTCSessionDescription(data.offer)

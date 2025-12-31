@@ -261,15 +261,16 @@ export default class Server implements Party.Server {
     
     const result = await this.subscribeTrack(subscriberSessionId, remoteSessionId, trackName);
     
-    if (result.success && result.offer) {
+    if (result.success) {
       sender.send(JSON.stringify({
         type: "subscribed",
         offer: result.offer,
         sessionId: subscriberSessionId,
         trackName,
         tracks: result.tracks,
+        requiresImmediateRenegotiation: result.requiresImmediateRenegotiation,
       }));
-      console.log(`[handleSubscribeTrack] Success, sent offer to ${sender.id}`);
+      console.log(`[handleSubscribeTrack] Success, requiresRenegotiation: ${result.requiresImmediateRenegotiation}`);
     } else {
       sender.send(JSON.stringify({
         type: "error",
@@ -282,6 +283,14 @@ export default class Server implements Party.Server {
   async handleSubscribeAnswer(sender: Party.Connection, data: any) {
     const { sessionId, answer } = data;
     console.log(`[handleSubscribeAnswer] User ${sender.id}, sessionId: ${sessionId}`);
+    
+    if (!answer || !answer.sdp) {
+      sender.send(JSON.stringify({
+        type: "error",
+        code: "SRV_ERR_NO_ANSWER_SDP",
+      }));
+      return;
+    }
     
     const result = await this.sendAnswer(sessionId, answer);
     
@@ -332,7 +341,6 @@ export default class Server implements Party.Server {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`;
       console.log(`[createSession] POST ${url}`);
       
-      // ★★★ 修正: body を送らない ★★★
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -374,14 +382,13 @@ export default class Server implements Party.Server {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`;
       const body = {
         sessionDescription: {
-          type: offer.type,
+          type: "offer",
           sdp: offer.sdp,
         },
         tracks,
       };
       
       console.log(`[publishTrack] POST ${url}`);
-      console.log(`[publishTrack] Body: ${JSON.stringify(body).substring(0, 500)}`);
       
       const res = await fetch(url, {
         method: "POST",
@@ -416,7 +423,13 @@ export default class Server implements Party.Server {
     subscriberSessionId: string,
     remoteSessionId: string,
     trackName: string
-  ): Promise<{ success: boolean; offer?: any; tracks?: any[]; error?: string }> {
+  ): Promise<{ 
+    success: boolean; 
+    offer?: any; 
+    tracks?: any[]; 
+    requiresImmediateRenegotiation?: boolean;
+    error?: string 
+  }> {
     const token = this.getToken();
     if (!token) {
       return { success: false, error: "SRV_ERR_TOKEN_NOT_SET" };
@@ -447,7 +460,7 @@ export default class Server implements Party.Server {
       });
       
       const responseText = await res.text();
-      console.log(`[subscribeTrack] Response: ${res.status} ${responseText.substring(0, 500)}`);
+      console.log(`[subscribeTrack] FULL Response: ${responseText}`);
       
       if (!res.ok) {
         return { success: false, error: `SRV_ERR_HTTP_${res.status}` };
@@ -455,14 +468,16 @@ export default class Server implements Party.Server {
       
       const json = JSON.parse(responseText);
       
-      if (!json.sessionDescription) {
-        return { success: false, error: "SRV_ERR_NO_OFFER" };
-      }
+      // ★★★ 重要: requiresImmediateRenegotiation をチェック ★★★
+      const requiresRenegotiation = json.requiresImmediateRenegotiation === true;
+      
+      console.log(`[subscribeTrack] requiresImmediateRenegotiation: ${requiresRenegotiation}`);
       
       return { 
         success: true, 
         offer: json.sessionDescription,
         tracks: json.tracks,
+        requiresImmediateRenegotiation: requiresRenegotiation,
       };
     } catch (e) {
       console.error("[subscribeTrack] Exception:", e);
@@ -483,13 +498,13 @@ export default class Server implements Party.Server {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/renegotiate`;
       const body = {
         sessionDescription: {
-          type: answer.type,
+          type: "answer",
           sdp: answer.sdp,
         },
       };
       
       console.log(`[sendAnswer] PUT ${url}`);
-      console.log(`[sendAnswer] Body: ${JSON.stringify(body).substring(0, 300)}`);
+      console.log(`[sendAnswer] SDP length: ${answer.sdp?.length || 0}`);
       
       const res = await fetch(url, {
         method: "PUT",
@@ -501,7 +516,7 @@ export default class Server implements Party.Server {
       });
       
       const responseText = await res.text();
-      console.log(`[sendAnswer] Response: ${res.status} ${responseText.substring(0, 300)}`);
+      console.log(`[sendAnswer] Response: ${res.status} ${responseText}`);
       
       if (!res.ok) {
         return { success: false, error: `SRV_ERR_HTTP_${res.status}` };

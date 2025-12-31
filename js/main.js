@@ -654,6 +654,7 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
 
 async function handleSubscribed(data) {
     debugLog('=== handleSubscribed 開始 ===', 'info');
+    debugLog(`isNewSession: ${data.isNewSession}, requiresRenegotiation: ${data.requiresImmediateRenegotiation}`, 'info');
     
     if (!data.offer) {
         debugLog('Offerがない！', 'error');
@@ -669,9 +670,14 @@ async function handleSubscribed(data) {
     }
     
     try {
-        // subscriberPCがなければ作成、あれば再利用
-        if (!subscriberPC || subscriberPC.connectionState === 'closed' || subscriberPC.connectionState === 'failed') {
+        // 新しいセッションの場合、またはsubscriberPCがない場合は新規作成
+        if (data.isNewSession || !subscriberPC || subscriberPC.connectionState === 'closed' || subscriberPC.connectionState === 'failed') {
             debugLog('新しいsubscriberPC作成', 'info');
+            
+            // 古いPCがあれば閉じる
+            if (subscriberPC && subscriberPC.connectionState !== 'closed') {
+                subscriberPC.close();
+            }
             
             subscriberPC = new RTCPeerConnection({
                 iceServers: getIceServers(),
@@ -700,6 +706,13 @@ async function handleSubscribed(data) {
         subscriberSessionId = data.sessionId;
         
         debugLog(`Offer受信、setRemoteDescription開始`, 'info');
+        debugLog(`現在のsignalingState: ${subscriberPC.signalingState}`, 'info');
+        
+        // signalingStateに応じて処理を分岐
+        if (subscriberPC.signalingState !== 'stable') {
+            debugLog(`signalingStateが${subscriberPC.signalingState}なのでrollback`, 'warn');
+            await subscriberPC.setLocalDescription({ type: 'rollback' });
+        }
         
         await subscriberPC.setRemoteDescription(
             new RTCSessionDescription({

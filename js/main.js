@@ -56,7 +56,6 @@ let peerConnection = null;
 let mySessionId = null;
 let isSpeaker = false;
 const remoteAudios = new Map();
-const pendingSubscriptions = new Map();
 
 // --------------------------------------------
 // 初期設定
@@ -172,10 +171,15 @@ function handleServerMessage(data) {
             updateSpeakerList(data.speakers || []);
             
             // 既存のトラックを購読（遅延付き）
+            // サーバーからは配列で来る: [[odUserId, trackName], ...]
             if (data.tracks && data.sessions) {
+                const tracksArray = Array.isArray(data.tracks) ? data.tracks : [];
+                const sessionsArray = Array.isArray(data.sessions) ? data.sessions : [];
+                const sessionsMap = new Map(sessionsArray);
+                
                 setTimeout(() => {
-                    Object.entries(data.tracks).forEach(([odUserId, trackName]) => {
-                        const speakerSessionId = data.sessions[odUserId];
+                    tracksArray.forEach(([odUserId, trackName]) => {
+                        const speakerSessionId = sessionsMap.get(odUserId);
                         if (speakerSessionId && odUserId !== myUserId) {
                             debugLog(`既存トラック購読: ${odUserId}`);
                             subscribeToTrack(odUserId, speakerSessionId, trackName);
@@ -195,20 +199,24 @@ function handleServerMessage(data) {
             break;
             
         case 'userLeave':
-            debugLog(`退出: ${data.userId}`);
-            removeRemoteAvatar(data.userId);
-            removeRemoteAudio(data.userId);
+            // サーバーは odUserId を送信
+            const leaveUserId = data.odUserId || data.userId;
+            debugLog(`退出: ${leaveUserId}`);
+            removeRemoteAvatar(leaveUserId);
+            removeRemoteAudio(leaveUserId);
             addChatMessage('システム', '誰かが退室しました');
             updateUserCount();
-            if (data.speakers) updateSpeakerList(data.speakers);
             break;
             
         case 'position':
-            updateRemoteAvatarPosition(data.userId, data.x, data.y, data.z);
+            // サーバーは odUserId を送信
+            const posUserId = data.odUserId || data.userId;
+            updateRemoteAvatarPosition(posUserId, data.x, data.y, data.z);
             break;
             
         case 'reaction':
-            playRemoteReaction(data.userId, data.reaction, data.color);
+            const reactUserId = data.odUserId || data.userId;
+            playRemoteReaction(reactUserId, data.reaction, data.color);
             break;
             
         case 'chat':
@@ -230,15 +238,22 @@ function handleServerMessage(data) {
             break;
 
         case 'speakerJoined':
-            debugLog(`登壇者追加: ${data.userId}`);
-            updateSpeakerList(data.speakers);
+            const joinedUserId = data.odUserId || data.userId;
+            debugLog(`登壇者追加: ${joinedUserId}`);
+            // speakersリストがある場合は使用、なければ空配列
+            if (data.speakers) {
+                updateSpeakerList(data.speakers);
+            }
             addChatMessage('システム', '新しい登壇者が参加しました');
             break;
 
         case 'speakerLeft':
-            debugLog(`登壇者退出: ${data.userId}`);
-            updateSpeakerList(data.speakers);
-            removeRemoteAudio(data.userId);
+            const leftUserId = data.odUserId || data.userId;
+            debugLog(`登壇者退出: ${leftUserId}`);
+            if (data.speakers) {
+                updateSpeakerList(data.speakers);
+            }
+            removeRemoteAudio(leftUserId);
             break;
 
         case 'trackPublished':
@@ -247,11 +262,12 @@ function handleServerMessage(data) {
             break;
 
         case 'newTrack':
-            debugLog(`新トラック: ${data.userId} - ${data.trackName}`);
-            if (data.userId !== myUserId) {
+            const trackUserId = data.odUserId || data.userId;
+            debugLog(`新トラック: ${trackUserId} - ${data.trackName}`);
+            if (trackUserId !== myUserId) {
                 // 2秒遅延させてから購読（トラックの準備を待つ）
                 setTimeout(() => {
-                    subscribeToTrack(data.userId, data.sessionId, data.trackName);
+                    subscribeToTrack(trackUserId, data.sessionId, data.trackName);
                 }, 2000);
             }
             break;
@@ -261,8 +277,12 @@ function handleServerMessage(data) {
             handleSubscribed(data);
             break;
             
+        case 'subscribeAnswerAck':
+            debugLog('Answer確認OK', 'success');
+            break;
+            
         case 'error':
-            debugLog(`サーバーエラー: ${data.message}`, 'error');
+            debugLog(`サーバーエラー: ${data.code || data.message}`, 'error');
             break;
     }
 }
@@ -478,11 +498,10 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName, retryCount
         }
     };
     
-    // Mapに保存
+    // Mapに保存（odUserIdは使わない、必要な情報だけ）
     remoteAudios.set(odUserId, { 
-        pc, 
-        audio: null, 
-        odUserId: odUserId, 
+        pc: pc, 
+        audio: null, visitorId: odUserId, 
         trackName: trackName,
         remoteSessionId: remoteSessionId
     });
@@ -490,7 +509,7 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName, retryCount
     // サーバーにリクエスト（サーバーがOfferを返す）
     socket.send(JSON.stringify({
         type: 'subscribeTrack',
-        odUserId: odUserId,
+        visitorId: odUserId,
         remoteSessionId: remoteSessionId,
         trackName: trackName
     }));
@@ -568,7 +587,8 @@ function removeRemoteAudio(odUserId) {
 }
 
 function updateSpeakerList(speakers) {
-    const count = speakers.length;
+    const speakersArray = Array.isArray(speakers) ? speakers : [];
+    const count = speakersArray.length;
     const btn = document.getElementById('request-stage-btn');
     if (btn) {
         if (isSpeaker) {
@@ -581,7 +601,7 @@ function updateSpeakerList(speakers) {
     }
     
     remoteAvatars.forEach((avatar, odUserId) => {
-        if (speakers.includes(odUserId)) {
+        if (speakersArray.includes(odUserId)) {
             addSpeakerIndicator(avatar);
         } else {
             removeSpeakerIndicator(avatar);
@@ -679,7 +699,10 @@ function playRemoteReaction(odUserId, reaction, color) {
 
 function updateUserCount() {
     const count = remoteAvatars.size + (connected ? 1 : 0);
-    document.getElementById('user-count').textContent = `${count}人`;
+    const el = document.getElementById('user-count');
+    if (el) {
+        el.textContent = `${count}人`;
+    }
 }
 
 function sendPosition() {
@@ -1003,7 +1026,10 @@ function setupEventListeners() {
                 case 'penlight':
                     penlightOn = !penlightOn;
                     myPenlight.visible = penlightOn;
-                    document.getElementById('penlight-colors').classList.toggle('hidden', !penlightOn);
+                    const colorPanel = document.getElementById('penlight-colors');
+                    if (colorPanel) {
+                        colorPanel.classList.toggle('hidden', !penlightOn);
+                    }
                     if (penlightOn) {
                         wavePenlight();
                         sendReaction('penlight', penlightColor);
@@ -1031,32 +1057,41 @@ function setupEventListeners() {
         });
     });
 
-    document.getElementById('chat-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const input = document.getElementById('chat-input');
-        const message = input.value.trim();
-        if (message) {
-            addChatMessage(myUserName, message);
-            sendChat(message);
-            input.value = '';
-        }
-    });
-
-    document.getElementById('request-stage-btn').addEventListener('click', () => {
-        debugLog('登壇ボタンクリック');
-        requestSpeak();
-    });
-
-    document.getElementById('mic-toggle-btn').addEventListener('click', () => {
-        if (isSpeaker && localStream) {
-            const audioTrack = localStream.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = !audioTrack.enabled;
-                updateMicButton(audioTrack.enabled);
-                debugLog(`マイク: ${audioTrack.enabled ? 'ON' : 'OFF'}`);
+    const chatForm = document.getElementById('chat-form');
+    if (chatForm) {
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (message) {
+                addChatMessage(myUserName, message);
+                sendChat(message);
+                input.value = '';
             }
-        }
-    });
+        });
+    }
+
+    const stageBtn = document.getElementById('request-stage-btn');
+    if (stageBtn) {
+        stageBtn.addEventListener('click', () => {
+            debugLog('登壇ボタンクリック');
+            requestSpeak();
+        });
+    }
+
+    const micBtn = document.getElementById('mic-toggle-btn');
+    if (micBtn) {
+        micBtn.addEventListener('click', () => {
+            if (isSpeaker && localStream) {
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    audioTrack.enabled = !audioTrack.enabled;
+                    updateMicButton(audioTrack.enabled);
+                    debugLog(`マイク: ${audioTrack.enabled ? 'ON' : 'OFF'}`);
+                }
+            }
+        });
+    }
 
     let touchStartX, touchStartY;
     renderer.domElement.addEventListener('touchstart', (e) => {
@@ -1091,6 +1126,8 @@ function setupEventListeners() {
 // --------------------------------------------
 function addChatMessage(name, message) {
     const container = document.getElementById('chat-messages');
+    if (!container) return;
+    
     const div = document.createElement('div');
     div.className = 'chat-message';
     div.innerHTML = `<span class="name">${name}</span>${message}`;
@@ -1117,11 +1154,13 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
     
-    const targetX = myAvatar.position.x * 0.3;
-    const targetZ = myAvatar.position.z + 8;
-    camera.position.x += (targetX - camera.position.x) * 0.05;
-    camera.position.z += (targetZ - camera.position.z) * 0.05;
-    camera.lookAt(myAvatar.position.x * 0.5, 2, myAvatar.position.z - 5);
+    if (myAvatar) {
+        const targetX = myAvatar.position.x * 0.3;
+        const targetZ = myAvatar.position.z + 8;
+        camera.position.x += (targetX - camera.position.x) * 0.05;
+        camera.position.z += (targetZ - camera.position.z) * 0.05;
+        camera.lookAt(myAvatar.position.x * 0.5, 2, myAvatar.position.z - 5);
+    }
     
     renderer.render(scene, camera);
 }

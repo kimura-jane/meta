@@ -137,7 +137,10 @@ function connectToPartyKit() {
     socket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            debugLog(`受信: ${data.type}`);
+            // positionは頻繁すぎるのでログ出さない
+            if (data.type !== 'position') {
+                debugLog(`受信: ${data.type}`);
+            }
             handleServerMessage(data);
         } catch (e) {
             debugLog(`メッセージ解析エラー: ${e}`, 'error');
@@ -469,7 +472,8 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     
-    remoteAudios.set(userId, { pc, audio: null, odUserId: odUserId });
+    // ★修正済み: odUserId を削除
+    remoteAudios.set(userId, { pc, audio: null });
     
     socket.send(JSON.stringify({
         type: 'subscribeTrack',
@@ -515,8 +519,8 @@ async function handleSubscribed(data) {
     debugLog('=== handleSubscribed 完了 ===', 'info');
 }
 
-function removeRemoteAudio(odUserId) {
-    const obj = remoteAudios.get(odUserId);
+function removeRemoteAudio(userId) {
+    const obj = remoteAudios.get(userId);
     if (obj) {
         if (obj.audio) {
             obj.audio.pause();
@@ -525,8 +529,8 @@ function removeRemoteAudio(odUserId) {
         if (obj.pc) {
             obj.pc.close();
         }
-        remoteAudios.delete(odUserId);
-        debugLog(`音声削除: ${odUserId}`);
+        remoteAudios.delete(userId);
+        debugLog(`音声削除: ${userId}`);
     }
 }
 
@@ -592,24 +596,24 @@ function createRemoteAvatar(user) {
     remoteAvatars.set(user.id, avatar);
 }
 
-function removeRemoteAvatar(odUserId) {
-    const avatar = remoteAvatars.get(odUserId);
+function removeRemoteAvatar(userId) {
+    const avatar = remoteAvatars.get(userId);
     if (avatar) {
         scene.remove(avatar);
-        remoteAvatars.delete(odUserId);
+        remoteAvatars.delete(userId);
     }
 }
 
-function updateRemoteAvatarPosition(odUserId, x, y, z) {
-    const avatar = remoteAvatars.get(odUserId);
+function updateRemoteAvatarPosition(userId, x, y, z) {
+    const avatar = remoteAvatars.get(userId);
     if (avatar) {
         avatar.position.x += (x - avatar.position.x) * 0.3;
         avatar.position.z += (z - avatar.position.z) * 0.3;
     }
 }
 
-function playRemoteReaction(odUserId, reaction, color) {
-    const avatar = remoteAvatars.get(odUserId);
+function playRemoteReaction(userId, reaction, color) {
+    const avatar = remoteAvatars.get(userId);
     if (!avatar) return;
     
     if (reaction === 'jump') {

@@ -31,7 +31,6 @@ function updateDebugUI() {
     container.scrollTop = container.scrollHeight;
 }
 
-// グローバルエラーハンドラ
 window.onerror = (msg, url, line) => {
     debugLog(`JS ERROR: ${msg} (line ${line})`, 'error');
 };
@@ -68,7 +67,6 @@ let myPenlight;
 let penlightOn = false;
 let penlightColor = '#ff00ff';
 
-// ユーザー情報
 const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
 const myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
 
@@ -94,7 +92,6 @@ function createDebugUI() {
     `;
     document.body.appendChild(div);
     
-    // トグルボタン
     const btn = document.createElement('button');
     btn.textContent = '🔧 Debug';
     btn.style.cssText = `
@@ -296,7 +293,8 @@ async function startPublishing() {
         debugLog('マイク取得成功！', 'success');
         
         peerConnection = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }]
+            iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
+            bundlePolicy: 'max-bundle'
         });
         
         peerConnection.oniceconnectionstatechange = () => {
@@ -307,20 +305,31 @@ async function startPublishing() {
             debugLog(`接続状態: ${peerConnection.connectionState}`);
         };
         
-        localStream.getTracks().forEach(track => {
+        const transceivers = localStream.getTracks().map(track => {
             debugLog(`トラック追加: ${track.kind}`);
-            peerConnection.addTrack(track, localStream);
+            return peerConnection.addTransceiver(track, { direction: 'sendonly' });
         });
         
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
         debugLog('Offer作成完了');
         
+        const tracks = transceivers.map(t => ({
+            location: 'local',
+            mid: t.mid,
+            trackName: t.sender.track?.id || `audio-${myUserId}`
+        }));
+        
+        debugLog(`tracks mid: ${tracks.map(t => t.mid).join(',')}`);
+        
         socket.send(JSON.stringify({
             type: 'publishTrack',
             sessionId: mySessionId,
-            offer: { type: 'offer', sdp: offer.sdp },
-            trackName: `audio-${myUserId}`
+            offer: { 
+                sdp: offer.sdp, 
+                type: 'offer' 
+            },
+            tracks: tracks
         }));
         debugLog('publishTrack送信');
         
@@ -336,7 +345,6 @@ async function handleTrackPublished(data) {
     
     if (peerConnection && data.answer) {
         try {
-            debugLog(`Answer SDP受信: ${data.answer.type || 'type不明'}`);
             await peerConnection.setRemoteDescription(
                 new RTCSessionDescription(data.answer)
             );
@@ -358,15 +366,9 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
     
     debugLog(`購読開始: ${userId} / ${trackName}`);
     
-    // リスナー用のセッションが必要
-    let listenerSessionId = mySessionId;
-    if (!listenerSessionId) {
-        listenerSessionId = `listener-${myUserId}`;
-        debugLog(`リスナーセッション使用: ${listenerSessionId}`, 'warn');
-    }
-    
     const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }]
+        iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
+        bundlePolicy: 'max-bundle'
     });
     
     pc.ontrack = (event) => {
@@ -397,11 +399,10 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     
-    remoteAudios.set(userId, { pc, audio: null, pendingUserId: userId });
+    remoteAudios.set(userId, { pc, audio: null, odUserId: odUserId });
     
     socket.send(JSON.stringify({
         type: 'subscribeTrack',
-        sessionId: listenerSessionId,
         remoteSessionId: remoteSessionId,
         trackName: trackName
     }));
@@ -411,14 +412,12 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
 async function handleSubscribed(data) {
     debugLog('subscribed処理開始');
     
-    // 保留中のPeerConnectionを探す
-    for (const [userId, obj] of remoteAudios) {
+    for (const [odUserId, obj] of remoteAudios) {
         if (obj.pc && obj.pc.signalingState === 'have-local-offer') {
-            debugLog(`${userId}のPCにAnswer設定`);
+            debugLog(`${odUserId}のPCにAnswer設定`);
             
             try {
-                if (data.offer) {
-                    // Cloudflareからはofferが返ってくる（renegotiation）
+                if (data.offer && data.offer.type === 'offer') {
                     await obj.pc.setRemoteDescription(
                         new RTCSessionDescription(data.offer)
                     );
@@ -428,8 +427,11 @@ async function handleSubscribed(data) {
                     
                     socket.send(JSON.stringify({
                         type: 'subscribeAnswer',
-                        sessionId: mySessionId || `listener-${myUserId}`,
-                        answer: { type: 'answer', sdp: answer.sdp }
+                        sessionId: data.sessionId,
+                        answer: { 
+                            type: 'answer', 
+                            sdp: answer.sdp 
+                        }
                     }));
                     debugLog('subscribeAnswer送信', 'success');
                 }
@@ -441,8 +443,8 @@ async function handleSubscribed(data) {
     }
 }
 
-function removeRemoteAudio(userId) {
-    const obj = remoteAudios.get(userId);
+function removeRemoteAudio(odUserId) {
+    const obj = remoteAudios.get(odUserId);
     if (obj) {
         if (obj.audio) {
             obj.audio.pause();
@@ -451,8 +453,8 @@ function removeRemoteAudio(userId) {
         if (obj.pc) {
             obj.pc.close();
         }
-        remoteAudios.delete(userId);
-        debugLog(`音声削除: ${userId}`);
+        remoteAudios.delete(odUserId);
+        debugLog(`音声削除: ${odUserId}`);
     }
 }
 
@@ -518,24 +520,24 @@ function createRemoteAvatar(user) {
     remoteAvatars.set(user.id, avatar);
 }
 
-function removeRemoteAvatar(userId) {
-    const avatar = remoteAvatars.get(userId);
+function removeRemoteAvatar(odUserId) {
+    const avatar = remoteAvatars.get(odUserId);
     if (avatar) {
         scene.remove(avatar);
-        remoteAvatars.delete(userId);
+        remoteAvatars.delete(odUserId);
     }
 }
 
-function updateRemoteAvatarPosition(userId, x, y, z) {
-    const avatar = remoteAvatars.get(userId);
+function updateRemoteAvatarPosition(odUserId, x, y, z) {
+    const avatar = remoteAvatars.get(odUserId);
     if (avatar) {
         avatar.position.x += (x - avatar.position.x) * 0.3;
         avatar.position.z += (z - avatar.position.z) * 0.3;
     }
 }
 
-function playRemoteReaction(userId, reaction, color) {
-    const avatar = remoteAvatars.get(userId);
+function playRemoteReaction(odUserId, reaction, color) {
+    const avatar = remoteAvatars.get(odUserId);
     if (!avatar) return;
     
     if (reaction === 'jump') {
@@ -606,7 +608,6 @@ function sendChat(message) {
 // Three.js 初期化
 // --------------------------------------------
 function init() {
-    // デバッグUI作成
     createDebugUI();
     debugLog('Three.js初期化開始');
     
@@ -720,9 +721,9 @@ function createStage() {
 // --------------------------------------------
 // アバター作成
 // --------------------------------------------
-function createAvatar(userId, userName, color) {
+function createAvatar(odUserId, userName, color) {
     const group = new THREE.Group();
-    group.userData = { userId: userId, userName: userName };
+    group.userData = { odUserId: odUserId, userName: userName };
 
     const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.35, 1, 8);
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: color });

@@ -6,7 +6,7 @@
 // --------------------------------------------
 // PartyKit接続設定
 // --------------------------------------------
-const PARTYKIT_HOST = 'meta-room.kimura-jane.partykit.dev';
+const PARTYKIT_HOST = 'kimurameta.kimura-jane.partykit.dev';
 const ROOM_ID = 'main-stage';
 
 let socket = null;

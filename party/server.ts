@@ -7,517 +7,515 @@ interface User {
   id: string;
   name: string;
   x: number;
+  y: number;
   z: number;
-  isSpeaker: boolean;
-  sessionId: string | null;
 }
 
 export default class Server implements Party.Server {
-  users: Record<string, User> = {};
+  users: Map<string, User> = new Map();
   speakers: Set<string> = new Set();
-  tracks: Map<string, string> = new Map();
-  sessions: Map<string, string> = new Map();
+  tracks: Map<string, string> = new Map(); // odUserId -> trackName
+  sessions: Map<string, string> = new Map(); // odUserId -> sessionId (speaker's session)
+  subscriberSessions: Map<string, string> = new Map(); // odUserId -> subscriberSessionId
 
   constructor(readonly room: Party.Room) {}
 
   getToken(): string {
-    return (this.room.env.CLOUDFLARE_CALLS_TOKEN as string) || "";
+    return (this.room.env as any).CLOUDFLARE_CALLS_TOKEN || "";
   }
 
   onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
     const url = new URL(ctx.request.url);
-    const name = url.searchParams.get("name") || "匿名";
-    
+    const name = url.searchParams.get("name") || "ゲスト";
+
     const user: User = {
       id: conn.id,
       name,
-      x: Math.random() * 10 - 5,
-      z: Math.random() * 10 - 5,
-      isSpeaker: false,
-      sessionId: null,
+      x: 0,
+      y: 0,
+      z: 0,
     };
-    
-    this.users[conn.id] = user;
-    
-    conn.send(JSON.stringify({
-      type: "init",
-      users: this.users,
-      yourId: conn.id,
-      speakers: Array.from(this.speakers),
-      tracks: Array.from(this.tracks.entries()),
-      sessions: Array.from(this.sessions.entries()),
-    }));
-    
-    this.room.broadcast(JSON.stringify({
-      type: "userJoin",
-      user,
-    }), [conn.id]);
-    
-    console.log(`[onConnect] User ${conn.id} (${name}) joined`);
+    this.users.set(conn.id, user);
+
+    // 初期データを送信
+    conn.send(
+      JSON.stringify({
+        type: "init",
+        users: Object.fromEntries(this.users),
+        yourId: conn.id,
+        speakers: Array.from(this.speakers),
+        tracks: Array.from(this.tracks.entries()),
+        sessions: Array.from(this.sessions.entries()),
+      })
+    );
+
+    // 他のユーザーに参加を通知
+    this.room.broadcast(
+      JSON.stringify({
+        type: "userJoin",
+        user,
+      }),
+      [conn.id]
+    );
+
+    console.log(`User connected: ${conn.id} (${name})`);
+  }
+
+  onClose(conn: Party.Connection) {
+    const user = this.users.get(conn.id);
+    this.users.delete(conn.id);
+    this.speakers.delete(conn.id);
+    this.tracks.delete(conn.id);
+    this.sessions.delete(conn.id);
+    this.subscriberSessions.delete(conn.id);
+
+    this.room.broadcast(
+      JSON.stringify({
+        type: "userLeave",
+        odUserId: conn.id,
+        speakers: Array.from(this.speakers),
+      })
+    );
+
+    console.log(`User disconnected: ${conn.id}`);
   }
 
   async onMessage(message: string, sender: Party.Connection) {
     try {
       const data = JSON.parse(message);
-      
+
       switch (data.type) {
         case "position":
-          if (this.users[sender.id]) {
-            this.users[sender.id].x = data.x;
-            this.users[sender.id].z = data.z;
-            this.room.broadcast(JSON.stringify({
-              type: "position",
-              odUserId: sender.id,
-              x: data.x,
-              z: data.z,
-            }), [sender.id]);
-          }
+          this.handlePosition(data, sender);
           break;
-          
         case "reaction":
-          this.room.broadcast(JSON.stringify({
-            type: "reaction",
-            odUserId: sender.id,
-            reaction: data.reaction,
-          }));
+          this.handleReaction(data, sender);
           break;
-          
         case "chat":
-          this.room.broadcast(JSON.stringify({
-            type: "chat",
-            odUserId: sender.id,
-            name: this.users[sender.id]?.name || "匿名",
-            message: data.message,
-          }));
+          this.handleChat(data, sender);
           break;
-          
         case "requestSpeak":
           await this.handleRequestSpeak(sender);
           break;
-          
         case "stopSpeak":
-          await this.handleStopSpeak(sender);
+          this.handleStopSpeak(sender);
           break;
-          
         case "publishTrack":
-          await this.handlePublishTrack(sender, data);
+          await this.handlePublishTrack(data, sender);
           break;
-          
         case "subscribeTrack":
-          await this.handleSubscribeTrack(sender, data);
+          await this.handleSubscribeTrack(data, sender);
           break;
-          
         case "subscribeAnswer":
-          await this.handleSubscribeAnswer(sender, data);
+          await this.handleSubscribeAnswer(data, sender);
           break;
       }
     } catch (e) {
-      console.error("[onMessage] Error:", e);
+      console.error("Message handling error:", e);
+      sender.send(
+        JSON.stringify({
+          type: "error",
+          message: "Internal server error",
+        })
+      );
     }
+  }
+
+  handlePosition(data: any, sender: Party.Connection) {
+    const user = this.users.get(sender.id);
+    if (user) {
+      user.x = data.x;
+      user.y = data.y;
+      user.z = data.z;
+
+      this.room.broadcast(
+        JSON.stringify({
+          type: "position",
+          odUserId: sender.id,
+          x: data.x,
+          y: data.y,
+          z: data.z,
+        }),
+        [sender.id]
+      );
+    }
+  }
+
+  handleReaction(data: any, sender: Party.Connection) {
+    this.room.broadcast(
+      JSON.stringify({
+        type: "reaction",
+        odUserId: sender.id,
+        reaction: data.reaction,
+        color: data.color,
+      }),
+      [sender.id]
+    );
+  }
+
+  handleChat(data: any, sender: Party.Connection) {
+    const user = this.users.get(sender.id);
+    this.room.broadcast(
+      JSON.stringify({
+        type: "chat",
+        name: user?.name || "ゲスト",
+        message: data.message,
+      })
+    );
   }
 
   async handleRequestSpeak(sender: Party.Connection) {
-    console.log(`[handleRequestSpeak] User ${sender.id} requesting to speak`);
-    
+    console.log(`[requestSpeak] from ${sender.id}`);
+
     if (this.speakers.size >= 5) {
-      sender.send(JSON.stringify({ type: "speakDenied", reason: "満員です" }));
+      sender.send(
+        JSON.stringify({
+          type: "speakDenied",
+          reason: "登壇者が上限（5人）に達しています",
+        })
+      );
       return;
     }
-    
-    const result = await this.createSession();
-    
-    if (result.success && result.sessionId) {
-      this.speakers.add(sender.id);
-      this.users[sender.id].isSpeaker = true;
-      this.users[sender.id].sessionId = result.sessionId;
-      this.sessions.set(sender.id, result.sessionId);
-      
-      sender.send(JSON.stringify({
+
+    if (this.speakers.has(sender.id)) {
+      sender.send(
+        JSON.stringify({
+          type: "speakDenied",
+          reason: "既に登壇中です",
+        })
+      );
+      return;
+    }
+
+    // Cloudflare Callsセッション作成
+    const session = await this.createSession();
+    if (!session) {
+      sender.send(
+        JSON.stringify({
+          type: "speakDenied",
+          reason: "セッション作成に失敗しました",
+        })
+      );
+      return;
+    }
+
+    this.speakers.add(sender.id);
+    this.sessions.set(sender.id, session.sessionId);
+
+    sender.send(
+      JSON.stringify({
         type: "speakApproved",
-        sessionId: result.sessionId,
-      }));
-      
-      this.room.broadcast(JSON.stringify({
+        sessionId: session.sessionId,
+      })
+    );
+
+    this.room.broadcast(
+      JSON.stringify({
         type: "speakerJoined",
         odUserId: sender.id,
-        sessionId: result.sessionId,
         speakers: Array.from(this.speakers),
-      }), [sender.id]);
-      
-      console.log(`[handleRequestSpeak] User ${sender.id} approved, sessionId: ${result.sessionId}, speakers: ${this.speakers.size}`);
-    } else {
-      sender.send(JSON.stringify({
-        type: "speakDenied",
-        reason: result.error || "セッション作成失敗",
-      }));
-      console.log(`[handleRequestSpeak] User ${sender.id} denied: ${result.error}`);
-    }
+      }),
+      [sender.id]
+    );
+
+    console.log(`[speakApproved] ${sender.id}, sessionId: ${session.sessionId}`);
   }
 
-  async handleStopSpeak(sender: Party.Connection) {
-    console.log(`[handleStopSpeak] User ${sender.id} stopping`);
-    
+  handleStopSpeak(sender: Party.Connection) {
+    console.log(`[stopSpeak] from ${sender.id}`);
+
     this.speakers.delete(sender.id);
     this.tracks.delete(sender.id);
     this.sessions.delete(sender.id);
-    
-    if (this.users[sender.id]) {
-      this.users[sender.id].isSpeaker = false;
-      this.users[sender.id].sessionId = null;
-    }
-    
-    this.room.broadcast(JSON.stringify({
-      type: "speakerLeft",
-      odUserId: sender.id,
-      speakers: Array.from(this.speakers),
-    }));
-  }
 
-  async handlePublishTrack(sender: Party.Connection, data: any) {
-    console.log(`[handlePublishTrack] User ${sender.id}`);
-    
-    const token = this.getToken();
-    if (!token) {
-      sender.send(JSON.stringify({ type: "error", code: "SRV_ERR_TOKEN_NOT_SET" }));
-      return;
-    }
-    
-    const sessionId = data.sessionId;
-    if (!sessionId) {
-      sender.send(JSON.stringify({ type: "error", code: "SRV_ERR_NO_SESSION_ID" }));
-      return;
-    }
-    
-    const offer = data.offer;
-    if (!offer || !offer.sdp) {
-      sender.send(JSON.stringify({ type: "error", code: "SRV_ERR_NO_OFFER" }));
-      return;
-    }
-    
-    const tracks = data.tracks;
-    if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
-      sender.send(JSON.stringify({ type: "error", code: "SRV_ERR_NO_TRACKS" }));
-      return;
-    }
-    
-    for (let i = 0; i < tracks.length; i++) {
-      const track = tracks[i];
-      if (!track.mid) {
-        sender.send(JSON.stringify({ type: "error", code: `SRV_ERR_TRACK_${i}_NO_MID` }));
-        return;
-      }
-      if (!track.trackName) {
-        sender.send(JSON.stringify({ type: "error", code: `SRV_ERR_TRACK_${i}_NO_NAME` }));
-        return;
-      }
-    }
-    
-    const result = await this.publishTrack(sessionId, offer, tracks);
-    
-    if (result.success && result.answer) {
-      const trackName = tracks[0].trackName || `audio-${sender.id}`;
-      this.tracks.set(sender.id, trackName);
-      
-      sender.send(JSON.stringify({
-        type: "trackPublished",
-        answer: result.answer,
-      }));
-      
-      this.room.broadcast(JSON.stringify({
-        type: "newTrack",
+    this.room.broadcast(
+      JSON.stringify({
+        type: "speakerLeft",
         odUserId: sender.id,
-        trackName,
-        sessionId,
-      }), [sender.id]);
-      
-      console.log(`[handlePublishTrack] Success, trackName: ${trackName}`);
-    } else {
-      sender.send(JSON.stringify({
-        type: "error",
-        code: result.error || "SRV_ERR_PUBLISH_FAILED",
-      }));
-      console.log(`[handlePublishTrack] Failed: ${result.error}`);
-    }
+        speakers: Array.from(this.speakers),
+      })
+    );
   }
 
-  async handleSubscribeTrack(sender: Party.Connection, data: any) {
-    const { remoteSessionId, trackName } = data;
-    console.log(`[handleSubscribeTrack] User ${sender.id} subscribing to ${trackName}`);
-    
-    let subscriberSessionId = this.sessions.get(sender.id);
-    
-    if (!subscriberSessionId) {
-      const result = await this.createSession();
-      if (result.success && result.sessionId) {
-        subscriberSessionId = result.sessionId;
-        this.sessions.set(sender.id, subscriberSessionId);
-        console.log(`[handleSubscribeTrack] Created session for subscriber: ${subscriberSessionId}`);
-      } else {
-        sender.send(JSON.stringify({
+  async handlePublishTrack(data: any, sender: Party.Connection) {
+    console.log(`[publishTrack] from ${sender.id}`);
+    console.log(`sessionId: ${data.sessionId}`);
+    console.log(`tracks:`, JSON.stringify(data.tracks));
+
+    const token = this.getToken();
+    if (!token) {
+      sender.send(
+        JSON.stringify({
           type: "error",
-          code: "SRV_ERR_SESSION_CREATE_FAILED",
-        }));
-        return;
-      }
-    }
-    
-    const result = await this.subscribeTrack(subscriberSessionId, remoteSessionId, trackName);
-    
-    if (result.success) {
-      sender.send(JSON.stringify({
-        type: "subscribed",
-        offer: result.offer,
-        sessionId: subscriberSessionId,
-        trackName,
-        tracks: result.tracks,
-        requiresImmediateRenegotiation: true,
-      }));
-      console.log(`[handleSubscribeTrack] Success`);
-    } else {
-      sender.send(JSON.stringify({
-        type: "error",
-        code: result.error || "SRV_ERR_SUBSCRIBE_FAILED",
-      }));
-      console.log(`[handleSubscribeTrack] Failed: ${result.error}`);
-    }
-  }
-
-  async handleSubscribeAnswer(sender: Party.Connection, data: any) {
-    const { sessionId, answer } = data;
-    console.log(`[handleSubscribeAnswer] User ${sender.id}, sessionId: ${sessionId}`);
-    
-    if (!answer || !answer.sdp) {
-      sender.send(JSON.stringify({
-        type: "error",
-        code: "SRV_ERR_NO_ANSWER_SDP",
-      }));
+          code: "NO_TOKEN",
+        })
+      );
       return;
     }
-    
-    const result = await this.sendAnswer(sessionId, answer);
-    
-    if (result.success) {
-      sender.send(JSON.stringify({
-        type: "subscribeAnswerAck",
-        sessionId,
-      }));
-      console.log(`[handleSubscribeAnswer] Success`);
-    } else {
-      sender.send(JSON.stringify({
-        type: "error",
-        code: result.error || "SRV_ERR_RENEGOTIATE_FAILED",
-      }));
-      console.log(`[handleSubscribeAnswer] Failed: ${result.error}`);
-    }
-  }
 
-  onClose(conn: Party.Connection) {
-    const user = this.users[conn.id];
-    if (user) {
-      console.log(`[onClose] User ${conn.id} (${user.name}) left`);
-      
-      this.speakers.delete(conn.id);
-      this.tracks.delete(conn.id);
-      this.sessions.delete(conn.id);
-      
-      delete this.users[conn.id];
-      
-      this.room.broadcast(JSON.stringify({
-        type: "userLeave",
-        odUserId: conn.id,
-        speakers: Array.from(this.speakers),
-      }));
-    }
-  }
-
-  async createSession(): Promise<{ success: boolean; sessionId?: string; error?: string }> {
-    const token = this.getToken();
-    if (!token) {
-      return { success: false, error: "SRV_ERR_TOKEN_NOT_SET" };
-    }
-    
     try {
-      const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`;
-      console.log(`[createSession] POST ${url}`);
-      
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-        },
-      });
-      
-      const responseText = await res.text();
-      console.log(`[createSession] Response: ${res.status} ${responseText.substring(0, 200)}`);
-      
-      if (!res.ok) {
-        return { success: false, error: `SRV_ERR_HTTP_${res.status}` };
-      }
-      
-      const json = JSON.parse(responseText);
-      
-      if (!json.sessionId) {
-        return { success: false, error: "SRV_ERR_NO_SESSION_ID_IN_RESPONSE" };
-      }
-      
-      return { success: true, sessionId: json.sessionId };
-    } catch (e) {
-      console.error("[createSession] Exception:", e);
-      return { success: false, error: "SRV_ERR_EXCEPTION" };
-    }
-  }
-
-  async publishTrack(
-    sessionId: string,
-    offer: { type: string; sdp: string },
-    tracks: any[]
-  ): Promise<{ success: boolean; answer?: any; error?: string }> {
-    const token = this.getToken();
-    if (!token) {
-      return { success: false, error: "SRV_ERR_TOKEN_NOT_SET" };
-    }
-    
-    try {
-      const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`;
-      const body = {
-        sessionDescription: {
-          type: "offer",
-          sdp: offer.sdp,
-        },
-        tracks,
-      };
-      
-      console.log(`[publishTrack] POST ${url}`);
-      
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-      
-      const responseText = await res.text();
-      console.log(`[publishTrack] Response: ${res.status} ${responseText.substring(0, 500)}`);
-      
-      if (!res.ok) {
-        return { success: false, error: `SRV_ERR_HTTP_${res.status}` };
-      }
-      
-      const json = JSON.parse(responseText);
-      
-      if (!json.sessionDescription) {
-        return { success: false, error: "SRV_ERR_NO_ANSWER" };
-      }
-      
-      return { success: true, answer: json.sessionDescription };
-    } catch (e) {
-      console.error("[publishTrack] Exception:", e);
-      return { success: false, error: "SRV_ERR_EXCEPTION" };
-    }
-  }
-
-  async subscribeTrack(
-    subscriberSessionId: string,
-    remoteSessionId: string,
-    trackName: string
-  ): Promise<{ 
-    success: boolean; 
-    offer?: any; 
-    tracks?: any[]; 
-    error?: string 
-  }> {
-    const token = this.getToken();
-    if (!token) {
-      return { success: false, error: "SRV_ERR_TOKEN_NOT_SET" };
-    }
-    
-    try {
-      const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${subscriberSessionId}/tracks/new`;
-      const body = {
-        tracks: [
-          {
-            location: "remote",
-            sessionId: remoteSessionId,
-            trackName: trackName,
+      const response = await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${data.sessionId}/tracks/new`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        ],
-      };
-      
-      console.log(`[subscribeTrack] POST ${url}`);
-      console.log(`[subscribeTrack] Body: ${JSON.stringify(body)}`);
-      
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-      
-      const responseText = await res.text();
-      console.log(`[subscribeTrack] FULL Response: ${responseText}`);
-      
-      if (!res.ok) {
-        return { success: false, error: `SRV_ERR_HTTP_${res.status}` };
+          body: JSON.stringify({
+            sessionDescription: {
+              type: "offer",
+              sdp: data.offer.sdp,
+            },
+            tracks: data.tracks,
+          }),
+        }
+      );
+
+      const result = await response.json();
+      console.log(`[publishTrack] Cloudflare response:`, JSON.stringify(result));
+
+      if (!response.ok || result.errorCode) {
+        sender.send(
+          JSON.stringify({
+            type: "error",
+            code: result.errorCode || "PUBLISH_FAILED",
+            message: result.errorDescription,
+          })
+        );
+        return;
       }
-      
-      const json = JSON.parse(responseText);
-      
-      return { 
-        success: true, 
-        offer: json.sessionDescription,
-        tracks: json.tracks,
-      };
+
+      // トラック名を保存
+      const trackName = data.tracks[0]?.trackName;
+      if (trackName) {
+        this.tracks.set(sender.id, trackName);
+      }
+
+      sender.send(
+        JSON.stringify({
+          type: "trackPublished",
+          answer: result.sessionDescription,
+          tracks: result.tracks,
+        })
+      );
+
+      // 他のユーザーに新トラックを通知
+      this.room.broadcast(
+        JSON.stringify({
+          type: "newTrack",
+          odUserId: sender.id,
+          sessionId: data.sessionId,
+          trackName: trackName,
+        }),
+        [sender.id]
+      );
+
+      console.log(`[trackPublished] ${sender.id}, trackName: ${trackName}`);
     } catch (e) {
-      console.error("[subscribeTrack] Exception:", e);
-      return { success: false, error: "SRV_ERR_EXCEPTION" };
+      console.error("[publishTrack] Error:", e);
+      sender.send(
+        JSON.stringify({
+          type: "error",
+          code: "PUBLISH_ERROR",
+        })
+      );
     }
   }
 
-  async sendAnswer(
-    sessionId: string,
-    answer: { type: string; sdp: string }
-  ): Promise<{ success: boolean; error?: string }> {
+  async handleSubscribeTrack(data: any, sender: Party.Connection) {
+    console.log(`[subscribeTrack] from ${sender.id}`);
+    console.log(`visitorId: ${data.visitorId}, remoteSessionId: ${data.remoteSessionId}, trackName: ${data.trackName}`);
+
     const token = this.getToken();
     if (!token) {
-      return { success: false, error: "SRV_ERR_TOKEN_NOT_SET" };
+      sender.send(
+        JSON.stringify({
+          type: "error",
+          code: "NO_TOKEN",
+        })
+      );
+      return;
     }
-    
+
     try {
-      const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/renegotiate`;
-      const body = {
-        sessionDescription: {
-          type: "answer",
-          sdp: answer.sdp,
-        },
-      };
+      // 購読者用のセッションを作成または再利用
+      let subscriberSessionId = this.subscriberSessions.get(sender.id);
+      let isNewSession = false;
       
-      console.log(`[sendAnswer] PUT ${url}`);
-      console.log(`[sendAnswer] SDP length: ${answer.sdp?.length || 0}`);
-      
-      const res = await fetch(url, {
-        method: "PUT",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-      
-      const responseText = await res.text();
-      console.log(`[sendAnswer] Response: ${res.status} ${responseText}`);
-      
-      if (!res.ok) {
-        return { success: false, error: `SRV_ERR_HTTP_${res.status}` };
+      if (!subscriberSessionId) {
+        const session = await this.createSession();
+        if (!session) {
+          sender.send(
+            JSON.stringify({
+              type: "error",
+              code: "SESSION_CREATE_FAILED",
+            })
+          );
+          return;
+        }
+        subscriberSessionId = session.sessionId;
+        this.subscriberSessions.set(sender.id, subscriberSessionId);
+        isNewSession = true;
+        console.log(`[subscribeTrack] Created new subscriber session: ${subscriberSessionId}`);
+      } else {
+        console.log(`[subscribeTrack] Reusing subscriber session: ${subscriberSessionId}`);
       }
-      
-      return { success: true };
+
+      // トラックを購読
+      const response = await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${subscriberSessionId}/tracks/new`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            tracks: [
+              {
+                location: "remote",
+                sessionId: data.remoteSessionId,
+                trackName: data.trackName,
+              },
+            ],
+          }),
+        }
+      );
+
+      const result = await response.json();
+      console.log(`[subscribeTrack] Cloudflare response:`, JSON.stringify(result));
+
+      if (!response.ok || result.errorCode) {
+        sender.send(
+          JSON.stringify({
+            type: "error",
+            code: result.errorCode || "SUBSCRIBE_FAILED",
+            message: result.errorDescription,
+          })
+        );
+        return;
+      }
+
+      sender.send(
+        JSON.stringify({
+          type: "subscribed",
+          sessionId: subscriberSessionId,
+          offer: result.sessionDescription,
+          tracks: result.tracks,
+          trackName: data.trackName,
+          requiresImmediateRenegotiation: result.requiresImmediateRenegotiation ?? true,
+          isNewSession: isNewSession,
+        })
+      );
+
+      console.log(`[subscribed] sent to ${sender.id}, requiresRenegotiation: ${result.requiresImmediateRenegotiation}`);
     } catch (e) {
-      console.error("[sendAnswer] Exception:", e);
-      return { success: false, error: "SRV_ERR_EXCEPTION" };
+      console.error("[subscribeTrack] Error:", e);
+      sender.send(
+        JSON.stringify({
+          type: "error",
+          code: "SUBSCRIBE_ERROR",
+        })
+      );
+    }
+  }
+
+  async handleSubscribeAnswer(data: any, sender: Party.Connection) {
+    console.log(`[subscribeAnswer] from ${sender.id}, sessionId: ${data.sessionId}`);
+
+    const token = this.getToken();
+    if (!token) {
+      sender.send(
+        JSON.stringify({
+          type: "error",
+          code: "NO_TOKEN",
+        })
+      );
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${data.sessionId}/renegotiate`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionDescription: {
+              type: "answer",
+              sdp: data.answer.sdp,
+            },
+          }),
+        }
+      );
+
+      const result = await response.json();
+      console.log(`[subscribeAnswer] Cloudflare response:`, JSON.stringify(result));
+
+      if (!response.ok || result.errorCode) {
+        sender.send(
+          JSON.stringify({
+            type: "error",
+            code: result.errorCode || "RENEGOTIATE_FAILED",
+            message: result.errorDescription,
+          })
+        );
+        return;
+      }
+
+      sender.send(
+        JSON.stringify({
+          type: "subscribeAnswerAck",
+        })
+      );
+
+    } catch (e) {
+      console.error("[subscribeAnswer] Error:", e);
+      sender.send(
+        JSON.stringify({
+          type: "error",
+          code: "RENEGOTIATE_ERROR",
+        })
+      );
+    }
+  }
+
+  async createSession(): Promise<{ sessionId: string } | null> {
+    const token = this.getToken();
+    if (!token) {
+      console.error("[createSession] No token");
+      return null;
+    }
+
+    try {
+      const response = await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
+        }
+      );
+
+      const result = await response.json();
+      console.log(`[createSession] result:`, JSON.stringify(result));
+
+      if (!response.ok || result.errorCode) {
+        console.error("[createSession] Error:", result);
+        return null;
+      }
+
+      return { sessionId: result.sessionId };
+    } catch (e) {
+      console.error("[createSession] Error:", e);
+      return null;
     }
   }
 }

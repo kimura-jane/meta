@@ -729,7 +729,7 @@ async function handleSubscribed(data) {
         await subscriberPC.setLocalDescription(answer);
         debugLog('Answer作成完了', 'success');
         
-        // ICE収集を待つ（300msに短縮）
+        // ICE収集を待つ（200msに設定）
         await new Promise((resolve) => {
             if (subscriberPC.iceGatheringState === 'complete') {
                 resolve();
@@ -738,7 +738,7 @@ async function handleSubscribed(data) {
             const timeout = setTimeout(() => {
                 debugLog('ICE収集タイムアウト', 'warn');
                 resolve();
-            }}100;  // ← ここを300msに変更
+            }, 200);
             
             const checkComplete = () => {
                 if (subscriberPC && subscriberPC.iceGatheringState === 'complete') {

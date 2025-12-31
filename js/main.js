@@ -226,7 +226,7 @@ function handleServerMessage(data) {
             break;
 
         case 'trackPublished':
-            debugLog(`トラック公開成功`, 'success');
+            debugLog(`トラック公開成功！`, 'success');
             handleTrackPublished(data);
             break;
 
@@ -279,9 +279,11 @@ function stopSpeaking() {
 }
 
 async function startPublishing() {
-    debugLog('マイクアクセス開始...');
+    debugLog('=== startPublishing 開始 ===', 'info');
     
     try {
+        // Step 1: マイク取得
+        debugLog('Step1: マイク取得中...', 'info');
         localStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 echoCancellation: true,
@@ -290,8 +292,10 @@ async function startPublishing() {
             }, 
             video: false 
         });
-        debugLog('マイク取得成功！', 'success');
+        debugLog('Step1: マイク取得成功！', 'success');
         
+        // Step 2: PeerConnection作成
+        debugLog('Step2: PeerConnection作成中...', 'info');
         peerConnection = new RTCPeerConnection({
             iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
             bundlePolicy: 'max-bundle'
@@ -304,58 +308,124 @@ async function startPublishing() {
         peerConnection.onconnectionstatechange = () => {
             debugLog(`接続状態: ${peerConnection.connectionState}`);
         };
+        debugLog('Step2: PeerConnection作成完了', 'success');
         
-        const transceivers = localStream.getTracks().map(track => {
-            debugLog(`トラック追加: ${track.kind}`);
-            return peerConnection.addTransceiver(track, { direction: 'sendonly' });
+        // Step 3: トラック追加
+        debugLog('Step3: トラック追加中...', 'info');
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (!audioTrack) {
+            throw new Error('CLIENT_ERR_NO_AUDIO_TRACK: オーディオトラックが取得できません');
+        }
+        debugLog(`Step3: トラック種類=${audioTrack.kind}, ID=${audioTrack.id}`, 'info');
+        
+        const transceiver = peerConnection.addTransceiver(audioTrack, { 
+            direction: 'sendonly' 
         });
+        debugLog('Step3: トラック追加完了', 'success');
         
+        // Step 4: Offer作成
+        debugLog('Step4: Offer作成中...', 'info');
         const offer = await peerConnection.createOffer();
+        if (!offer || !offer.sdp) {
+            throw new Error('CLIENT_ERR_NO_OFFER: Offerが作成できません');
+        }
+        debugLog(`Step4: Offer作成完了, SDP長=${offer.sdp.length}`, 'success');
+        
+        // Step 5: setLocalDescription
+        debugLog('Step5: setLocalDescription中...', 'info');
         await peerConnection.setLocalDescription(offer);
-        debugLog('Offer作成完了');
+        debugLog('Step5: setLocalDescription完了', 'success');
         
-        const tracks = transceivers.map(t => ({
+        // Step 6: mid取得
+        debugLog('Step6: mid取得中...', 'info');
+        let mid = transceiver.mid;
+        debugLog(`Step6: transceiver.mid = "${mid}"`, 'info');
+        
+        // mid が null の場合、SDP から抽出
+        if (!mid) {
+            debugLog('Step6: mid が null、SDP から抽出を試みる', 'warn');
+            const sdp = peerConnection.localDescription?.sdp || '';
+            const midMatch = sdp.match(/a=mid:(\S+)/);
+            if (midMatch) {
+                mid = midMatch[1];
+                debugLog(`Step6: SDP から mid 抽出成功: "${mid}"`, 'success');
+            } else {
+                mid = "0";
+                debugLog(`Step6: mid フォールバック使用: "${mid}"`, 'warn');
+            }
+        }
+        
+        if (!mid) {
+            throw new Error('CLIENT_ERR_NO_MID: midが取得できません');
+        }
+        
+        // Step 7: tracks配列作成
+        debugLog('Step7: tracks配列作成中...', 'info');
+        const trackName = `audio-${myUserId}`;
+        const tracks = [{
             location: 'local',
-            mid: t.mid,
-            trackName: t.sender.track?.id || `audio-${myUserId}`
-        }));
+            mid: mid,
+            trackName: trackName
+        }];
+        debugLog(`Step7: tracks=[{location:"local", mid:"${mid}", trackName:"${trackName}"}]`, 'success');
         
-        debugLog(`tracks mid: ${tracks.map(t => t.mid).join(',')}`);
+        // Step 8: sessionId確認
+        debugLog('Step8: sessionId確認中...', 'info');
+        if (!mySessionId) {
+            throw new Error('CLIENT_ERR_NO_SESSION_ID: sessionIdがありません');
+        }
+        debugLog(`Step8: sessionId="${mySessionId}"`, 'success');
         
-        socket.send(JSON.stringify({
+        // Step 9: publishTrack送信
+        debugLog('Step9: publishTrack送信中...', 'info');
+        const message = {
             type: 'publishTrack',
             sessionId: mySessionId,
             offer: { 
-                sdp: offer.sdp, 
+                sdp: peerConnection.localDescription.sdp, 
                 type: 'offer' 
             },
             tracks: tracks
-        }));
-        debugLog('publishTrack送信');
+        };
+        debugLog(`Step9: 送信データ: sessionId="${message.sessionId}", tracks.length=${message.tracks.length}, offer.type="${message.offer.type}"`, 'info');
+        
+        socket.send(JSON.stringify(message));
+        debugLog('Step9: publishTrack送信完了！', 'success');
+        debugLog('=== startPublishing 完了 ===', 'success');
         
     } catch (error) {
-        debugLog(`マイクエラー: ${error.message}`, 'error');
+        debugLog(`publishエラー: ${error.message}`, 'error');
         addChatMessage('システム', 'マイクにアクセスできませんでした');
         stopSpeaking();
     }
 }
 
 async function handleTrackPublished(data) {
-    debugLog('trackPublished処理開始');
+    debugLog('=== handleTrackPublished 開始 ===', 'info');
     
-    if (peerConnection && data.answer) {
-        try {
-            await peerConnection.setRemoteDescription(
-                new RTCSessionDescription(data.answer)
-            );
-            debugLog('RemoteDescription設定成功！', 'success');
-            addChatMessage('システム', '音声配信を開始しました');
-        } catch (e) {
-            debugLog(`setRemoteDescription エラー: ${e.message}`, 'error');
-        }
-    } else {
-        debugLog(`trackPublished問題: PC=${!!peerConnection}, answer=${!!data.answer}`, 'warn');
+    if (!peerConnection) {
+        debugLog('エラー: peerConnectionがありません', 'error');
+        return;
     }
+    
+    if (!data.answer) {
+        debugLog('エラー: answerがありません', 'error');
+        return;
+    }
+    
+    debugLog(`answer.type="${data.answer.type}", sdp長=${data.answer.sdp?.length || 0}`, 'info');
+    
+    try {
+        await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(data.answer)
+        );
+        debugLog('setRemoteDescription成功！', 'success');
+        addChatMessage('システム', '音声配信を開始しました');
+    } catch (e) {
+        debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
+    }
+    
+    debugLog('=== handleTrackPublished 完了 ===', 'success');
 }
 
 async function subscribeToTrack(userId, remoteSessionId, trackName) {
@@ -364,7 +434,7 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
         return;
     }
     
-    debugLog(`購読開始: ${userId} / ${trackName}`);
+    debugLog(`=== subscribeToTrack 開始: ${userId} ===`, 'info');
     
     const pc = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
@@ -406,15 +476,15 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
         remoteSessionId: remoteSessionId,
         trackName: trackName
     }));
-    debugLog('subscribeTrack送信');
+    debugLog('subscribeTrack送信', 'info');
 }
 
 async function handleSubscribed(data) {
-    debugLog('subscribed処理開始');
+    debugLog('=== handleSubscribed 開始 ===', 'info');
     
     for (const [odUserId, obj] of remoteAudios) {
         if (obj.pc && obj.pc.signalingState === 'have-local-offer') {
-            debugLog(`${odUserId}のPCにAnswer設定`);
+            debugLog(`${odUserId}のPCにAnswer設定`, 'info');
             
             try {
                 if (data.offer && data.offer.type === 'offer') {
@@ -441,6 +511,8 @@ async function handleSubscribed(data) {
             break;
         }
     }
+    
+    debugLog('=== handleSubscribed 完了 ===', 'info');
 }
 
 function removeRemoteAudio(odUserId) {

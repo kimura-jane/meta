@@ -21,7 +21,9 @@ export default class Server implements Party.Server {
   constructor(readonly room: Party.Room) {}
 
   getToken(): string {
-    return (this.room.env as any).CLOUDFLARE_CALLS_TOKEN || "";
+    const token = (this.room.env as any).CLOUDFLARE_CALLS_TOKEN || "";
+    console.log(`[getToken] Token exists: ${token ? "YES" : "NO"}, length: ${token.length}`);
+    return token;
   }
 
   onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
@@ -56,7 +58,7 @@ export default class Server implements Party.Server {
       [conn.id]
     );
 
-    console.log(`User connected: ${conn.id} (${name})`);
+    console.log(`[onConnect] User: ${conn.id} (${name})`);
   }
 
   onClose(conn: Party.Connection) {
@@ -73,8 +75,6 @@ export default class Server implements Party.Server {
         speakers: Array.from(this.speakers),
       })
     );
-
-    console.log(`User disconnected: ${conn.id}`);
   }
 
   async onMessage(message: string, sender: Party.Connection) {
@@ -108,7 +108,7 @@ export default class Server implements Party.Server {
           break;
       }
     } catch (e) {
-      console.error("Message handling error:", e);
+      console.error("[onMessage] Error:", e);
     }
   }
 
@@ -159,73 +159,62 @@ export default class Server implements Party.Server {
     console.log(`[requestSpeak] from ${sender.id}`);
 
     if (this.speakers.size >= 5) {
-      sender.send(
-        JSON.stringify({
-          type: "speakDenied",
-          reason: "登壇者が上限（5人）に達しています",
-        })
-      );
+      sender.send(JSON.stringify({ type: "speakDenied", reason: "登壇者が上限（5人）に達しています" }));
       return;
     }
 
     if (this.speakers.has(sender.id)) {
-      sender.send(
-        JSON.stringify({
-          type: "speakDenied",
-          reason: "既に登壇中です",
-        })
-      );
+      sender.send(JSON.stringify({ type: "speakDenied", reason: "既に登壇中です" }));
       return;
     }
 
     const token = this.getToken();
     if (!token) {
-      console.error("[requestSpeak] No token available");
-      sender.send(
-        JSON.stringify({
-          type: "speakDenied",
-          reason: "セッション作成に失敗しました",
-        })
-      );
+      console.error("[requestSpeak] NO TOKEN!");
+      sender.send(JSON.stringify({ type: "speakDenied", reason: "トークンが設定されていません" }));
       return;
     }
 
-    try {
-      const response = await fetch(
-        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({}),
-        }
-      );
+    const apiUrl = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`;
+    console.log(`[requestSpeak] Calling API: ${apiUrl}`);
 
-      const result = await response.json() as any;
-      console.log(`[createSession] response:`, JSON.stringify(result));
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+
+      console.log(`[requestSpeak] Response status: ${response.status}`);
+
+      const text = await response.text();
+      console.log(`[requestSpeak] Response body: ${text}`);
+
+      let result: any;
+      try {
+        result = JSON.parse(text);
+      } catch {
+        console.error("[requestSpeak] Failed to parse JSON");
+        sender.send(JSON.stringify({ type: "speakDenied", reason: "APIレスポンスの解析に失敗" }));
+        return;
+      }
 
       if (!response.ok || result.errorCode || !result.sessionId) {
-        console.error("[createSession] Failed:", result);
-        sender.send(
-          JSON.stringify({
-            type: "speakDenied",
-            reason: "セッション作成に失敗しました",
-          })
-        );
+        console.error("[requestSpeak] API error:", result);
+        sender.send(JSON.stringify({ type: "speakDenied", reason: "セッション作成に失敗しました" }));
         return;
       }
 
       this.speakers.add(sender.id);
       this.sessions.set(sender.id, result.sessionId);
 
-      sender.send(
-        JSON.stringify({
-          type: "speakApproved",
-          sessionId: result.sessionId,
-        })
-      );
+      sender.send(JSON.stringify({
+        type: "speakApproved",
+        sessionId: result.sessionId,
+      }));
 
       this.room.broadcast(
         JSON.stringify({
@@ -236,21 +225,14 @@ export default class Server implements Party.Server {
         [sender.id]
       );
 
-      console.log(`[speakApproved] ${sender.id}, sessionId: ${result.sessionId}`);
+      console.log(`[requestSpeak] SUCCESS! sessionId: ${result.sessionId}`);
     } catch (e) {
-      console.error("[requestSpeak] Error:", e);
-      sender.send(
-        JSON.stringify({
-          type: "speakDenied",
-          reason: "セッション作成に失敗しました",
-        })
-      );
+      console.error("[requestSpeak] Exception:", e);
+      sender.send(JSON.stringify({ type: "speakDenied", reason: "セッション作成に失敗しました" }));
     }
   }
 
   handleStopSpeak(sender: Party.Connection) {
-    console.log(`[stopSpeak] from ${sender.id}`);
-
     this.speakers.delete(sender.id);
     this.tracks.delete(sender.id);
     this.sessions.delete(sender.id);
@@ -279,29 +261,21 @@ export default class Server implements Party.Server {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
+            "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            sessionDescription: {
-              type: "offer",
-              sdp: data.offer.sdp,
-            },
+            sessionDescription: { type: "offer", sdp: data.offer.sdp },
             tracks: data.tracks,
           }),
         }
       );
 
       const result = await response.json() as any;
-      console.log(`[publishTrack] response:`, JSON.stringify(result));
+      console.log(`[publishTrack] Response:`, JSON.stringify(result).substring(0, 200));
 
       if (!response.ok || result.errorCode) {
-        sender.send(
-          JSON.stringify({
-            type: "error",
-            code: result.errorCode || "PUBLISH_FAILED",
-          })
-        );
+        sender.send(JSON.stringify({ type: "error", code: result.errorCode || "PUBLISH_FAILED" }));
         return;
       }
 
@@ -310,13 +284,11 @@ export default class Server implements Party.Server {
         this.tracks.set(sender.id, trackName);
       }
 
-      sender.send(
-        JSON.stringify({
-          type: "trackPublished",
-          answer: result.sessionDescription,
-          tracks: result.tracks,
-        })
-      );
+      sender.send(JSON.stringify({
+        type: "trackPublished",
+        answer: result.sessionDescription,
+        tracks: result.tracks,
+      }));
 
       this.room.broadcast(
         JSON.stringify({
@@ -328,7 +300,7 @@ export default class Server implements Party.Server {
         [sender.id]
       );
 
-      console.log(`[trackPublished] ${sender.id}, trackName: ${trackName}`);
+      console.log(`[publishTrack] SUCCESS! trackName: ${trackName}`);
     } catch (e) {
       console.error("[publishTrack] Error:", e);
       sender.send(JSON.stringify({ type: "error", code: "PUBLISH_ERROR" }));
@@ -345,7 +317,6 @@ export default class Server implements Party.Server {
     }
 
     try {
-      // 購読者用セッションを取得または作成
       let subscriberSessionId = this.subscriberSessions.get(sender.id);
       let isNewSession = false;
 
@@ -355,7 +326,7 @@ export default class Server implements Party.Server {
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${token}`,
+              "Authorization": `Bearer ${token}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({}),
@@ -363,7 +334,7 @@ export default class Server implements Party.Server {
         );
 
         const sessionResult = await sessionResponse.json() as any;
-        console.log(`[subscribeTrack] new session:`, JSON.stringify(sessionResult));
+        console.log(`[subscribeTrack] New session:`, JSON.stringify(sessionResult));
 
         if (!sessionResponse.ok || !sessionResult.sessionId) {
           sender.send(JSON.stringify({ type: "error", code: "SESSION_CREATE_FAILED" }));
@@ -375,53 +346,43 @@ export default class Server implements Party.Server {
         isNewSession = true;
       }
 
-      // トラックを購読
       const response = await fetch(
         `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${subscriberSessionId}/tracks/new`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
+            "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            tracks: [
-              {
-                location: "remote",
-                sessionId: data.remoteSessionId,
-                trackName: data.trackName,
-              },
-            ],
+            tracks: [{
+              location: "remote",
+              sessionId: data.remoteSessionId,
+              trackName: data.trackName,
+            }],
           }),
         }
       );
 
       const result = await response.json() as any;
-      console.log(`[subscribeTrack] response:`, JSON.stringify(result));
+      console.log(`[subscribeTrack] Response:`, JSON.stringify(result).substring(0, 200));
 
       if (!response.ok || result.errorCode) {
-        sender.send(
-          JSON.stringify({
-            type: "error",
-            code: result.errorCode || "SUBSCRIBE_FAILED",
-          })
-        );
+        sender.send(JSON.stringify({ type: "error", code: result.errorCode || "SUBSCRIBE_FAILED" }));
         return;
       }
 
-      sender.send(
-        JSON.stringify({
-          type: "subscribed",
-          sessionId: subscriberSessionId,
-          offer: result.sessionDescription,
-          tracks: result.tracks,
-          trackName: data.trackName,
-          requiresImmediateRenegotiation: result.requiresImmediateRenegotiation ?? true,
-          isNewSession: isNewSession,
-        })
-      );
+      sender.send(JSON.stringify({
+        type: "subscribed",
+        sessionId: subscriberSessionId,
+        offer: result.sessionDescription,
+        tracks: result.tracks,
+        trackName: data.trackName,
+        requiresImmediateRenegotiation: result.requiresImmediateRenegotiation ?? true,
+        isNewSession: isNewSession,
+      }));
 
-      console.log(`[subscribed] sent to ${sender.id}`);
+      console.log(`[subscribeTrack] SUCCESS!`);
     } catch (e) {
       console.error("[subscribeTrack] Error:", e);
       sender.send(JSON.stringify({ type: "error", code: "SUBSCRIBE_ERROR" }));
@@ -432,10 +393,7 @@ export default class Server implements Party.Server {
     console.log(`[subscribeAnswer] from ${sender.id}`);
 
     const token = this.getToken();
-    if (!token) {
-      sender.send(JSON.stringify({ type: "error", code: "NO_TOKEN" }));
-      return;
-    }
+    if (!token) return;
 
     try {
       const response = await fetch(
@@ -443,21 +401,16 @@ export default class Server implements Party.Server {
         {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${token}`,
+            "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            sessionDescription: {
-              type: "answer",
-              sdp: data.answer.sdp,
-            },
+            sessionDescription: { type: "answer", sdp: data.answer.sdp },
           }),
         }
       );
 
-      const result = await response.json() as any;
-      console.log(`[subscribeAnswer] response:`, JSON.stringify(result));
-
+      console.log(`[subscribeAnswer] Response status: ${response.status}`);
       sender.send(JSON.stringify({ type: "subscribeAnswerAck" }));
     } catch (e) {
       console.error("[subscribeAnswer] Error:", e);

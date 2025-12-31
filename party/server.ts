@@ -1,12 +1,14 @@
 import type * as Party from "partykit/server";
 
 const CLOUDFLARE_APP_ID = "137f0c04cc0e0dca2c59ecf740e8cb60";
+const CLOUDFLARE_API_URL = "https://rtc.live.cloudflare.com/v1/apps";
 
 export default class Server implements Party.Server {
   constructor(readonly room: Party.Room) {}
 
   users: Record<string, any> = {};
-  speakers: Set<string> = new Set(); // 登壇者リスト
+  speakers: Set<string> = new Set();
+  tracks: Map<string, string> = new Map();
 
   async onConnect(connection: Party.Connection, ctx: Party.ConnectionContext) {
     const userId = connection.id;
@@ -24,7 +26,8 @@ export default class Server implements Party.Server {
       type: 'init',
       users: this.users,
       yourId: userId,
-      speakers: Array.from(this.speakers)
+      speakers: Array.from(this.speakers),
+      tracks: Object.fromEntries(this.tracks)
     }));
 
     this.room.broadcast(JSON.stringify({
@@ -70,28 +73,25 @@ export default class Server implements Party.Server {
         }));
         break;
 
-      // === 音声通話関連 ===
       case 'requestSpeak':
-        // 登壇リクエスト
         if (this.speakers.size < 5) {
           this.speakers.add(sender.id);
           this.users[sender.id].isSpeaker = true;
           
-          // Cloudflare Callsセッション作成
-          const session = await this.createCallSession();
+          const session = await this.createSession();
           if (session) {
             this.users[sender.id].sessionId = session.sessionId;
             sender.send(JSON.stringify({
               type: 'speakApproved',
               sessionId: session.sessionId
             }));
+            
+            this.room.broadcast(JSON.stringify({
+              type: 'speakerJoined',
+              userId: sender.id,
+              speakers: Array.from(this.speakers)
+            }));
           }
-          
-          this.room.broadcast(JSON.stringify({
-            type: 'speakerJoined',
-            userId: sender.id,
-            speakers: Array.from(this.speakers)
-          }));
         } else {
           sender.send(JSON.stringify({
             type: 'speakDenied',
@@ -101,10 +101,12 @@ export default class Server implements Party.Server {
         break;
 
       case 'stopSpeak':
-        // 登壇終了
         this.speakers.delete(sender.id);
-        this.users[sender.id].isSpeaker = false;
-        this.users[sender.id].sessionId = null;
+        if (this.users[sender.id]) {
+          this.users[sender.id].isSpeaker = false;
+          this.users[sender.id].sessionId = null;
+        }
+        this.tracks.delete(sender.id);
         
         this.room.broadcast(JSON.stringify({
           type: 'speakerLeft',
@@ -113,33 +115,53 @@ export default class Server implements Party.Server {
         }));
         break;
 
-      case 'offer':
-        // WebRTC Offer を Cloudflare に転送
-        const offerResponse = await this.sendOfferToCloudflare(data.sessionId, data.offer, data.trackInfo);
-        if (offerResponse) {
+      case 'publishTrack':
+        const publishResult = await this.publishTrack(
+          data.sessionId,
+          data.offer,
+          data.trackName
+        );
+        if (publishResult) {
+          this.tracks.set(sender.id, data.trackName);
           sender.send(JSON.stringify({
-            type: 'answer',
-            answer: offerResponse.answer,
-            trackInfo: offerResponse.trackInfo
+            type: 'trackPublished',
+            answer: publishResult.answer,
+            trackName: data.trackName
           }));
+          
+          this.room.broadcast(JSON.stringify({
+            type: 'newTrack',
+            userId: sender.id,
+            trackName: data.trackName,
+            sessionId: data.sessionId
+          }), [sender.id]);
         }
         break;
 
       case 'subscribeTrack':
-        // 他の登壇者のトラックを購読
-        const subscribeResponse = await this.subscribeToTrack(data.sessionId, data.trackId);
-        if (subscribeResponse) {
+        const subResult = await this.subscribeTrack(
+          data.sessionId,
+          data.remoteSessionId,
+          data.trackName
+        );
+        if (subResult) {
           sender.send(JSON.stringify({
-            type: 'subscribeAnswer',
-            answer: subscribeResponse.answer
+            type: 'subscribed',
+            offer: subResult.offer,
+            trackName: data.trackName
           }));
         }
+        break;
+
+      case 'subscribeAnswer':
+        await this.sendAnswer(data.sessionId, data.answer);
         break;
     }
   }
 
   async onClose(connection: Party.Connection) {
     this.speakers.delete(connection.id);
+    this.tracks.delete(connection.id);
     delete this.users[connection.id];
     
     this.room.broadcast(JSON.stringify({
@@ -149,90 +171,110 @@ export default class Server implements Party.Server {
     }));
   }
 
-  // Cloudflare Calls APIメソッド
-  private async createCallSession(): Promise<{ sessionId: string } | null> {
+  private getToken(): string {
+    return (this.room as any).env?.CLOUDFLARE_CALLS_TOKEN || "";
+  }
+
+  private async createSession(): Promise<{ sessionId: string } | null> {
     try {
-      const response = await fetch(
-        `https://rtc.live.cloudflare.com/v1/apps/${CLOUDFLARE_APP_ID}/sessions/new`,
+      const res = await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${this.room.env.CLOUDFLARE_CALLS_TOKEN}`,
+            'Authorization': `Bearer ${this.getToken()}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({})
         }
       );
-      const result = await response.json() as any;
-      return { sessionId: result.sessionId };
-    } catch (error) {
-      console.error('Failed to create session:', error);
+      const json = await res.json() as any;
+      return { sessionId: json.sessionId };
+    } catch (e) {
+      console.error('createSession error:', e);
       return null;
     }
   }
 
-  private async sendOfferToCloudflare(
-    sessionId: string, 
-    offer: RTCSessionDescriptionInit,
-    trackInfo: { trackName: string; mid: string }
-  ): Promise<any> {
+  private async publishTrack(
+    sessionId: string,
+    offer: any,
+    trackName: string
+  ): Promise<{ answer: any } | null> {
     try {
-      const response = await fetch(
-        `https://rtc.live.cloudflare.com/v1/apps/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`,
+      const res = await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${this.room.env.CLOUDFLARE_CALLS_TOKEN}`,
+            'Authorization': `Bearer ${this.getToken()}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            sessionDescription: {
-              type: 'offer',
-              sdp: offer.sdp
-            },
+            sessionDescription: offer,
             tracks: [{
               location: 'local',
-              trackName: trackInfo.trackName,
-              mid: trackInfo.mid
+              trackName: trackName
             }]
           })
         }
       );
-      const result = await response.json() as any;
-      return {
-        answer: result.sessionDescription,
-        trackInfo: result.tracks
-      };
-    } catch (error) {
-      console.error('Failed to send offer:', error);
+      const json = await res.json() as any;
+      return { answer: json.sessionDescription };
+    } catch (e) {
+      console.error('publishTrack error:', e);
       return null;
     }
   }
 
-  private async subscribeToTrack(sessionId: string, trackId: string): Promise<any> {
+  private async subscribeTrack(
+    sessionId: string,
+    remoteSessionId: string,
+    trackName: string
+  ): Promise<{ offer: any } | null> {
     try {
-      const response = await fetch(
-        `https://rtc.live.cloudflare.com/v1/apps/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`,
+      const res = await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${this.room.env.CLOUDFLARE_CALLS_TOKEN}`,
+            'Authorization': `Bearer ${this.getToken()}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             tracks: [{
               location: 'remote',
-              trackName: trackId,
-              sessionId: sessionId
+              trackName: trackName,
+              sessionId: remoteSessionId
             }]
           })
         }
       );
-      const result = await response.json() as any;
-      return { answer: result.sessionDescription };
-    } catch (error) {
-      console.error('Failed to subscribe:', error);
+      const json = await res.json() as any;
+      return { offer: json.sessionDescription };
+    } catch (e) {
+      console.error('subscribeTrack error:', e);
       return null;
+    }
+  }
+
+  private async sendAnswer(sessionId: string, answer: any): Promise<void> {
+    try {
+      await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/renegotiate`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${this.getToken()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            sessionDescription: answer
+          })
+        }
+      );
+    } catch (e) {
+      console.error('sendAnswer error:', e);
     }
   }
 }

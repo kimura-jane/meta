@@ -49,7 +49,7 @@ export default class Server implements Party.Server {
         }
         this.room.broadcast(JSON.stringify({
           type: 'position',
-          odUserId: sender.id,
+          userId: sender.id,
           x: data.x,
           y: data.y,
           z: data.z
@@ -59,7 +59,7 @@ export default class Server implements Party.Server {
       case 'reaction':
         this.room.broadcast(JSON.stringify({
           type: 'reaction',
-          odUserId: sender.id,
+          userId: sender.id,
           reaction: data.reaction,
           color: data.color
         }), [sender.id]);
@@ -68,7 +68,7 @@ export default class Server implements Party.Server {
       case 'chat':
         this.room.broadcast(JSON.stringify({
           type: 'chat',
-          odUserId: sender.id,
+          userId: sender.id,
           name: data.name,
           message: data.message
         }));
@@ -97,6 +97,8 @@ export default class Server implements Party.Server {
   }
 
   async handleRequestSpeak(sender: Party.Connection) {
+    console.log(`[handleRequestSpeak] userId=${sender.id}`);
+    
     if (this.speakers.size >= 5) {
       sender.send(JSON.stringify({
         type: 'speakDenied',
@@ -106,6 +108,7 @@ export default class Server implements Party.Server {
     }
 
     const session = await this.createSession();
+    console.log(`[handleRequestSpeak] createSession result:`, JSON.stringify(session));
     
     if (!session.success) {
       sender.send(JSON.stringify({
@@ -120,6 +123,8 @@ export default class Server implements Party.Server {
     this.users[sender.id].sessionId = session.sessionId;
     this.sessions.set(sender.id, session.sessionId!);
 
+    console.log(`[handleRequestSpeak] 登壇承認: sessionId=${session.sessionId}`);
+    
     sender.send(JSON.stringify({
       type: 'speakApproved',
       sessionId: session.sessionId
@@ -127,12 +132,14 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'speakerJoined',
-      odUserId: sender.id,
+      userId: sender.id,
       speakers: Array.from(this.speakers)
     }));
   }
 
   handleStopSpeak(sender: Party.Connection) {
+    console.log(`[handleStopSpeak] userId=${sender.id}`);
+    
     this.speakers.delete(sender.id);
     this.tracks.delete(sender.id);
     this.sessions.delete(sender.id);
@@ -144,17 +151,28 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'speakerLeft',
-      odUserId: sender.id,
+      userId: sender.id,
       speakers: Array.from(this.speakers)
     }));
   }
 
   async handlePublishTrack(sender: Party.Connection, data: any) {
+    console.log(`[handlePublishTrack] 開始`);
+    console.log(`[handlePublishTrack] sessionId=${data.sessionId}`);
+    console.log(`[handlePublishTrack] offer存在=${!!data.offer}`);
+    console.log(`[handlePublishTrack] tracks存在=${!!data.tracks}, 長さ=${data.tracks?.length || 0}`);
+    
+    if (data.tracks && data.tracks.length > 0) {
+      console.log(`[handlePublishTrack] tracks[0]:`, JSON.stringify(data.tracks[0]));
+    }
+    
     const result = await this.publishTrack(
       data.sessionId,
       data.offer,
       data.tracks
     );
+
+    console.log(`[handlePublishTrack] 結果:`, JSON.stringify(result));
 
     if (result.success) {
       const trackName = data.tracks?.[0]?.trackName || `audio-${sender.id}`;
@@ -168,7 +186,7 @@ export default class Server implements Party.Server {
 
       this.room.broadcast(JSON.stringify({
         type: 'newTrack',
-        odUserId: sender.id,
+        userId: sender.id,
         trackName: trackName,
         sessionId: data.sessionId
       }), [sender.id]);
@@ -181,9 +199,12 @@ export default class Server implements Party.Server {
   }
 
   async handleSubscribeTrack(sender: Party.Connection, data: any) {
+    console.log(`[handleSubscribeTrack] 開始`);
+    
     let subscriberSessionId = this.sessions.get(sender.id);
     
     if (!subscriberSessionId) {
+      console.log(`[handleSubscribeTrack] セッション未存在、新規作成`);
       const session = await this.createSession();
       if (session.success) {
         subscriberSessionId = session.sessionId!;
@@ -203,6 +224,8 @@ export default class Server implements Party.Server {
       data.trackName
     );
 
+    console.log(`[handleSubscribeTrack] 結果:`, JSON.stringify(result));
+
     if (result.success) {
       sender.send(JSON.stringify({
         type: 'subscribed',
@@ -219,6 +242,7 @@ export default class Server implements Party.Server {
   }
 
   async handleSubscribeAnswer(sender: Party.Connection, data: any) {
+    console.log(`[handleSubscribeAnswer] 開始`);
     const sessionId = this.sessions.get(sender.id) || data.sessionId;
     if (sessionId) {
       await this.sendAnswer(sessionId, data.answer);
@@ -226,6 +250,8 @@ export default class Server implements Party.Server {
   }
 
   async onClose(connection: Party.Connection) {
+    console.log(`[onClose] userId=${connection.id}`);
+    
     this.speakers.delete(connection.id);
     this.tracks.delete(connection.id);
     this.sessions.delete(connection.id);
@@ -233,7 +259,7 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'userLeave',
-      odUserId: connection.id,
+      userId: connection.id,
       speakers: Array.from(this.speakers)
     }));
   }
@@ -245,13 +271,15 @@ export default class Server implements Party.Server {
 
   private async createSession(): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     const token = this.getToken();
+    console.log(`[createSession] token存在=${!!token}, token長=${token?.length || 0}`);
     
     if (!token) {
-      return { success: false, error: 'TOKEN_NOT_SET' };
+      return { success: false, error: 'SRV_ERR_TOKEN_NOT_SET' };
     }
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`;
+      console.log(`[createSession] URL=${url}`);
       
       const res = await fetch(url, {
         method: 'POST',
@@ -261,20 +289,23 @@ export default class Server implements Party.Server {
       });
       
       const responseText = await res.text();
+      console.log(`[createSession] status=${res.status}, response=${responseText}`);
       
       if (!res.ok) {
-        return { success: false, error: `HTTP_${res.status}: ${responseText}` };
+        return { success: false, error: `SRV_ERR_HTTP_${res.status}: ${responseText}` };
       }
 
       const json = JSON.parse(responseText);
       
       if (!json.sessionId) {
-        return { success: false, error: `NO_SESSION_ID: ${responseText}` };
+        return { success: false, error: `SRV_ERR_NO_SESSION_ID: ${responseText}` };
       }
       
+      console.log(`[createSession] 成功: sessionId=${json.sessionId}`);
       return { success: true, sessionId: json.sessionId };
     } catch (e: any) {
-      return { success: false, error: `EXCEPTION: ${e.message}` };
+      console.error(`[createSession] 例外:`, e);
+      return { success: false, error: `SRV_ERR_EXCEPTION: ${e.message}` };
     }
   }
 
@@ -284,30 +315,61 @@ export default class Server implements Party.Server {
     tracks: any[]
   ): Promise<{ success: boolean; answer?: any; error?: string }> {
     const token = this.getToken();
+    console.log(`[publishTrack] 開始`);
+    console.log(`[publishTrack] token存在=${!!token}`);
+    console.log(`[publishTrack] sessionId=${sessionId}`);
+    console.log(`[publishTrack] offer存在=${!!offer}, offer.sdp長=${offer?.sdp?.length || 0}`);
+    console.log(`[publishTrack] tracks存在=${!!tracks}, tracks長=${tracks?.length || 0}`);
 
     if (!token) {
-      return { success: false, error: 'TOKEN_NOT_SET' };
+      return { success: false, error: 'SRV_ERR_TOKEN_NOT_SET' };
     }
 
     if (!sessionId) {
-      return { success: false, error: 'NO_SESSION_ID' };
+      return { success: false, error: 'SRV_ERR_NO_SESSION_ID' };
     }
 
     if (!offer) {
-      return { success: false, error: 'NO_OFFER' };
+      return { success: false, error: 'SRV_ERR_NO_OFFER' };
+    }
+
+    if (!offer.sdp) {
+      return { success: false, error: 'SRV_ERR_NO_OFFER_SDP' };
     }
 
     if (!tracks || tracks.length === 0) {
-      return { success: false, error: 'NO_TRACKS' };
+      return { success: false, error: 'SRV_ERR_NO_TRACKS' };
+    }
+
+    // tracks の各要素を検証
+    for (let i = 0; i < tracks.length; i++) {
+      const track = tracks[i];
+      console.log(`[publishTrack] tracks[${i}]:`, JSON.stringify(track));
+      
+      if (!track.mid) {
+        return { success: false, error: `SRV_ERR_TRACK_${i}_NO_MID` };
+      }
+      if (!track.trackName) {
+        return { success: false, error: `SRV_ERR_TRACK_${i}_NO_TRACKNAME` };
+      }
+      if (!track.location) {
+        return { success: false, error: `SRV_ERR_TRACK_${i}_NO_LOCATION` };
+      }
     }
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`;
+      console.log(`[publishTrack] URL=${url}`);
 
       const body = {
-        sessionDescription: offer,
+        sessionDescription: {
+          type: offer.type || 'offer',
+          sdp: offer.sdp
+        },
         tracks: tracks
       };
+
+      console.log(`[publishTrack] リクエストbody:`, JSON.stringify(body).substring(0, 500));
 
       const res = await fetch(url, {
         method: 'POST',
@@ -319,20 +381,24 @@ export default class Server implements Party.Server {
       });
 
       const responseText = await res.text();
+      console.log(`[publishTrack] status=${res.status}`);
+      console.log(`[publishTrack] response=${responseText.substring(0, 500)}`);
 
       if (!res.ok) {
-        return { success: false, error: `HTTP_${res.status}: ${responseText}` };
+        return { success: false, error: `SRV_ERR_HTTP_${res.status}: ${responseText}` };
       }
 
       const json = JSON.parse(responseText);
 
       if (!json.sessionDescription) {
-        return { success: false, error: `NO_ANSWER: ${responseText}` };
+        return { success: false, error: `SRV_ERR_NO_ANSWER: ${responseText}` };
       }
 
+      console.log(`[publishTrack] 成功！answer.sdp長=${json.sessionDescription.sdp?.length || 0}`);
       return { success: true, answer: json.sessionDescription };
     } catch (e: any) {
-      return { success: false, error: `EXCEPTION: ${e.message}` };
+      console.error(`[publishTrack] 例外:`, e);
+      return { success: false, error: `SRV_ERR_EXCEPTION: ${e.message}` };
     }
   }
 
@@ -342,13 +408,28 @@ export default class Server implements Party.Server {
     trackName: string
   ): Promise<{ success: boolean; offer?: any; error?: string }> {
     const token = this.getToken();
+    console.log(`[subscribeTrack] 開始`);
+    console.log(`[subscribeTrack] sessionId=${sessionId}, remoteSessionId=${remoteSessionId}, trackName=${trackName}`);
 
     if (!token) {
-      return { success: false, error: 'TOKEN_NOT_SET' };
+      return { success: false, error: 'SRV_ERR_TOKEN_NOT_SET' };
+    }
+
+    if (!sessionId) {
+      return { success: false, error: 'SRV_ERR_NO_SESSION_ID' };
+    }
+
+    if (!remoteSessionId) {
+      return { success: false, error: 'SRV_ERR_NO_REMOTE_SESSION_ID' };
+    }
+
+    if (!trackName) {
+      return { success: false, error: 'SRV_ERR_NO_TRACK_NAME' };
     }
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`;
+      console.log(`[subscribeTrack] URL=${url}`);
 
       const body = {
         tracks: [{
@@ -357,6 +438,8 @@ export default class Server implements Party.Server {
           sessionId: remoteSessionId
         }]
       };
+
+      console.log(`[subscribeTrack] body:`, JSON.stringify(body));
 
       const res = await fetch(url, {
         method: 'POST',
@@ -368,25 +451,29 @@ export default class Server implements Party.Server {
       });
 
       const responseText = await res.text();
+      console.log(`[subscribeTrack] status=${res.status}, response=${responseText.substring(0, 300)}`);
 
       if (!res.ok) {
-        return { success: false, error: `HTTP_${res.status}: ${responseText}` };
+        return { success: false, error: `SRV_ERR_HTTP_${res.status}: ${responseText}` };
       }
 
       const json = JSON.parse(responseText);
+      console.log(`[subscribeTrack] 成功！`);
       return { success: true, offer: json.sessionDescription };
     } catch (e: any) {
-      return { success: false, error: `EXCEPTION: ${e.message}` };
+      console.error(`[subscribeTrack] 例外:`, e);
+      return { success: false, error: `SRV_ERR_EXCEPTION: ${e.message}` };
     }
   }
 
   private async sendAnswer(sessionId: string, answer: any): Promise<void> {
     const token = this.getToken();
+    console.log(`[sendAnswer] sessionId=${sessionId}`);
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/renegotiate`;
       
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -396,8 +483,11 @@ export default class Server implements Party.Server {
           sessionDescription: answer
         })
       });
+      
+      const responseText = await res.text();
+      console.log(`[sendAnswer] status=${res.status}, response=${responseText.substring(0, 200)}`);
     } catch (e) {
-      console.error('sendAnswer error:', e);
+      console.error('[sendAnswer] 例外:', e);
     }
   }
 }

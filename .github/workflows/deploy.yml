@@ -26,4 +26,4 @@ jobs:
         run: |
           set -euo pipefail
           export PARTYKIT_LOGIN="$(printf %s "$PARTYKIT_LOGIN" | tr -d '\r\n')"
-          npx partykit deploy
+          npx partykit deploy --var CLOUDFLARE_CALLS_TOKEN=${{ secrets.CLOUDFLARE_CALLS_TOKEN }}

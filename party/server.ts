@@ -137,13 +137,15 @@ export default class Server implements Party.Server {
         sessionId: result.sessionId,
       }));
       
+      // ★★★ speakers 配列を含める ★★★
       this.room.broadcast(JSON.stringify({
         type: "speakerJoined",
         odUserId: sender.id,
         sessionId: result.sessionId,
+        speakers: Array.from(this.speakers),
       }), [sender.id]);
       
-      console.log(`[handleRequestSpeak] User ${sender.id} approved, sessionId: ${result.sessionId}`);
+      console.log(`[handleRequestSpeak] User ${sender.id} approved, sessionId: ${result.sessionId}, speakers: ${this.speakers.size}`);
     } else {
       sender.send(JSON.stringify({
         type: "speakDenied",
@@ -165,9 +167,11 @@ export default class Server implements Party.Server {
       this.users[sender.id].sessionId = null;
     }
     
+    // ★★★ speakers 配列を含める ★★★
     this.room.broadcast(JSON.stringify({
       type: "speakerLeft",
       odUserId: sender.id,
+      speakers: Array.from(this.speakers),
     }));
   }
 
@@ -314,6 +318,8 @@ export default class Server implements Party.Server {
     if (user) {
       console.log(`[onClose] User ${conn.id} (${user.name}) left`);
       
+      const wasSpeaker = this.speakers.has(conn.id);
+      
       this.speakers.delete(conn.id);
       this.tracks.delete(conn.id);
       this.sessions.delete(conn.id);
@@ -323,14 +329,11 @@ export default class Server implements Party.Server {
       this.room.broadcast(JSON.stringify({
         type: "userLeave",
         odUserId: conn.id,
+        speakers: Array.from(this.speakers),
       }));
     }
   }
 
-  // ==========================================
-  // Cloudflare API methods
-  // ==========================================
-  
   async createSession(): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     const token = this.getToken();
     if (!token) {
@@ -468,10 +471,10 @@ export default class Server implements Party.Server {
       
       const json = JSON.parse(responseText);
       
-      // ★★★ 重要: requiresImmediateRenegotiation をチェック ★★★
-      const requiresRenegotiation = json.requiresImmediateRenegotiation === true;
+      // ★★★ 常に true を返す（公式サンプルでは常に Answer を送る）★★★
+      const requiresRenegotiation = true;
       
-      console.log(`[subscribeTrack] requiresImmediateRenegotiation: ${requiresRenegotiation}`);
+      console.log(`[subscribeTrack] Force requiresImmediateRenegotiation: ${requiresRenegotiation}`);
       
       return { 
         success: true, 

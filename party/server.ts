@@ -12,10 +12,10 @@ export default class Server implements Party.Server {
   sessions: Map<string, string> = new Map();
 
   async onConnect(connection: Party.Connection, ctx: Party.ConnectionContext) {
-    const userId = connection.id;
+    const odUserId = connection.id;
     
-    this.users[userId] = {
-      id: userId,
+    this.users[odUserId] = {
+      id: odUserId,
       x: (Math.random() - 0.5) * 8,
       y: 0.5,
       z: 5 + Math.random() * 3,
@@ -26,14 +26,14 @@ export default class Server implements Party.Server {
     connection.send(JSON.stringify({
       type: 'init',
       users: this.users,
-      yourId: userId,
+      yourId: odUserId,
       speakers: Array.from(this.speakers),
       tracks: Object.fromEntries(this.tracks)
     }));
 
     this.room.broadcast(JSON.stringify({
       type: 'userJoin',
-      user: this.users[userId]
+      user: this.users[odUserId]
     }), [connection.id]);
   }
 
@@ -49,7 +49,7 @@ export default class Server implements Party.Server {
         }
         this.room.broadcast(JSON.stringify({
           type: 'position',
-          userId: sender.id,
+          odUserId: sender.id,
           x: data.x,
           y: data.y,
           z: data.z
@@ -59,7 +59,7 @@ export default class Server implements Party.Server {
       case 'reaction':
         this.room.broadcast(JSON.stringify({
           type: 'reaction',
-          userId: sender.id,
+          odUserId: sender.id,
           reaction: data.reaction,
           color: data.color
         }), [sender.id]);
@@ -68,7 +68,7 @@ export default class Server implements Party.Server {
       case 'chat':
         this.room.broadcast(JSON.stringify({
           type: 'chat',
-          userId: sender.id,
+          odUserId: sender.id,
           name: data.name,
           message: data.message
         }));
@@ -127,7 +127,7 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'speakerJoined',
-      userId: sender.id,
+      odUserId: sender.id,
       speakers: Array.from(this.speakers)
     }));
   }
@@ -144,7 +144,7 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'speakerLeft',
-      userId: sender.id,
+      odUserId: sender.id,
       speakers: Array.from(this.speakers)
     }));
   }
@@ -153,22 +153,23 @@ export default class Server implements Party.Server {
     const result = await this.publishTrack(
       data.sessionId,
       data.offer,
-      data.trackName
+      data.tracks
     );
 
     if (result.success) {
-      this.tracks.set(sender.id, data.trackName);
+      const trackName = data.tracks?.[0]?.trackName || `audio-${sender.id}`;
+      this.tracks.set(sender.id, trackName);
       
       sender.send(JSON.stringify({
         type: 'trackPublished',
         answer: result.answer,
-        trackName: data.trackName
+        trackName: trackName
       }));
 
       this.room.broadcast(JSON.stringify({
         type: 'newTrack',
-        userId: sender.id,
-        trackName: data.trackName,
+        odUserId: sender.id,
+        trackName: trackName,
         sessionId: data.sessionId
       }), [sender.id]);
     } else {
@@ -232,7 +233,7 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'userLeave',
-      userId: connection.id,
+      odUserId: connection.id,
       speakers: Array.from(this.speakers)
     }));
   }
@@ -280,7 +281,7 @@ export default class Server implements Party.Server {
   private async publishTrack(
     sessionId: string,
     offer: any,
-    trackName: string
+    tracks: any[]
   ): Promise<{ success: boolean; answer?: any; error?: string }> {
     const token = this.getToken();
 
@@ -296,8 +297,8 @@ export default class Server implements Party.Server {
       return { success: false, error: 'NO_OFFER' };
     }
 
-    if (!trackName) {
-      return { success: false, error: 'NO_TRACK_NAME' };
+    if (!tracks || tracks.length === 0) {
+      return { success: false, error: 'NO_TRACKS' };
     }
 
     try {
@@ -305,10 +306,7 @@ export default class Server implements Party.Server {
 
       const body = {
         sessionDescription: offer,
-        tracks: [{
-          location: 'local',
-          trackName: trackName
-        }]
+        tracks: tracks
       };
 
       const res = await fetch(url, {

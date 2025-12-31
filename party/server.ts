@@ -9,7 +9,7 @@ export default class Server implements Party.Server {
   users: Record<string, any> = {};
   speakers: Set<string> = new Set();
   tracks: Map<string, string> = new Map();
-  sessions: Map<string, string> = new Map(); // odUserId -> sessionId
+  sessions: Map<string, string> = new Map();
 
   async onConnect(connection: Party.Connection, ctx: Party.ConnectionContext) {
     const odUserId = connection.id;
@@ -49,7 +49,7 @@ export default class Server implements Party.Server {
         }
         this.room.broadcast(JSON.stringify({
           type: 'position',
-          odUserId: sender.id,
+          userId: sender.id,
           x: data.x,
           y: data.y,
           z: data.z
@@ -59,7 +59,7 @@ export default class Server implements Party.Server {
       case 'reaction':
         this.room.broadcast(JSON.stringify({
           type: 'reaction',
-          odUserId: sender.id,
+          userId: sender.id,
           reaction: data.reaction,
           color: data.color
         }), [sender.id]);
@@ -68,7 +68,7 @@ export default class Server implements Party.Server {
       case 'chat':
         this.room.broadcast(JSON.stringify({
           type: 'chat',
-          odUserId: sender.id,
+          userId: sender.id,
           name: data.name,
           message: data.message
         }));
@@ -105,7 +105,6 @@ export default class Server implements Party.Server {
       return;
     }
 
-    // Cloudflare APIでセッション作成
     const session = await this.createSession();
     
     if (!session) {
@@ -128,7 +127,7 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'speakerJoined',
-      odUserId: sender.id,
+      userId: sender.id,
       speakers: Array.from(this.speakers)
     }));
   }
@@ -145,7 +144,7 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'speakerLeft',
-      odUserId: sender.id,
+      userId: sender.id,
       speakers: Array.from(this.speakers)
     }));
   }
@@ -166,10 +165,9 @@ export default class Server implements Party.Server {
         trackName: data.trackName
       }));
 
-      // 他のユーザーに新トラックを通知
       this.room.broadcast(JSON.stringify({
         type: 'newTrack',
-        odUserId: sender.id,
+        userId: sender.id,
         trackName: data.trackName,
         sessionId: data.sessionId
       }), [sender.id]);
@@ -182,7 +180,6 @@ export default class Server implements Party.Server {
   }
 
   async handleSubscribeTrack(sender: Party.Connection, data: any) {
-    // 購読者用のセッションを取得または作成
     let subscriberSessionId = this.sessions.get(sender.id);
     
     if (!subscriberSessionId) {
@@ -235,19 +232,14 @@ export default class Server implements Party.Server {
 
     this.room.broadcast(JSON.stringify({
       type: 'userLeave',
-      odUserId: connection.id,
+      userId: connection.id,
       speakers: Array.from(this.speakers)
     }));
   }
 
-  // --------------------------------------------
-  // Cloudflare API メソッド
-  // --------------------------------------------
-
   private getToken(): string {
     const env = (this.room as any).env;
-    const token = env?.CLOUDFLARE_CALLS_TOKEN || "";
-    return token;
+    return env?.CLOUDFLARE_CALLS_TOKEN || "";
   }
 
   private async createSession(): Promise<{ sessionId: string } | null> {
@@ -260,28 +252,21 @@ export default class Server implements Party.Server {
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`;
-      console.log('Creating session, URL:', url);
       
       const res = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({})
+          'Authorization': `Bearer ${token}`
+        }
       });
-
-      console.log('createSession response status:', res.status);
       
       if (!res.ok) {
         const errorText = await res.text();
-        console.error('createSession error response:', errorText);
+        console.error('createSession error:', res.status, errorText);
         return null;
       }
 
       const json = await res.json() as any;
-      console.log('createSession success, sessionId:', json.sessionId);
-      
       return { sessionId: json.sessionId };
     } catch (e) {
       console.error('createSession exception:', e);
@@ -297,22 +282,11 @@ export default class Server implements Party.Server {
     const token = this.getToken();
 
     if (!token) {
-      console.error('publishTrack: token is empty');
       return null;
     }
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`;
-      console.log('publishTrack URL:', url);
-      console.log('publishTrack trackName:', trackName);
-
-      const body = {
-        sessionDescription: offer,
-        tracks: [{
-          location: 'local',
-          trackName: trackName
-        }]
-      };
 
       const res = await fetch(url, {
         method: 'POST',
@@ -320,22 +294,24 @@ export default class Server implements Party.Server {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify({
+          sessionDescription: offer,
+          tracks: [{
+            location: 'local',
+            trackName: trackName
+          }]
+        })
       });
-
-      console.log('publishTrack response status:', res.status);
 
       if (!res.ok) {
         const errorText = await res.text();
-        console.error('publishTrack error response:', errorText);
+        console.error('publishTrack error:', res.status, errorText);
         return null;
       }
 
       const json = await res.json() as any;
-      console.log('publishTrack success');
 
       if (!json.sessionDescription) {
-        console.error('publishTrack: no sessionDescription in response');
         return null;
       }
 
@@ -354,21 +330,11 @@ export default class Server implements Party.Server {
     const token = this.getToken();
 
     if (!token) {
-      console.error('subscribeTrack: token is empty');
       return null;
     }
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`;
-      console.log('subscribeTrack URL:', url);
-
-      const body = {
-        tracks: [{
-          location: 'remote',
-          trackName: trackName,
-          sessionId: remoteSessionId
-        }]
-      };
 
       const res = await fetch(url, {
         method: 'POST',
@@ -376,20 +342,22 @@ export default class Server implements Party.Server {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify({
+          tracks: [{
+            location: 'remote',
+            trackName: trackName,
+            sessionId: remoteSessionId
+          }]
+        })
       });
-
-      console.log('subscribeTrack response status:', res.status);
 
       if (!res.ok) {
         const errorText = await res.text();
-        console.error('subscribeTrack error response:', errorText);
+        console.error('subscribeTrack error:', res.status, errorText);
         return null;
       }
 
       const json = await res.json() as any;
-      console.log('subscribeTrack success');
-
       return { offer: json.sessionDescription };
     } catch (e) {
       console.error('subscribeTrack exception:', e);

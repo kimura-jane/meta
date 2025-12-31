@@ -60,7 +60,7 @@ let myPublishedTrackName = null;
 const remoteAudios = new Map();
 let speakerCount = 0;
 
-// ★★★ TURN認証情報（サーバーから取得）★★★
+// TURN認証情報（サーバーから取得）
 let turnCredentials = null;
 
 // --------------------------------------------
@@ -84,7 +84,6 @@ function getIceServers() {
         { urls: 'stun:stun.cloudflare.com:3478' }
     ];
     
-    // TURN認証情報がある場合は追加
     if (turnCredentials) {
         servers.push({
             urls: 'turn:turn.cloudflare.com:3478?transport=udp',
@@ -99,6 +98,20 @@ function getIceServers() {
     }
     
     return servers;
+}
+
+// --------------------------------------------
+// 全ての音声を再開
+// --------------------------------------------
+function resumeAllAudio() {
+    debugLog('全音声再開処理', 'info');
+    remoteAudios.forEach((obj, odUserId) => {
+        if (obj.audio) {
+            obj.audio.play()
+                .then(() => debugLog(`音声再開: ${odUserId}`, 'success'))
+                .catch(e => debugLog(`音声再開失敗: ${odUserId}`, 'warn'));
+        }
+    });
 }
 
 // --------------------------------------------
@@ -195,7 +208,6 @@ function handleServerMessage(data) {
             myServerConnectionId = data.yourId;
             debugLog(`初期化: ID=${myServerConnectionId}, ${Object.keys(data.users).length}人`);
             
-            // TURN認証情報を保存
             if (data.turnCredentials) {
                 turnCredentials = data.turnCredentials;
                 debugLog('TURN認証情報取得', 'success');
@@ -386,6 +398,9 @@ async function startPublishing() {
         });
         debugLog('Step1: マイク取得成功！', 'success');
         
+        // マイク許可後、他の音声を再開
+        resumeAllAudio();
+        
         debugLog('Step2: PeerConnection作成中...', 'info');
         peerConnection = new RTCPeerConnection({
             iceServers: getIceServers(),
@@ -511,7 +526,6 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         return;
     }
     
-    // 既存のものがあれば削除
     if (existing) {
         removeRemoteAudio(odUserId);
     }
@@ -524,7 +538,6 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         bundlePolicy: 'max-bundle'
     });
     
-    // ★★★ 重要: recvonly の transceiver を追加 ★★★
     pc.addTransceiver('audio', { direction: 'recvonly' });
     debugLog('recvonly transceiver 追加', 'info');
     
@@ -557,7 +570,6 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     pc.oniceconnectionstatechange = () => {
         debugLog(`[${odUserId}] ICE: ${pc.iceConnectionState}`);
         
-        // 失敗時は再接続を試みる
         if (pc.iceConnectionState === 'failed') {
             debugLog(`[${odUserId}] ICE再接続試行...`, 'warn');
             pc.restartIce();
@@ -631,7 +643,6 @@ async function handleSubscribed(data) {
         await pc.setLocalDescription(answer);
         debugLog('setLocalDescription成功', 'success');
         
-        // ★★★ ICE candidate 収集を待つ（最大2秒）★★★
         await new Promise((resolve) => {
             if (pc.iceGatheringState === 'complete') {
                 resolve();
@@ -660,7 +671,6 @@ async function handleSubscribed(data) {
         
         debugLog('ICE収集完了', 'success');
         
-        // 最終的な SDP を取得
         const finalSdp = pc.localDescription?.sdp || answer.sdp;
         debugLog(`Answer SDP length: ${finalSdp?.length || 0}`, 'info');
         

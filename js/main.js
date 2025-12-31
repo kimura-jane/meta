@@ -373,8 +373,10 @@ function handleServerMessage(data) {
             isSpeaker = true;
             speakerCount++;
             updateSpeakerButton();
+            // 登壇時に他の音声をミュート（エコー対策）
+            muteAllRemoteAudio();
             startPublishing();
-            addChatMessage('システム', '登壇が承認されました！');
+            addChatMessage('システム', '登壇が承認されました！（エコー対策で他の音声をミュートしました）');
             break;
 
         case 'speakDenied':
@@ -469,8 +471,32 @@ function stopSpeaking() {
     myPublishedTrackName = null;
     updateSpeakerButton();
     
+    // 登壇終了時に他の音声をミュート解除
+    unmuteAllRemoteAudio();
+    
     socket.send(JSON.stringify({ type: 'stopSpeak' }));
     addChatMessage('システム', '登壇を終了しました');
+}
+
+// --------------------------------------------
+// エコー対策: リモート音声のミュート/ミュート解除
+// --------------------------------------------
+function muteAllRemoteAudio() {
+    debugLog('エコー対策: 他の音声をミュート', 'info');
+    subscribedTracks.forEach((obj, trackName) => {
+        if (obj.audio) {
+            obj.audio.volume = 0;
+        }
+    });
+}
+
+function unmuteAllRemoteAudio() {
+    debugLog('他の音声をミュート解除', 'info');
+    subscribedTracks.forEach((obj, trackName) => {
+        if (obj.audio) {
+            obj.audio.volume = 1;
+        }
+    });
 }
 
 async function startPublishing() {
@@ -484,7 +510,9 @@ async function startPublishing() {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: true,
+                    sampleRate: 48000,
+                    channelCount: 1
                 }, 
                 video: false 
             });
@@ -500,6 +528,7 @@ async function startPublishing() {
             isSpeaker = false;
             mySessionId = null;
             updateSpeakerButton();
+            unmuteAllRemoteAudio();
             socket.send(JSON.stringify({ type: 'stopSpeak' }));
             return;
         }
@@ -596,7 +625,6 @@ async function handleTrackPublished(data) {
         debugLog('setRemoteDescription成功！', 'success');
         addChatMessage('システム', '音声配信を開始しました');
         
-        setTimeout(resumeAllAudio, 100);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
     }
@@ -793,6 +821,12 @@ function handleRemoteTrack(event) {
     const audio = new Audio();
     audio.srcObject = event.streams[0] || new MediaStream([event.track]);
     audio.autoplay = true;
+    
+    // エコー対策: 自分が登壇中なら音量0
+    if (isSpeaker) {
+        audio.volume = 0;
+        debugLog('登壇中のためリモート音声をミュート', 'info');
+    }
     
     audio.play()
         .then(() => {

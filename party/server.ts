@@ -12,10 +12,10 @@ export default class Server implements Party.Server {
   sessions: Map<string, string> = new Map();
 
   async onConnect(connection: Party.Connection, ctx: Party.ConnectionContext) {
-    const odUserId = connection.id;
+    const userId = connection.id;
     
-    this.users[odUserId] = {
-      id: odUserId,
+    this.users[userId] = {
+      id: userId,
       x: (Math.random() - 0.5) * 8,
       y: 0.5,
       z: 5 + Math.random() * 3,
@@ -26,14 +26,14 @@ export default class Server implements Party.Server {
     connection.send(JSON.stringify({
       type: 'init',
       users: this.users,
-      yourId: odUserId,
+      yourId: userId,
       speakers: Array.from(this.speakers),
       tracks: Object.fromEntries(this.tracks)
     }));
 
     this.room.broadcast(JSON.stringify({
       type: 'userJoin',
-      user: this.users[odUserId]
+      user: this.users[userId]
     }), [connection.id]);
   }
 
@@ -107,10 +107,10 @@ export default class Server implements Party.Server {
 
     const session = await this.createSession();
     
-    if (!session) {
+    if (!session.success) {
       sender.send(JSON.stringify({
         type: 'error',
-        message: 'セッション作成に失敗しました'
+        message: `セッション作成失敗: ${session.error}`
       }));
       return;
     }
@@ -118,7 +118,7 @@ export default class Server implements Party.Server {
     this.speakers.add(sender.id);
     this.users[sender.id].isSpeaker = true;
     this.users[sender.id].sessionId = session.sessionId;
-    this.sessions.set(sender.id, session.sessionId);
+    this.sessions.set(sender.id, session.sessionId!);
 
     sender.send(JSON.stringify({
       type: 'speakApproved',
@@ -156,7 +156,7 @@ export default class Server implements Party.Server {
       data.trackName
     );
 
-    if (result) {
+    if (result.success) {
       this.tracks.set(sender.id, data.trackName);
       
       sender.send(JSON.stringify({
@@ -174,7 +174,7 @@ export default class Server implements Party.Server {
     } else {
       sender.send(JSON.stringify({
         type: 'error',
-        message: 'トラック公開に失敗しました'
+        message: `トラック公開失敗: ${result.error}`
       }));
     }
   }
@@ -184,13 +184,13 @@ export default class Server implements Party.Server {
     
     if (!subscriberSessionId) {
       const session = await this.createSession();
-      if (session) {
-        subscriberSessionId = session.sessionId;
+      if (session.success) {
+        subscriberSessionId = session.sessionId!;
         this.sessions.set(sender.id, subscriberSessionId);
       } else {
         sender.send(JSON.stringify({
           type: 'error',
-          message: '購読用セッション作成に失敗'
+          message: `購読セッション作成失敗: ${session.error}`
         }));
         return;
       }
@@ -202,7 +202,7 @@ export default class Server implements Party.Server {
       data.trackName
     );
 
-    if (result) {
+    if (result.success) {
       sender.send(JSON.stringify({
         type: 'subscribed',
         offer: result.offer,
@@ -212,7 +212,7 @@ export default class Server implements Party.Server {
     } else {
       sender.send(JSON.stringify({
         type: 'error',
-        message: 'トラック購読に失敗'
+        message: `トラック購読失敗: ${result.error}`
       }));
     }
   }
@@ -242,12 +242,11 @@ export default class Server implements Party.Server {
     return env?.CLOUDFLARE_CALLS_TOKEN || "";
   }
 
-  private async createSession(): Promise<{ sessionId: string } | null> {
+  private async createSession(): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     const token = this.getToken();
     
     if (!token) {
-      console.error('CLOUDFLARE_CALLS_TOKEN is not set!');
-      return null;
+      return { success: false, error: 'TOKEN_NOT_SET' };
     }
 
     try {
@@ -260,17 +259,21 @@ export default class Server implements Party.Server {
         }
       });
       
+      const responseText = await res.text();
+      
       if (!res.ok) {
-        const errorText = await res.text();
-        console.error('createSession error:', res.status, errorText);
-        return null;
+        return { success: false, error: `HTTP_${res.status}: ${responseText}` };
       }
 
-      const json = await res.json() as any;
-      return { sessionId: json.sessionId };
-    } catch (e) {
-      console.error('createSession exception:', e);
-      return null;
+      const json = JSON.parse(responseText);
+      
+      if (!json.sessionId) {
+        return { success: false, error: `NO_SESSION_ID: ${responseText}` };
+      }
+      
+      return { success: true, sessionId: json.sessionId };
+    } catch (e: any) {
+      return { success: false, error: `EXCEPTION: ${e.message}` };
     }
   }
 
@@ -278,15 +281,35 @@ export default class Server implements Party.Server {
     sessionId: string,
     offer: any,
     trackName: string
-  ): Promise<{ answer: any } | null> {
+  ): Promise<{ success: boolean; answer?: any; error?: string }> {
     const token = this.getToken();
 
     if (!token) {
-      return null;
+      return { success: false, error: 'TOKEN_NOT_SET' };
+    }
+
+    if (!sessionId) {
+      return { success: false, error: 'NO_SESSION_ID' };
+    }
+
+    if (!offer) {
+      return { success: false, error: 'NO_OFFER' };
+    }
+
+    if (!trackName) {
+      return { success: false, error: 'NO_TRACK_NAME' };
     }
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`;
+
+      const body = {
+        sessionDescription: offer,
+        tracks: [{
+          location: 'local',
+          trackName: trackName
+        }]
+      };
 
       const res = await fetch(url, {
         method: 'POST',
@@ -294,31 +317,24 @@ export default class Server implements Party.Server {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          sessionDescription: offer,
-          tracks: [{
-            location: 'local',
-            trackName: trackName
-          }]
-        })
+        body: JSON.stringify(body)
       });
 
+      const responseText = await res.text();
+
       if (!res.ok) {
-        const errorText = await res.text();
-        console.error('publishTrack error:', res.status, errorText);
-        return null;
+        return { success: false, error: `HTTP_${res.status}: ${responseText}` };
       }
 
-      const json = await res.json() as any;
+      const json = JSON.parse(responseText);
 
       if (!json.sessionDescription) {
-        return null;
+        return { success: false, error: `NO_ANSWER: ${responseText}` };
       }
 
-      return { answer: json.sessionDescription };
-    } catch (e) {
-      console.error('publishTrack exception:', e);
-      return null;
+      return { success: true, answer: json.sessionDescription };
+    } catch (e: any) {
+      return { success: false, error: `EXCEPTION: ${e.message}` };
     }
   }
 
@@ -326,15 +342,23 @@ export default class Server implements Party.Server {
     sessionId: string,
     remoteSessionId: string,
     trackName: string
-  ): Promise<{ offer: any } | null> {
+  ): Promise<{ success: boolean; offer?: any; error?: string }> {
     const token = this.getToken();
 
     if (!token) {
-      return null;
+      return { success: false, error: 'TOKEN_NOT_SET' };
     }
 
     try {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`;
+
+      const body = {
+        tracks: [{
+          location: 'remote',
+          trackName: trackName,
+          sessionId: remoteSessionId
+        }]
+      };
 
       const res = await fetch(url, {
         method: 'POST',
@@ -342,26 +366,19 @@ export default class Server implements Party.Server {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          tracks: [{
-            location: 'remote',
-            trackName: trackName,
-            sessionId: remoteSessionId
-          }]
-        })
+        body: JSON.stringify(body)
       });
 
+      const responseText = await res.text();
+
       if (!res.ok) {
-        const errorText = await res.text();
-        console.error('subscribeTrack error:', res.status, errorText);
-        return null;
+        return { success: false, error: `HTTP_${res.status}: ${responseText}` };
       }
 
-      const json = await res.json() as any;
-      return { offer: json.sessionDescription };
-    } catch (e) {
-      console.error('subscribeTrack exception:', e);
-      return null;
+      const json = JSON.parse(responseText);
+      return { success: true, offer: json.sessionDescription };
+    } catch (e: any) {
+      return { success: false, error: `EXCEPTION: ${e.message}` };
     }
   }
 

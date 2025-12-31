@@ -58,6 +58,7 @@ let mySessionId = null;
 let isSpeaker = false;
 let myPublishedTrackName = null;
 const remoteAudios = new Map();
+let speakerCount = 0;
 
 // --------------------------------------------
 // 初期設定
@@ -211,6 +212,9 @@ function handleServerMessage(data) {
             removeRemoteAudio(leaveUserId);
             addChatMessage('システム', '誰かが退室しました');
             updateUserCount();
+            if (data.speakers) {
+                updateSpeakerList(data.speakers);
+            }
             break;
             
         case 'position':
@@ -231,8 +235,9 @@ function handleServerMessage(data) {
             debugLog(`登壇承認！sessionId: ${data.sessionId}`, 'success');
             mySessionId = data.sessionId;
             isSpeaker = true;
+            speakerCount++;
+            updateSpeakerButton();
             startPublishing();
-            updateMicButton(true);
             addChatMessage('システム', '登壇が承認されました！');
             break;
 
@@ -326,7 +331,7 @@ function stopSpeaking() {
     isSpeaker = false;
     mySessionId = null;
     myPublishedTrackName = null;
-    updateMicButton(false);
+    updateSpeakerButton();
     
     socket.send(JSON.stringify({ type: 'stopSpeak' }));
     addChatMessage('システム', '登壇を終了しました');
@@ -533,6 +538,11 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
 async function handleSubscribed(data) {
     debugLog('=== handleSubscribed 開始 ===', 'info');
     
+    if (!data.offer) {
+        debugLog('Offerがない！', 'error');
+        return;
+    }
+    
     let targetUserId = null;
     let targetObj = null;
     
@@ -550,39 +560,29 @@ async function handleSubscribed(data) {
     }
     
     debugLog(`${targetUserId}のPC処理`, 'info');
-    debugLog(`requiresImmediateRenegotiation: ${data.requiresImmediateRenegotiation}`, 'info');
     
     try {
-        if (data.requiresImmediateRenegotiation && data.offer) {
-            debugLog('Offer受信、Answer作成開始', 'info');
-            
-            await targetObj.pc.setRemoteDescription(
-                new RTCSessionDescription(data.offer)
-            );
-            debugLog('setRemoteDescription成功', 'success');
-            
-            const answer = await targetObj.pc.createAnswer();
-            await targetObj.pc.setLocalDescription(answer);
-            debugLog('Answer作成完了', 'success');
-            
-            socket.send(JSON.stringify({
-                type: 'subscribeAnswer',
-                sessionId: data.sessionId,
-                answer: { 
-                    type: 'answer', 
-                    sdp: answer.sdp 
-                }
-            }));
-            debugLog('subscribeAnswer送信', 'success');
-        } else {
-            debugLog('renegotiation不要', 'info');
-            if (data.offer) {
-                await targetObj.pc.setRemoteDescription(
-                    new RTCSessionDescription(data.offer)
-                );
-                debugLog('setRemoteDescription成功（renegotiation不要）', 'success');
+        // ★★★ 常にAnswer を作成して送信 ★★★
+        debugLog('Offer受信、Answer作成開始', 'info');
+        
+        await targetObj.pc.setRemoteDescription(
+            new RTCSessionDescription(data.offer)
+        );
+        debugLog('setRemoteDescription成功', 'success');
+        
+        const answer = await targetObj.pc.createAnswer();
+        await targetObj.pc.setLocalDescription(answer);
+        debugLog('Answer作成完了', 'success');
+        
+        socket.send(JSON.stringify({
+            type: 'subscribeAnswer',
+            sessionId: data.sessionId,
+            answer: { 
+                type: 'answer', 
+                sdp: answer.sdp 
             }
-        }
+        }));
+        debugLog('subscribeAnswer送信', 'success');
         
     } catch (e) {
         debugLog(`handleSubscribedエラー: ${e.message}`, 'error');
@@ -606,17 +606,8 @@ function removeRemoteAudio(odUserId) {
 
 function updateSpeakerList(speakers) {
     const speakersArray = Array.isArray(speakers) ? speakers : [];
-    const count = speakersArray.length;
-    const btn = document.getElementById('request-stage-btn');
-    if (btn) {
-        if (isSpeaker) {
-            btn.textContent = `🎤 登壇中 (${count}/5)`;
-            btn.style.background = '#51cf66';
-        } else {
-            btn.textContent = `🎤 登壇リクエスト (${count}/5)`;
-            btn.style.background = '';
-        }
-    }
+    speakerCount = speakersArray.length;
+    updateSpeakerButton();
     
     remoteAvatars.forEach((avatar, odUserId) => {
         if (speakersArray.includes(odUserId)) {
@@ -625,6 +616,19 @@ function updateSpeakerList(speakers) {
             removeSpeakerIndicator(avatar);
         }
     });
+}
+
+function updateSpeakerButton() {
+    const btn = document.getElementById('request-stage-btn');
+    if (btn) {
+        if (isSpeaker) {
+            btn.textContent = `🎤 登壇中 (${speakerCount}/5)`;
+            btn.style.background = '#51cf66';
+        } else {
+            btn.textContent = `🎤 登壇リクエスト (${speakerCount}/5)`;
+            btn.style.background = '';
+        }
+    }
 }
 
 function addSpeakerIndicator(avatar) {

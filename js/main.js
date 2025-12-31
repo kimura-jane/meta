@@ -1,7 +1,43 @@
 // ============================================
 // メタバース空間 - メインスクリプト
 // PartyKit + Cloudflare Calls 対応版
+// デバッグコンソール付き
 // ============================================
+
+// --------------------------------------------
+// デバッグログ機能
+// --------------------------------------------
+const debugLogs = [];
+function debugLog(msg, type = 'info') {
+    const time = new Date().toLocaleTimeString();
+    const entry = { time, msg, type };
+    debugLogs.push(entry);
+    if (debugLogs.length > 100) debugLogs.shift();
+    
+    console.log(`[${time}] ${msg}`);
+    updateDebugUI();
+}
+
+function updateDebugUI() {
+    const container = document.getElementById('debug-console');
+    if (!container) return;
+    
+    container.innerHTML = debugLogs.slice(-20).map(log => {
+        const color = log.type === 'error' ? '#ff6b6b' : 
+                      log.type === 'success' ? '#51cf66' : 
+                      log.type === 'warn' ? '#ffd43b' : '#aaa';
+        return `<div style="color:${color};font-size:11px;margin:2px 0;">[${log.time}] ${log.msg}</div>`;
+    }).join('');
+    container.scrollTop = container.scrollHeight;
+}
+
+// グローバルエラーハンドラ
+window.onerror = (msg, url, line) => {
+    debugLog(`JS ERROR: ${msg} (line ${line})`, 'error');
+};
+window.onunhandledrejection = (e) => {
+    debugLog(`Promise ERROR: ${e.reason}`, 'error');
+};
 
 // --------------------------------------------
 // PartyKit接続設定
@@ -37,39 +73,96 @@ const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
 const myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
 
 // --------------------------------------------
+// デバッグUIを作成
+// --------------------------------------------
+function createDebugUI() {
+    const div = document.createElement('div');
+    div.id = 'debug-console';
+    div.style.cssText = `
+        position: fixed;
+        bottom: 60px;
+        left: 10px;
+        width: 320px;
+        max-height: 180px;
+        background: rgba(0,0,0,0.85);
+        border: 1px solid #444;
+        border-radius: 8px;
+        padding: 8px;
+        overflow-y: auto;
+        z-index: 10000;
+        font-family: monospace;
+    `;
+    document.body.appendChild(div);
+    
+    // トグルボタン
+    const btn = document.createElement('button');
+    btn.textContent = '🔧 Debug';
+    btn.style.cssText = `
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        padding: 8px 16px;
+        background: #333;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        z-index: 10001;
+        font-size: 12px;
+    `;
+    btn.onclick = () => {
+        div.style.display = div.style.display === 'none' ? 'block' : 'none';
+    };
+    document.body.appendChild(btn);
+    
+    debugLog('デバッグコンソール初期化', 'success');
+}
+
+// --------------------------------------------
 // PartyKit接続
 // --------------------------------------------
 function connectToPartyKit() {
     const wsUrl = `wss://${PARTYKIT_HOST}/party/${ROOM_ID}?name=${encodeURIComponent(myUserName)}`;
+    debugLog(`接続開始: ${PARTYKIT_HOST}`);
     
-    socket = new WebSocket(wsUrl);
+    try {
+        socket = new WebSocket(wsUrl);
+    } catch (e) {
+        debugLog(`WebSocket作成エラー: ${e}`, 'error');
+        return;
+    }
     
     socket.onopen = () => {
-        console.log('PartyKit接続成功！');
+        debugLog('PartyKit接続成功！', 'success');
         connected = true;
         updateUserCount();
     };
     
     socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleServerMessage(data);
+        try {
+            const data = JSON.parse(event.data);
+            debugLog(`受信: ${data.type}`);
+            handleServerMessage(data);
+        } catch (e) {
+            debugLog(`メッセージ解析エラー: ${e}`, 'error');
+        }
     };
     
     socket.onclose = () => {
-        console.log('接続が切れました');
+        debugLog('接続切断 - 3秒後再接続', 'warn');
         connected = false;
         updateUserCount();
         setTimeout(connectToPartyKit, 3000);
     };
     
     socket.onerror = (error) => {
-        console.error('WebSocketエラー:', error);
+        debugLog(`WebSocketエラー`, 'error');
     };
 }
 
 function handleServerMessage(data) {
     switch(data.type) {
         case 'init':
+            debugLog(`初期化: ${Object.keys(data.users).length}人`);
             Object.values(data.users).forEach(user => {
                 if (user.id !== myUserId) {
                     createRemoteAvatar(user);
@@ -80,6 +173,7 @@ function handleServerMessage(data) {
             break;
             
         case 'userJoin':
+            debugLog(`参加: ${data.user.id}`);
             if (data.user.id !== myUserId) {
                 createRemoteAvatar(data.user);
                 addChatMessage('システム', `${data.user.name || '誰か'}が入室しました`);
@@ -88,6 +182,7 @@ function handleServerMessage(data) {
             break;
             
         case 'userLeave':
+            debugLog(`退出: ${data.userId}`);
             removeRemoteAvatar(data.userId);
             removeRemoteAudio(data.userId);
             addChatMessage('システム', '誰かが退室しました');
@@ -108,6 +203,7 @@ function handleServerMessage(data) {
             break;
 
         case 'speakApproved':
+            debugLog(`登壇承認！sessionId: ${data.sessionId}`, 'success');
             mySessionId = data.sessionId;
             isSpeaker = true;
             startPublishing();
@@ -116,29 +212,39 @@ function handleServerMessage(data) {
             break;
 
         case 'speakDenied':
+            debugLog(`登壇拒否: ${data.reason}`, 'warn');
             addChatMessage('システム', data.reason);
             break;
 
         case 'speakerJoined':
+            debugLog(`登壇者追加: ${data.userId}`);
             updateSpeakerList(data.speakers);
             addChatMessage('システム', '新しい登壇者が参加しました');
             break;
 
         case 'speakerLeft':
+            debugLog(`登壇者退出: ${data.userId}`);
             updateSpeakerList(data.speakers);
             removeRemoteAudio(data.userId);
             break;
 
         case 'trackPublished':
+            debugLog(`トラック公開成功`, 'success');
             handleTrackPublished(data);
             break;
 
         case 'newTrack':
+            debugLog(`新トラック: ${data.userId} - ${data.trackName}`);
             subscribeToTrack(data.userId, data.sessionId, data.trackName);
             break;
 
         case 'subscribed':
+            debugLog(`購読レスポンス受信`);
             handleSubscribed(data);
+            break;
+            
+        case 'error':
+            debugLog(`サーバーエラー: ${data.message}`, 'error');
             break;
     }
 }
@@ -148,10 +254,12 @@ function handleServerMessage(data) {
 // --------------------------------------------
 async function requestSpeak() {
     if (isSpeaker) {
+        debugLog('登壇終了');
         stopSpeaking();
         return;
     }
     
+    debugLog('登壇リクエスト送信');
     socket.send(JSON.stringify({ type: 'requestSpeak' }));
 }
 
@@ -174,6 +282,8 @@ function stopSpeaking() {
 }
 
 async function startPublishing() {
+    debugLog('マイクアクセス開始...');
+    
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
@@ -183,17 +293,28 @@ async function startPublishing() {
             }, 
             video: false 
         });
+        debugLog('マイク取得成功！', 'success');
         
         peerConnection = new RTCPeerConnection({
             iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }]
         });
         
+        peerConnection.oniceconnectionstatechange = () => {
+            debugLog(`ICE状態: ${peerConnection.iceConnectionState}`);
+        };
+        
+        peerConnection.onconnectionstatechange = () => {
+            debugLog(`接続状態: ${peerConnection.connectionState}`);
+        };
+        
         localStream.getTracks().forEach(track => {
+            debugLog(`トラック追加: ${track.kind}`);
             peerConnection.addTrack(track, localStream);
         });
         
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
+        debugLog('Offer作成完了');
         
         socket.send(JSON.stringify({
             type: 'publishTrack',
@@ -201,36 +322,65 @@ async function startPublishing() {
             offer: { type: 'offer', sdp: offer.sdp },
             trackName: `audio-${myUserId}`
         }));
+        debugLog('publishTrack送信');
         
     } catch (error) {
-        console.error('マイクアクセスエラー:', error);
+        debugLog(`マイクエラー: ${error.message}`, 'error');
         addChatMessage('システム', 'マイクにアクセスできませんでした');
         stopSpeaking();
     }
 }
 
 async function handleTrackPublished(data) {
+    debugLog('trackPublished処理開始');
+    
     if (peerConnection && data.answer) {
-        await peerConnection.setRemoteDescription(
-            new RTCSessionDescription(data.answer)
-        );
-        console.log('音声配信開始！');
-        addChatMessage('システム', '音声配信を開始しました');
+        try {
+            debugLog(`Answer SDP受信: ${data.answer.type || 'type不明'}`);
+            await peerConnection.setRemoteDescription(
+                new RTCSessionDescription(data.answer)
+            );
+            debugLog('RemoteDescription設定成功！', 'success');
+            addChatMessage('システム', '音声配信を開始しました');
+        } catch (e) {
+            debugLog(`setRemoteDescription エラー: ${e.message}`, 'error');
+        }
+    } else {
+        debugLog(`trackPublished問題: PC=${!!peerConnection}, answer=${!!data.answer}`, 'warn');
     }
 }
 
 async function subscribeToTrack(userId, remoteSessionId, trackName) {
-    if (userId === myUserId) return;
+    if (userId === myUserId) {
+        debugLog('自分のトラックはスキップ');
+        return;
+    }
+    
+    debugLog(`購読開始: ${userId} / ${trackName}`);
+    
+    // リスナー用のセッションが必要
+    let listenerSessionId = mySessionId;
+    if (!listenerSessionId) {
+        listenerSessionId = `listener-${myUserId}`;
+        debugLog(`リスナーセッション使用: ${listenerSessionId}`, 'warn');
+    }
     
     const pc = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }]
     });
     
     pc.ontrack = (event) => {
+        debugLog(`ontrack発火！ストリーム受信: ${userId}`, 'success');
         const audio = new Audio();
         audio.srcObject = event.streams[0];
-        audio.play().catch(e => console.log('Auto-play blocked:', e));
-        remoteAudios.set(userId, { audio, pc });
+        audio.play().catch(e => debugLog(`再生エラー: ${e.message}`, 'error'));
+        
+        const existing = remoteAudios.get(userId);
+        if (existing) {
+            existing.audio = audio;
+        } else {
+            remoteAudios.set(userId, { audio, pc });
+        }
         
         const avatar = remoteAvatars.get(userId);
         if (avatar) {
@@ -238,36 +388,54 @@ async function subscribeToTrack(userId, remoteSessionId, trackName) {
         }
     };
     
+    pc.oniceconnectionstatechange = () => {
+        debugLog(`[${userId}] ICE: ${pc.iceConnectionState}`);
+    };
+    
     pc.addTransceiver('audio', { direction: 'recvonly' });
     
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     
+    remoteAudios.set(userId, { pc, audio: null, pendingUserId: userId });
+    
     socket.send(JSON.stringify({
         type: 'subscribeTrack',
-        sessionId: mySessionId || `listener-${myUserId}`,
+        sessionId: listenerSessionId,
         remoteSessionId: remoteSessionId,
         trackName: trackName
     }));
-    
-    remoteAudios.set(userId, { pc, audio: null });
+    debugLog('subscribeTrack送信');
 }
 
 async function handleSubscribed(data) {
+    debugLog('subscribed処理開始');
+    
+    // 保留中のPeerConnectionを探す
     for (const [userId, obj] of remoteAudios) {
         if (obj.pc && obj.pc.signalingState === 'have-local-offer') {
-            await obj.pc.setRemoteDescription(
-                new RTCSessionDescription(data.offer)
-            );
+            debugLog(`${userId}のPCにAnswer設定`);
             
-            const answer = await obj.pc.createAnswer();
-            await obj.pc.setLocalDescription(answer);
-            
-            socket.send(JSON.stringify({
-                type: 'subscribeAnswer',
-                sessionId: mySessionId || `listener-${myUserId}`,
-                answer: { type: 'answer', sdp: answer.sdp }
-            }));
+            try {
+                if (data.offer) {
+                    // Cloudflareからはofferが返ってくる（renegotiation）
+                    await obj.pc.setRemoteDescription(
+                        new RTCSessionDescription(data.offer)
+                    );
+                    
+                    const answer = await obj.pc.createAnswer();
+                    await obj.pc.setLocalDescription(answer);
+                    
+                    socket.send(JSON.stringify({
+                        type: 'subscribeAnswer',
+                        sessionId: mySessionId || `listener-${myUserId}`,
+                        answer: { type: 'answer', sdp: answer.sdp }
+                    }));
+                    debugLog('subscribeAnswer送信', 'success');
+                }
+            } catch (e) {
+                debugLog(`subscribed処理エラー: ${e.message}`, 'error');
+            }
             break;
         }
     }
@@ -284,6 +452,7 @@ function removeRemoteAudio(userId) {
             obj.pc.close();
         }
         remoteAudios.delete(userId);
+        debugLog(`音声削除: ${userId}`);
     }
 }
 
@@ -291,7 +460,13 @@ function updateSpeakerList(speakers) {
     const count = speakers.length;
     const btn = document.getElementById('request-stage-btn');
     if (btn) {
-        btn.textContent = `🎤 登壇リクエスト (${count}/5)`;
+        if (isSpeaker) {
+            btn.textContent = `🎤 登壇中 (${count}/5)`;
+            btn.style.background = '#51cf66';
+        } else {
+            btn.textContent = `🎤 登壇リクエスト (${count}/5)`;
+            btn.style.background = '';
+        }
     }
     
     remoteAvatars.forEach((avatar, odUserId) => {
@@ -431,6 +606,10 @@ function sendChat(message) {
 // Three.js 初期化
 // --------------------------------------------
 function init() {
+    // デバッグUI作成
+    createDebugUI();
+    debugLog('Three.js初期化開始');
+    
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
 
@@ -481,11 +660,13 @@ function init() {
 
     setupEventListeners();
     
+    debugLog('PartyKit接続開始');
     connectToPartyKit();
     
     setInterval(sendPosition, 100);
 
     animate();
+    debugLog('初期化完了', 'success');
 }
 
 // --------------------------------------------
@@ -752,6 +933,7 @@ function setupEventListeners() {
     });
 
     document.getElementById('request-stage-btn').addEventListener('click', () => {
+        debugLog('登壇ボタンクリック');
         requestSpeak();
     });
 
@@ -761,6 +943,7 @@ function setupEventListeners() {
             if (audioTrack) {
                 audioTrack.enabled = !audioTrack.enabled;
                 updateMicButton(audioTrack.enabled);
+                debugLog(`マイク: ${audioTrack.enabled ? 'ON' : 'OFF'}`);
             }
         }
     });

@@ -15,8 +15,8 @@ interface User {
 export default class Server implements Party.Server {
   users: Record<string, User> = {};
   speakers: Set<string> = new Set();
-  tracks: Map<string, string> = new Map(); // odUserId -> trackName
-  sessions: Map<string, string> = new Map(); // odUserId -> sessionId
+  tracks: Map<string, string> = new Map();
+  sessions: Map<string, string> = new Map();
 
   constructor(readonly room: Party.Room) {}
 
@@ -39,7 +39,6 @@ export default class Server implements Party.Server {
     
     this.users[conn.id] = user;
     
-    // 初期データを送信（sessionsも含む）
     conn.send(JSON.stringify({
       type: "init",
       users: this.users,
@@ -49,7 +48,6 @@ export default class Server implements Party.Server {
       sessions: Array.from(this.sessions.entries()),
     }));
     
-    // 他のユーザーに通知
     this.room.broadcast(JSON.stringify({
       type: "userJoin",
       user,
@@ -200,7 +198,6 @@ export default class Server implements Party.Server {
       return;
     }
     
-    // tracksの検証
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
       if (!track.mid) {
@@ -224,7 +221,6 @@ export default class Server implements Party.Server {
         answer: result.answer,
       }));
       
-      // 他のユーザーに新しいトラックを通知
       this.room.broadcast(JSON.stringify({
         type: "newTrack",
         odUserId: sender.id,
@@ -246,7 +242,6 @@ export default class Server implements Party.Server {
     const { remoteSessionId, trackName } = data;
     console.log(`[handleSubscribeTrack] User ${sender.id} subscribing to ${trackName}`);
     
-    // 購読者用のセッションを取得または作成
     let subscriberSessionId = this.sessions.get(sender.id);
     
     if (!subscriberSessionId) {
@@ -323,7 +318,9 @@ export default class Server implements Party.Server {
     }
   }
 
+  // ==========================================
   // Cloudflare API methods
+  // ==========================================
   
   async createSession(): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     const token = this.getToken();
@@ -335,13 +332,12 @@ export default class Server implements Party.Server {
       const url = `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`;
       console.log(`[createSession] POST ${url}`);
       
+      // ★★★ 修正: body を送らない ★★★
       const res = await fetch(url, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
         },
-        body: JSON.stringify({}),
       });
       
       const responseText = await res.text();

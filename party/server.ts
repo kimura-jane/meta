@@ -17,6 +17,8 @@ export default class Server implements Party.Server {
   speakers: Set<string> = new Set();
   tracks: Map<string, string> = new Map();
   sessions: Map<string, string> = new Map();
+  // 各ユーザーの購読用セッションを別途管理
+  subscriberSessions: Map<string, string> = new Map();
 
   constructor(readonly room: Party.Room) {}
 
@@ -242,16 +244,19 @@ export default class Server implements Party.Server {
 
   async handleSubscribeTrack(sender: Party.Connection, data: any) {
     const { remoteSessionId, trackName } = data;
-    console.log(`[handleSubscribeTrack] User ${sender.id} subscribing to ${trackName}`);
+    console.log(`[handleSubscribeTrack] User ${sender.id} subscribing to ${trackName}, remoteSessionId: ${remoteSessionId}`);
     
-    let subscriberSessionId = this.sessions.get(sender.id);
+    // 購読用セッションは別途管理（配信用と分ける）
+    let subscriberSessionId = this.subscriberSessions.get(sender.id);
+    let isNewSession = false;
     
     if (!subscriberSessionId) {
       const result = await this.createSession();
       if (result.success && result.sessionId) {
         subscriberSessionId = result.sessionId;
-        this.sessions.set(sender.id, subscriberSessionId);
-        console.log(`[handleSubscribeTrack] Created session for subscriber: ${subscriberSessionId}`);
+        this.subscriberSessions.set(sender.id, subscriberSessionId);
+        isNewSession = true;
+        console.log(`[handleSubscribeTrack] Created NEW subscriber session: ${subscriberSessionId}`);
       } else {
         sender.send(JSON.stringify({
           type: "error",
@@ -259,20 +264,36 @@ export default class Server implements Party.Server {
         }));
         return;
       }
+    } else {
+      console.log(`[handleSubscribeTrack] Reusing existing subscriber session: ${subscriberSessionId}`);
     }
     
     const result = await this.subscribeTrack(subscriberSessionId, remoteSessionId, trackName);
     
+    console.log(`[handleSubscribeTrack] subscribeTrack result - success: ${result.success}, hasOffer: ${!!result.offer}`);
+    
     if (result.success) {
-      sender.send(JSON.stringify({
-        type: "subscribed",
-        offer: result.offer,
-        sessionId: subscriberSessionId,
-        trackName,
-        tracks: result.tracks,
-        requiresImmediateRenegotiation: true,
-      }));
-      console.log(`[handleSubscribeTrack] Success`);
+      // offerがある場合もない場合も成功として扱う
+      // Cloudflare Callsは同じセッションへの追加トラックでもofferを返す
+      if (result.offer) {
+        sender.send(JSON.stringify({
+          type: "subscribed",
+          offer: result.offer,
+          sessionId: subscriberSessionId,
+          trackName,
+          tracks: result.tracks,
+          requiresImmediateRenegotiation: true,
+          isNewSession: isNewSession,
+        }));
+        console.log(`[handleSubscribeTrack] Success with offer`);
+      } else {
+        // offerがない場合はエラー
+        sender.send(JSON.stringify({
+          type: "error",
+          code: "SRV_ERR_NO_OFFER_IN_RESPONSE",
+        }));
+        console.log(`[handleSubscribeTrack] No offer in response`);
+      }
     } else {
       sender.send(JSON.stringify({
         type: "error",
@@ -319,6 +340,7 @@ export default class Server implements Party.Server {
       this.speakers.delete(conn.id);
       this.tracks.delete(conn.id);
       this.sessions.delete(conn.id);
+      this.subscriberSessions.delete(conn.id);
       
       delete this.users[conn.id];
       
@@ -466,9 +488,14 @@ export default class Server implements Party.Server {
       
       const json = JSON.parse(responseText);
       
+      // sessionDescriptionがofferとして返される
+      const offer = json.sessionDescription;
+      
+      console.log(`[subscribeTrack] Parsed - hasSessionDescription: ${!!json.sessionDescription}, type: ${json.sessionDescription?.type}`);
+      
       return { 
         success: true, 
-        offer: json.sessionDescription,
+        offer: offer,
         tracks: json.tracks,
       };
     } catch (e) {

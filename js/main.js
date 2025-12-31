@@ -109,7 +109,7 @@ function resumeAllAudio() {
         if (obj.audio) {
             obj.audio.play()
                 .then(() => debugLog(`音声再開: ${odUserId}`, 'success'))
-                .catch(e => debugLog(`音声再開失敗: ${odUserId}`, 'warn'));
+                .catch(e => debugLog(`音声再開失敗: ${odUserId}: ${e.message}`, 'warn'));
         }
     });
 }
@@ -388,18 +388,34 @@ async function startPublishing() {
     
     try {
         debugLog('Step1: マイク取得中...', 'info');
-        localStream = await navigator.mediaDevices.getUserMedia({ 
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }, 
-            video: false 
-        });
-        debugLog('Step1: マイク取得成功！', 'success');
+        
+        // マイク許可（成功でもキャンセルでも）後に音声を再開するため try-finally を使用
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }, 
+                video: false 
+            });
+            debugLog('Step1: マイク取得成功！', 'success');
+        } catch (micError) {
+            debugLog(`マイク取得失敗: ${micError.message}`, 'error');
+            // マイク取得失敗でも音声再開を試みる
+            setTimeout(resumeAllAudio, 500);
+            addChatMessage('システム', 'マイクにアクセスできませんでした');
+            
+            // 状態をリセット
+            isSpeaker = false;
+            mySessionId = null;
+            updateSpeakerButton();
+            socket.send(JSON.stringify({ type: 'stopSpeak' }));
+            return;
+        }
         
         // マイク許可後、他の音声を再開
-        resumeAllAudio();
+        setTimeout(resumeAllAudio, 300);
         
         debugLog('Step2: PeerConnection作成中...', 'info');
         peerConnection = new RTCPeerConnection({
@@ -479,6 +495,8 @@ async function startPublishing() {
         debugLog(`publishエラー: ${error.message}`, 'error');
         addChatMessage('システム', 'マイクにアクセスできませんでした');
         stopSpeaking();
+        // エラー時も音声再開を試みる
+        setTimeout(resumeAllAudio, 500);
     }
 }
 
@@ -501,13 +519,16 @@ async function handleTrackPublished(data) {
         );
         debugLog('setRemoteDescription成功！', 'success');
         addChatMessage('システム', '音声配信を開始しました');
+        
+        // 配信開始後も音声再開を試みる
+        setTimeout(resumeAllAudio, 500);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
     }
 }
 
 // --------------------------------------------
-// トラック購読（リスナー用）
+// トラック購読（リスナー用）- マイク不要
 // --------------------------------------------
 async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     if (odUserId === myServerConnectionId) {
@@ -538,6 +559,7 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         bundlePolicy: 'max-bundle'
     });
     
+    // 受信専用 - マイク不要
     pc.addTransceiver('audio', { direction: 'recvonly' });
     debugLog('recvonly transceiver 追加', 'info');
     

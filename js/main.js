@@ -53,23 +53,20 @@ const remoteAvatars = new Map();
 // 音声通話設定
 // --------------------------------------------
 let localStream = null;
-let peerConnection = null;  // 配信用（登壇者のみ）
+let peerConnection = null;
 let mySessionId = null;
 let isSpeaker = false;
 let myPublishedTrackName = null;
 
-// リスナー用: 単一のPeerConnectionとセッション
 let subscriberPC = null;
 let subscriberSessionId = null;
-const subscribedTracks = new Map();  // trackName -> { odUserId, audio }
-const pendingSubscriptions = new Map(); // trackName -> { odUserId, remoteSessionId }
+const subscribedTracks = new Map();
+const pendingSubscriptions = new Map();
 
 let speakerCount = 0;
 
-// TURN認証情報
 let turnCredentials = null;
 
-// iOS Safari 用: 音声再生が有効化されたか
 let audioUnlocked = false;
 
 // --------------------------------------------
@@ -123,7 +120,6 @@ function getIceServers() {
 function showAudioUnlockButton() {
     if (audioUnlocked) return;
     
-    // 既存のボタンがあれば削除
     const existing = document.getElementById('audio-unlock-btn');
     if (existing) existing.remove();
     
@@ -149,7 +145,6 @@ function showAudioUnlockButton() {
     btn.onclick = async () => {
         debugLog('音声アンロック開始', 'info');
         
-        // 全ての音声を再生試行
         for (const [trackName, obj] of subscribedTracks) {
             if (obj.audio) {
                 try {
@@ -184,7 +179,6 @@ function resumeAllAudio() {
                 .then(() => debugLog(`音声再開: ${trackName}`, 'success'))
                 .catch(e => {
                     debugLog(`音声再開失敗: ${trackName}: ${e.message}`, 'warn');
-                    // iOS の場合、アンロックボタンを表示
                     if (isIOS() && !audioUnlocked) {
                         showAudioUnlockButton();
                     }
@@ -192,7 +186,6 @@ function resumeAllAudio() {
         }
     });
     
-    // 音声がある場合、iOS でアンロックボタンを表示
     if (hasAudio && isIOS() && !audioUnlocked) {
         showAudioUnlockButton();
     }
@@ -283,7 +276,6 @@ function connectToPartyKit() {
         connected = false;
         updateUserCount();
         
-        // 再接続時にsubscriberをリセット
         if (subscriberPC) {
             subscriberPC.close();
             subscriberPC = null;
@@ -498,7 +490,6 @@ async function startPublishing() {
             });
             debugLog('Step1: マイク取得成功！', 'success');
             
-            // マイク取得成功 = 音声再生も許可される（iOS）
             audioUnlocked = true;
             const unlockBtn = document.getElementById('audio-unlock-btn');
             if (unlockBtn) unlockBtn.remove();
@@ -513,7 +504,6 @@ async function startPublishing() {
             return;
         }
         
-        // マイク許可後、他の音声を再開
         setTimeout(resumeAllAudio, 100);
         
         debugLog('Step2: PeerConnection作成中...', 'info');
@@ -606,7 +596,6 @@ async function handleTrackPublished(data) {
         debugLog('setRemoteDescription成功！', 'success');
         addChatMessage('システム', '音声配信を開始しました');
         
-        // 配信開始後も音声再開
         setTimeout(resumeAllAudio, 100);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
@@ -625,13 +614,11 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         return;
     }
     
-    // 既に購読済みかチェック
     if (subscribedTracks.has(trackName)) {
         debugLog(`既に購読中: ${trackName}`);
         return;
     }
     
-    // 購読待ちに既にあるかチェック
     if (pendingSubscriptions.has(trackName)) {
         debugLog(`既に購読リクエスト中: ${trackName}`);
         return;
@@ -639,10 +626,8 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     
     debugLog(`=== subscribeToTrack 開始: ${trackName} ===`, 'info');
     
-    // 購読待ちに追加
     pendingSubscriptions.set(trackName, { odUserId, remoteSessionId });
     
-    // サーバーに購読リクエスト送信
     socket.send(JSON.stringify({
         type: 'subscribeTrack',
         visitorId: odUserId,
@@ -653,14 +638,10 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
 }
 
 // --------------------------------------------
-// 購読レスポンス処理（修正版）
+// 購読レスポンス処理
 // --------------------------------------------
 async function handleSubscribed(data) {
     debugLog('=== handleSubscribed 開始 ===', 'info');
-    
-    // サーバーからのデータ構造を確認
-    // server.ts は { type: "subscribed", offer, sessionId, trackName, tracks, requiresImmediateRenegotiation } を送る
-    // offer は { type: "offer", sdp: "..." } の形式
     
     if (!data.offer) {
         debugLog('Offerがない！', 'error');
@@ -676,7 +657,6 @@ async function handleSubscribed(data) {
     }
     
     try {
-        // subscriberPCが必要かチェック
         const needNewPC = !subscriberPC || 
                           subscriberPC.connectionState === 'closed' || 
                           subscriberPC.connectionState === 'failed';
@@ -684,7 +664,6 @@ async function handleSubscribed(data) {
         if (needNewPC) {
             debugLog('新しいsubscriberPC作成', 'info');
             
-            // 古いPCがあれば閉じる
             if (subscriberPC) {
                 try { subscriberPC.close(); } catch(e) {}
             }
@@ -717,19 +696,15 @@ async function handleSubscribed(data) {
             debugLog('既存のsubscriberPCを再利用', 'info');
         }
         
-        // セッションIDを保存
         subscriberSessionId = data.sessionId;
         
         debugLog(`現在のsignalingState: ${subscriberPC.signalingState}`, 'info');
         
-        // signalingStateがstableでない場合はrollback
         if (subscriberPC.signalingState !== 'stable') {
             debugLog(`rollback実行: ${subscriberPC.signalingState}`, 'warn');
             await subscriberPC.setLocalDescription({ type: 'rollback' });
         }
         
-        // Offerをセット - サーバーからの形式に対応
-        // data.offer は { type: "offer", sdp: "..." } または直接SDPの場合がある
         let offerSdp;
         if (typeof data.offer === 'string') {
             offerSdp = data.offer;
@@ -750,12 +725,11 @@ async function handleSubscribed(data) {
         );
         debugLog('setRemoteDescription成功', 'success');
         
-        // Answer作成
         const answer = await subscriberPC.createAnswer();
         await subscriberPC.setLocalDescription(answer);
         debugLog('Answer作成完了', 'success');
         
-        // ICE収集を待つ
+        // ICE収集を待つ（300msに短縮）
         await new Promise((resolve) => {
             if (subscriberPC.iceGatheringState === 'complete') {
                 resolve();
@@ -764,7 +738,7 @@ async function handleSubscribed(data) {
             const timeout = setTimeout(() => {
                 debugLog('ICE収集タイムアウト', 'warn');
                 resolve();
-            }, 2000);
+            }, 300);  // ← ここを300msに変更
             
             const checkComplete = () => {
                 if (subscriberPC && subscriberPC.iceGatheringState === 'complete') {
@@ -783,7 +757,6 @@ async function handleSubscribed(data) {
         });
         debugLog('ICE収集完了', 'success');
         
-        // Answerを送信
         const finalSdp = subscriberPC.localDescription?.sdp;
         if (!finalSdp) {
             debugLog('localDescription.sdpがない', 'error');
@@ -800,7 +773,6 @@ async function handleSubscribed(data) {
         }));
         debugLog('subscribeAnswer送信完了', 'success');
         
-        // 購読待ちから購読済みへ移動（audioはontrackで設定される）
         pendingSubscriptions.delete(trackName);
         subscribedTracks.set(trackName, { 
             odUserId: pendingInfo.odUserId, 
@@ -815,7 +787,6 @@ async function handleSubscribed(data) {
     }
 }
 
-// リモートトラック受信時のハンドラー
 function handleRemoteTrack(event) {
     debugLog(`リモートトラック受信: kind=${event.track.kind}, id=${event.track.id}`, 'success');
     
@@ -823,7 +794,6 @@ function handleRemoteTrack(event) {
     audio.srcObject = event.streams[0] || new MediaStream([event.track]);
     audio.autoplay = true;
     
-    // 再生試行
     audio.play()
         .then(() => {
             debugLog(`音声再生開始`, 'success');
@@ -836,13 +806,11 @@ function handleRemoteTrack(event) {
             }
         });
     
-    // subscribedTracksの中でaudioがnullのものを探して関連付け
     for (const [trackName, obj] of subscribedTracks) {
         if (!obj.audio) {
             obj.audio = audio;
             debugLog(`${trackName}に音声を関連付け`, 'success');
             
-            // アバターにスピーカーインジケーター追加
             const avatar = remoteAvatars.get(obj.odUserId);
             if (avatar) {
                 addSpeakerIndicator(avatar);
@@ -853,7 +821,6 @@ function handleRemoteTrack(event) {
 }
 
 function removeRemoteAudio(odUserId) {
-    // odUserIdに対応するトラックを探して削除
     for (const [trackName, obj] of subscribedTracks) {
         if (obj.odUserId === odUserId) {
             if (obj.audio) {
@@ -865,7 +832,6 @@ function removeRemoteAudio(odUserId) {
         }
     }
     
-    // 購読待ちからも削除
     for (const [trackName, obj] of pendingSubscriptions) {
         if (obj.odUserId === odUserId) {
             pendingSubscriptions.delete(trackName);

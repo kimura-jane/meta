@@ -14,9 +14,9 @@ interface User {
 export default class Server implements Party.Server {
   users: Map<string, User> = new Map();
   speakers: Set<string> = new Set();
-  tracks: Map<string, string> = new Map(); // odUserId -> trackName
-  sessions: Map<string, string> = new Map(); // odUserId -> sessionId (speaker's session)
-  subscriberSessions: Map<string, string> = new Map(); // odUserId -> subscriberSessionId
+  tracks: Map<string, string> = new Map();
+  sessions: Map<string, string> = new Map();
+  subscriberSessions: Map<string, string> = new Map();
 
   constructor(readonly room: Party.Room) {}
 
@@ -37,7 +37,6 @@ export default class Server implements Party.Server {
     };
     this.users.set(conn.id, user);
 
-    // 初期データを送信
     conn.send(
       JSON.stringify({
         type: "init",
@@ -49,7 +48,6 @@ export default class Server implements Party.Server {
       })
     );
 
-    // 他のユーザーに参加を通知
     this.room.broadcast(
       JSON.stringify({
         type: "userJoin",
@@ -62,7 +60,6 @@ export default class Server implements Party.Server {
   }
 
   onClose(conn: Party.Connection) {
-    const user = this.users.get(conn.id);
     this.users.delete(conn.id);
     this.speakers.delete(conn.id);
     this.tracks.delete(conn.id);
@@ -112,12 +109,6 @@ export default class Server implements Party.Server {
       }
     } catch (e) {
       console.error("Message handling error:", e);
-      sender.send(
-        JSON.stringify({
-          type: "error",
-          message: "Internal server error",
-        })
-      );
     }
   }
 
@@ -187,9 +178,9 @@ export default class Server implements Party.Server {
       return;
     }
 
-    // Cloudflare Callsセッション作成
-    const session = await this.createSession();
-    if (!session) {
+    const token = this.getToken();
+    if (!token) {
+      console.error("[requestSpeak] No token available");
       sender.send(
         JSON.stringify({
           type: "speakDenied",
@@ -199,26 +190,62 @@ export default class Server implements Party.Server {
       return;
     }
 
-    this.speakers.add(sender.id);
-    this.sessions.set(sender.id, session.sessionId);
+    try {
+      const response = await fetch(
+        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
+        }
+      );
 
-    sender.send(
-      JSON.stringify({
-        type: "speakApproved",
-        sessionId: session.sessionId,
-      })
-    );
+      const result = await response.json() as any;
+      console.log(`[createSession] response:`, JSON.stringify(result));
 
-    this.room.broadcast(
-      JSON.stringify({
-        type: "speakerJoined",
-        odUserId: sender.id,
-        speakers: Array.from(this.speakers),
-      }),
-      [sender.id]
-    );
+      if (!response.ok || result.errorCode || !result.sessionId) {
+        console.error("[createSession] Failed:", result);
+        sender.send(
+          JSON.stringify({
+            type: "speakDenied",
+            reason: "セッション作成に失敗しました",
+          })
+        );
+        return;
+      }
 
-    console.log(`[speakApproved] ${sender.id}, sessionId: ${session.sessionId}`);
+      this.speakers.add(sender.id);
+      this.sessions.set(sender.id, result.sessionId);
+
+      sender.send(
+        JSON.stringify({
+          type: "speakApproved",
+          sessionId: result.sessionId,
+        })
+      );
+
+      this.room.broadcast(
+        JSON.stringify({
+          type: "speakerJoined",
+          odUserId: sender.id,
+          speakers: Array.from(this.speakers),
+        }),
+        [sender.id]
+      );
+
+      console.log(`[speakApproved] ${sender.id}, sessionId: ${result.sessionId}`);
+    } catch (e) {
+      console.error("[requestSpeak] Error:", e);
+      sender.send(
+        JSON.stringify({
+          type: "speakDenied",
+          reason: "セッション作成に失敗しました",
+        })
+      );
+    }
   }
 
   handleStopSpeak(sender: Party.Connection) {
@@ -239,17 +266,10 @@ export default class Server implements Party.Server {
 
   async handlePublishTrack(data: any, sender: Party.Connection) {
     console.log(`[publishTrack] from ${sender.id}`);
-    console.log(`sessionId: ${data.sessionId}`);
-    console.log(`tracks:`, JSON.stringify(data.tracks));
 
     const token = this.getToken();
     if (!token) {
-      sender.send(
-        JSON.stringify({
-          type: "error",
-          code: "NO_TOKEN",
-        })
-      );
+      sender.send(JSON.stringify({ type: "error", code: "NO_TOKEN" }));
       return;
     }
 
@@ -272,21 +292,19 @@ export default class Server implements Party.Server {
         }
       );
 
-      const result = await response.json();
-      console.log(`[publishTrack] Cloudflare response:`, JSON.stringify(result));
+      const result = await response.json() as any;
+      console.log(`[publishTrack] response:`, JSON.stringify(result));
 
       if (!response.ok || result.errorCode) {
         sender.send(
           JSON.stringify({
             type: "error",
             code: result.errorCode || "PUBLISH_FAILED",
-            message: result.errorDescription,
           })
         );
         return;
       }
 
-      // トラック名を保存
       const trackName = data.tracks[0]?.trackName;
       if (trackName) {
         this.tracks.set(sender.id, trackName);
@@ -300,7 +318,6 @@ export default class Server implements Party.Server {
         })
       );
 
-      // 他のユーザーに新トラックを通知
       this.room.broadcast(
         JSON.stringify({
           type: "newTrack",
@@ -314,52 +331,48 @@ export default class Server implements Party.Server {
       console.log(`[trackPublished] ${sender.id}, trackName: ${trackName}`);
     } catch (e) {
       console.error("[publishTrack] Error:", e);
-      sender.send(
-        JSON.stringify({
-          type: "error",
-          code: "PUBLISH_ERROR",
-        })
-      );
+      sender.send(JSON.stringify({ type: "error", code: "PUBLISH_ERROR" }));
     }
   }
 
   async handleSubscribeTrack(data: any, sender: Party.Connection) {
-    console.log(`[subscribeTrack] from ${sender.id}`);
-    console.log(`visitorId: ${data.visitorId}, remoteSessionId: ${data.remoteSessionId}, trackName: ${data.trackName}`);
+    console.log(`[subscribeTrack] from ${sender.id}, trackName: ${data.trackName}`);
 
     const token = this.getToken();
     if (!token) {
-      sender.send(
-        JSON.stringify({
-          type: "error",
-          code: "NO_TOKEN",
-        })
-      );
+      sender.send(JSON.stringify({ type: "error", code: "NO_TOKEN" }));
       return;
     }
 
     try {
-      // 購読者用のセッションを作成または再利用
+      // 購読者用セッションを取得または作成
       let subscriberSessionId = this.subscriberSessions.get(sender.id);
       let isNewSession = false;
-      
+
       if (!subscriberSessionId) {
-        const session = await this.createSession();
-        if (!session) {
-          sender.send(
-            JSON.stringify({
-              type: "error",
-              code: "SESSION_CREATE_FAILED",
-            })
-          );
+        const sessionResponse = await fetch(
+          `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({}),
+          }
+        );
+
+        const sessionResult = await sessionResponse.json() as any;
+        console.log(`[subscribeTrack] new session:`, JSON.stringify(sessionResult));
+
+        if (!sessionResponse.ok || !sessionResult.sessionId) {
+          sender.send(JSON.stringify({ type: "error", code: "SESSION_CREATE_FAILED" }));
           return;
         }
-        subscriberSessionId = session.sessionId;
+
+        subscriberSessionId = sessionResult.sessionId;
         this.subscriberSessions.set(sender.id, subscriberSessionId);
         isNewSession = true;
-        console.log(`[subscribeTrack] Created new subscriber session: ${subscriberSessionId}`);
-      } else {
-        console.log(`[subscribeTrack] Reusing subscriber session: ${subscriberSessionId}`);
       }
 
       // トラックを購読
@@ -383,15 +396,14 @@ export default class Server implements Party.Server {
         }
       );
 
-      const result = await response.json();
-      console.log(`[subscribeTrack] Cloudflare response:`, JSON.stringify(result));
+      const result = await response.json() as any;
+      console.log(`[subscribeTrack] response:`, JSON.stringify(result));
 
       if (!response.ok || result.errorCode) {
         sender.send(
           JSON.stringify({
             type: "error",
             code: result.errorCode || "SUBSCRIBE_FAILED",
-            message: result.errorDescription,
           })
         );
         return;
@@ -409,29 +421,19 @@ export default class Server implements Party.Server {
         })
       );
 
-      console.log(`[subscribed] sent to ${sender.id}, requiresRenegotiation: ${result.requiresImmediateRenegotiation}`);
+      console.log(`[subscribed] sent to ${sender.id}`);
     } catch (e) {
       console.error("[subscribeTrack] Error:", e);
-      sender.send(
-        JSON.stringify({
-          type: "error",
-          code: "SUBSCRIBE_ERROR",
-        })
-      );
+      sender.send(JSON.stringify({ type: "error", code: "SUBSCRIBE_ERROR" }));
     }
   }
 
   async handleSubscribeAnswer(data: any, sender: Party.Connection) {
-    console.log(`[subscribeAnswer] from ${sender.id}, sessionId: ${data.sessionId}`);
+    console.log(`[subscribeAnswer] from ${sender.id}`);
 
     const token = this.getToken();
     if (!token) {
-      sender.send(
-        JSON.stringify({
-          type: "error",
-          code: "NO_TOKEN",
-        })
-      );
+      sender.send(JSON.stringify({ type: "error", code: "NO_TOKEN" }));
       return;
     }
 
@@ -453,69 +455,12 @@ export default class Server implements Party.Server {
         }
       );
 
-      const result = await response.json();
-      console.log(`[subscribeAnswer] Cloudflare response:`, JSON.stringify(result));
+      const result = await response.json() as any;
+      console.log(`[subscribeAnswer] response:`, JSON.stringify(result));
 
-      if (!response.ok || result.errorCode) {
-        sender.send(
-          JSON.stringify({
-            type: "error",
-            code: result.errorCode || "RENEGOTIATE_FAILED",
-            message: result.errorDescription,
-          })
-        );
-        return;
-      }
-
-      sender.send(
-        JSON.stringify({
-          type: "subscribeAnswerAck",
-        })
-      );
-
+      sender.send(JSON.stringify({ type: "subscribeAnswerAck" }));
     } catch (e) {
       console.error("[subscribeAnswer] Error:", e);
-      sender.send(
-        JSON.stringify({
-          type: "error",
-          code: "RENEGOTIATE_ERROR",
-        })
-      );
-    }
-  }
-
-  async createSession(): Promise<{ sessionId: string } | null> {
-    const token = this.getToken();
-    if (!token) {
-      console.error("[createSession] No token");
-      return null;
-    }
-
-    try {
-      const response = await fetch(
-        `${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({}),
-        }
-      );
-
-      const result = await response.json();
-      console.log(`[createSession] result:`, JSON.stringify(result));
-
-      if (!response.ok || result.errorCode) {
-        console.error("[createSession] Error:", result);
-        return null;
-      }
-
-      return { sessionId: result.sessionId };
-    } catch (e) {
-      console.error("[createSession] Error:", e);
-      return null;
     }
   }
 }

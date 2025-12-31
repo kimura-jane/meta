@@ -485,14 +485,19 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         bundlePolicy: 'max-bundle'
     });
     
+    // ★★★ 重要: recvonly の transceiver を追加 ★★★
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+    debugLog('recvonly transceiver 追加', 'info');
+    
     pc.ontrack = (event) => {
         debugLog(`ontrack発火！: ${odUserId}`, 'success');
         const audio = new Audio();
-        audio.srcObject = event.streams[0];
+        audio.srcObject = event.streams[0] || new MediaStream([event.track]);
+        audio.autoplay = true;
         audio.play()
             .then(() => debugLog(`再生開始: ${odUserId}`, 'success'))
             .catch(e => {
-                debugLog(`再生待機（タップで再生）`, 'warn');
+                debugLog(`再生待機（タップで再生）: ${e.message}`, 'warn');
                 document.addEventListener('click', function playOnClick() {
                     audio.play().then(() => debugLog(`タップ後再生: ${odUserId}`, 'success'));
                     document.removeEventListener('click', playOnClick);
@@ -535,6 +540,36 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     debugLog('subscribeTrack送信', 'info');
 }
 
+// ★★★ ICE candidate 収集完了を待つヘルパー関数 ★★★
+function waitForIceGathering(pc, timeout = 3000) {
+    return new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') {
+            resolve();
+            return;
+        }
+        
+        const timeoutId = setTimeout(() => {
+            debugLog('ICE収集タイムアウト（続行）', 'warn');
+            resolve();
+        }, timeout);
+        
+        pc.onicegatheringstatechange = () => {
+            if (pc.iceGatheringState === 'complete') {
+                clearTimeout(timeoutId);
+                resolve();
+            }
+        };
+        
+        // 個別の candidate も監視
+        pc.onicecandidate = (event) => {
+            if (event.candidate === null) {
+                clearTimeout(timeoutId);
+                resolve();
+            }
+        };
+    });
+}
+
 async function handleSubscribed(data) {
     debugLog('=== handleSubscribed 開始 ===', 'info');
     
@@ -562,24 +597,38 @@ async function handleSubscribed(data) {
     debugLog(`${targetUserId}のPC処理`, 'info');
     
     try {
-        // ★★★ 常にAnswer を作成して送信 ★★★
         debugLog('Offer受信、Answer作成開始', 'info');
+        debugLog(`Offer SDP length: ${data.offer.sdp?.length || 0}`, 'info');
         
         await targetObj.pc.setRemoteDescription(
-            new RTCSessionDescription(data.offer)
+            new RTCSessionDescription({
+                type: 'offer',
+                sdp: data.offer.sdp
+            })
         );
         debugLog('setRemoteDescription成功', 'success');
         
         const answer = await targetObj.pc.createAnswer();
+        debugLog('createAnswer成功', 'success');
+        
         await targetObj.pc.setLocalDescription(answer);
-        debugLog('Answer作成完了', 'success');
+        debugLog('setLocalDescription成功', 'success');
+        
+        // ★★★ ICE candidate 収集を待つ ★★★
+        debugLog('ICE candidate 収集待機...', 'info');
+        await waitForIceGathering(targetObj.pc);
+        debugLog('ICE candidate 収集完了', 'success');
+        
+        // ★★★ 最終的な SDP を取得 ★★★
+        const finalSdp = targetObj.pc.localDescription?.sdp || answer.sdp;
+        debugLog(`Answer SDP length: ${finalSdp?.length || 0}`, 'info');
         
         socket.send(JSON.stringify({
             type: 'subscribeAnswer',
             sessionId: data.sessionId,
             answer: { 
                 type: 'answer', 
-                sdp: answer.sdp 
+                sdp: finalSdp
             }
         }));
         debugLog('subscribeAnswer送信', 'success');

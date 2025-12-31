@@ -137,7 +137,6 @@ export default class Server implements Party.Server {
         sessionId: result.sessionId,
       }));
       
-      // ★★★ speakers 配列を含める ★★★
       this.room.broadcast(JSON.stringify({
         type: "speakerJoined",
         odUserId: sender.id,
@@ -167,7 +166,6 @@ export default class Server implements Party.Server {
       this.users[sender.id].sessionId = null;
     }
     
-    // ★★★ speakers 配列を含める ★★★
     this.room.broadcast(JSON.stringify({
       type: "speakerLeft",
       odUserId: sender.id,
@@ -272,9 +270,9 @@ export default class Server implements Party.Server {
         sessionId: subscriberSessionId,
         trackName,
         tracks: result.tracks,
-        requiresImmediateRenegotiation: result.requiresImmediateRenegotiation,
+        requiresImmediateRenegotiation: true,
       }));
-      console.log(`[handleSubscribeTrack] Success, requiresRenegotiation: ${result.requiresImmediateRenegotiation}`);
+      console.log(`[handleSubscribeTrack] Success`);
     } else {
       sender.send(JSON.stringify({
         type: "error",
@@ -317,8 +315,6 @@ export default class Server implements Party.Server {
     const user = this.users[conn.id];
     if (user) {
       console.log(`[onClose] User ${conn.id} (${user.name}) left`);
-      
-      const wasSpeaker = this.speakers.has(conn.id);
       
       this.speakers.delete(conn.id);
       this.tracks.delete(conn.id);
@@ -430,7 +426,6 @@ export default class Server implements Party.Server {
     success: boolean; 
     offer?: any; 
     tracks?: any[]; 
-    requiresImmediateRenegotiation?: boolean;
     error?: string 
   }> {
     const token = this.getToken();
@@ -471,16 +466,10 @@ export default class Server implements Party.Server {
       
       const json = JSON.parse(responseText);
       
-      // ★★★ 常に true を返す（公式サンプルでは常に Answer を送る）★★★
-      const requiresRenegotiation = true;
-      
-      console.log(`[subscribeTrack] Force requiresImmediateRenegotiation: ${requiresRenegotiation}`);
-      
       return { 
         success: true, 
         offer: json.sessionDescription,
         tracks: json.tracks,
-        requiresImmediateRenegotiation: requiresRenegotiation,
       };
     } catch (e) {
       console.error("[subscribeTrack] Exception:", e);

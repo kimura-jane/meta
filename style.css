@@ -145,24 +145,23 @@ body {
 /* チャットエリア */
 #chat-container {
   position: absolute;
-  bottom: 140px;
+  bottom: 20px;
   left: 12px;
   width: calc(100% - 24px);
-  max-width: 380px;
+  max-width: 420px;
 }
 
 #chat-messages {
-  max-height: 160px;
+  max-height: 120px;
   overflow-y: auto;
   margin-bottom: 10px;
-  padding: 12px;
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.7), rgba(30, 0, 50, 0.6));
-  border-radius: 16px;
+  padding: 10px;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.6), rgba(30, 0, 50, 0.5));
+  border-radius: 12px;
   font-size: 13px;
-  line-height: 1.6;
-  border: 1px solid rgba(255, 102, 255, 0.25);
-  backdrop-filter: blur(15px);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  line-height: 1.5;
+  border: 1px solid rgba(255, 102, 255, 0.2);
+  backdrop-filter: blur(10px);
 }
 
 #chat-messages:empty {
@@ -170,7 +169,7 @@ body {
 }
 
 .chat-message {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   word-break: break-word;
   animation: fadeIn 0.3s ease;
 }
@@ -197,14 +196,15 @@ body {
 
 #chat-form {
   display: flex;
-  gap: 10px;
+  gap: 8px;
+  align-items: center;
 }
 
 #chat-input {
   flex: 1;
-  padding: 12px 18px;
+  padding: 10px 16px;
   border: 1px solid rgba(255, 102, 255, 0.3);
-  border-radius: 25px;
+  border-radius: 20px;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   font-size: 14px;
@@ -216,17 +216,17 @@ body {
 
 #chat-input:focus {
   border-color: #ff66ff;
-  box-shadow: 0 0 20px rgba(255, 102, 255, 0.4);
+  box-shadow: 0 0 15px rgba(255, 102, 255, 0.3);
 }
 
 #chat-input::placeholder {
   color: rgba(255, 255, 255, 0.4);
 }
 
-#chat-form button {
-  padding: 12px 22px;
+#chat-form button[type="submit"] {
+  padding: 10px 18px;
   border: none;
-  border-radius: 25px;
+  border-radius: 20px;
   background: linear-gradient(135deg, #ff66ff, #9966ff);
   color: #fff;
   font-weight: 700;
@@ -237,77 +237,69 @@ body {
   box-shadow: 0 4px 15px rgba(255, 102, 255, 0.4);
 }
 
-#chat-form button:hover {
+#chat-form button[type="submit"]:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 25px rgba(255, 102, 255, 0.5);
+  box-shadow: 0 6px 20px rgba(255, 102, 255, 0.5);
 }
 
-#chat-form button:active {
+#chat-form button[type="submit"]:active {
   transform: translateY(0);
 }
 
-/* 応援ボタン（下部） */
-#reaction-buttons {
-  position: absolute;
-  bottom: 24px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  gap: 14px;
-  padding: 0 16px;
-}
-
-.reaction-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 14px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 20px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+/* アクションボタン（ペンライト・オタ芸） */
+.action-btn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(50, 50, 50, 0.8);
   color: #fff;
+  font-size: 18px;
   cursor: pointer;
   transition: all 0.2s ease;
-  min-width: 72px;
-  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.reaction-btn:hover {
-  background: linear-gradient(135deg, rgba(255, 102, 255, 0.3), rgba(102, 255, 255, 0.2));
-  border-color: rgba(255, 102, 255, 0.5);
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(255, 102, 255, 0.3);
+.action-btn:hover {
+  background: rgba(80, 80, 80, 0.9);
+  transform: scale(1.05);
 }
 
-.reaction-btn:active {
-  transform: scale(0.95) translateY(0);
-  background: linear-gradient(135deg, rgba(255, 102, 255, 0.5), rgba(102, 255, 255, 0.3));
+.action-btn.active {
+  border-color: var(--glow-color, #ff66ff);
+  box-shadow: 
+    0 0 10px var(--glow-color, #ff66ff),
+    0 0 20px var(--glow-color, #ff66ff),
+    inset 0 0 10px rgba(255, 255, 255, 0.2);
+  animation: buttonPulse 1s ease infinite;
 }
 
-.reaction-btn .icon {
-  font-size: 26px;
-  margin-bottom: 6px;
-  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.5));
-}
-
-.reaction-btn .label {
-  font-size: 11px;
-  font-weight: 500;
-  opacity: 0.9;
+@keyframes buttonPulse {
+  0%, 100% {
+    box-shadow: 
+      0 0 10px var(--glow-color, #ff66ff),
+      0 0 20px var(--glow-color, #ff66ff);
+  }
+  50% {
+    box-shadow: 
+      0 0 15px var(--glow-color, #ff66ff),
+      0 0 30px var(--glow-color, #ff66ff),
+      0 0 40px var(--glow-color, #ff66ff);
+  }
 }
 
 /* ペンライト色選択 */
 #penlight-colors {
   position: absolute;
-  bottom: 110px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 80px;
+  left: 12px;
   display: flex;
-  gap: 12px;
-  padding: 14px 18px;
+  gap: 10px;
+  padding: 12px 16px;
   background: linear-gradient(135deg, rgba(0, 0, 0, 0.9), rgba(30, 0, 50, 0.85));
-  border-radius: 20px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 102, 255, 0.3);
   backdrop-filter: blur(15px);
 }
@@ -317,8 +309,8 @@ body {
 }
 
 .color-btn {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border: 2px solid rgba(255, 255, 255, 0.4);
   border-radius: 50%;
   cursor: pointer;
@@ -328,7 +320,7 @@ body {
 
 .color-btn:hover {
   transform: scale(1.15);
-  box-shadow: 0 0 20px currentColor;
+  box-shadow: 0 0 15px currentColor;
 }
 
 .color-btn:active {
@@ -338,8 +330,8 @@ body {
 .color-btn.selected {
   border-color: #fff;
   box-shadow: 
-    0 0 15px currentColor,
-    0 0 30px currentColor;
+    0 0 10px currentColor,
+    0 0 20px currentColor;
   transform: scale(1.1);
 }
 
@@ -349,49 +341,15 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 18px;
+  font-size: 16px;
   color: rgba(0, 0, 0, 0.7);
   text-shadow: 0 0 2px #fff;
-}
-
-/* ステージコントロール */
-#stage-controls {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 10;
-}
-
-#request-stage-btn {
-  padding: 12px 20px;
-  border: none;
-  border-radius: 25px;
-  background: linear-gradient(135deg, #667eea, #764ba2, #ff66ff);
-  background-size: 200% 200%;
-  animation: gradientShift 3s ease infinite;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: pointer;
-  box-shadow: 0 4px 20px rgba(118, 75, 162, 0.5);
-  transition: all 0.3s ease;
-}
-
-@keyframes gradientShift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-#request-stage-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 25px rgba(118, 75, 162, 0.6);
 }
 
 /* スピーカーコントロール */
 #speaker-controls {
   position: absolute;
-  top: 70px;
+  top: 130px;
   right: 16px;
   z-index: 10;
   display: flex;
@@ -425,24 +383,6 @@ body {
   background: linear-gradient(135deg, #ff5252, #ff1744);
   color: #fff;
   box-shadow: 0 4px 15px rgba(255, 23, 68, 0.4);
-}
-
-#leave-stage-btn {
-  padding: 12px 20px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 25px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  backdrop-filter: blur(10px);
-  transition: all 0.3s ease;
-}
-
-#leave-stage-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* 通知スタイル */

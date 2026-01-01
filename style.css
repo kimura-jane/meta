@@ -67,7 +67,6 @@ body {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     animation: titleGlow 3s ease infinite;
-    text-shadow: none;
 }
 
 @keyframes titleGlow {
@@ -97,18 +96,18 @@ body {
     color: #ff66ff;
 }
 
-/* チャットエリア */
+/* チャットエリア（左下） */
 #chat-container {
     position: absolute;
     bottom: 20px;
     left: 16px;
-    right: 16px;
-    max-width: 500px;
+    width: calc(100% - 180px);
+    max-width: 400px;
     z-index: 50;
 }
 
 #chat-messages {
-    max-height: 150px;
+    max-height: 120px;
     overflow-y: auto;
     margin-bottom: 10px;
     padding: 10px;
@@ -139,7 +138,6 @@ body {
     color: #fff;
 }
 
-/* チャットフォーム */
 #chat-form {
     display: flex;
     gap: 8px;
@@ -149,7 +147,6 @@ body {
 #chat-input {
     flex: 1;
     min-width: 0;
-    max-width: calc(100% - 140px);
     padding: 12px 16px;
     background: rgba(0,0,0,0.7);
     border: 1px solid rgba(255,102,255,0.3);
@@ -170,7 +167,7 @@ body {
 }
 
 #chat-submit {
-    padding: 12px 16px;
+    padding: 12px 20px;
     background: linear-gradient(135deg, #ff66ff, #66ffff);
     border: none;
     border-radius: 24px;
@@ -180,6 +177,7 @@ body {
     cursor: pointer;
     transition: all 0.3s ease;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 #chat-submit:hover {
@@ -191,55 +189,101 @@ body {
     transform: scale(0.95);
 }
 
+/* 右下コントロール */
+#right-controls {
+    position: absolute;
+    right: 16px;
+    bottom: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    z-index: 100;
+}
+
+/* ジョイスティック */
+#joystick-container {
+    width: 100px;
+    height: 100px;
+}
+
+#joystick-base {
+    width: 100px;
+    height: 100px;
+    background: rgba(255,255,255,0.1);
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+    position: relative;
+}
+
+#joystick-stick {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(145deg, #ff66ff, #66ffff);
+    border-radius: 50%;
+    box-shadow: 0 0 15px rgba(255,102,255,0.5);
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    transition: none;
+}
+
 /* アクションボタン */
+#action-buttons {
+    display: flex;
+    gap: 10px;
+}
+
 #penlight-btn,
 #otagei-btn {
-    width: 44px;
-    height: 44px;
+    width: 50px;
+    height: 50px;
     border-radius: 50%;
     background: rgba(0,0,0,0.7);
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 2px solid rgba(255,255,255,0.3);
     color: #fff;
-    font-size: 18px;
+    font-size: 20px;
     cursor: pointer;
-    transition: all 0.3s ease;
-    flex-shrink: 0;
+    transition: all 0.2s ease;
 }
 
 #penlight-btn:hover,
 #otagei-btn:hover {
-    border-color: rgba(255,102,255,0.5);
+    border-color: rgba(255,102,255,0.6);
     transform: scale(1.1);
 }
 
 #penlight-btn.active {
-    background: linear-gradient(135deg, rgba(255,102,255,0.8), rgba(102,255,255,0.8));
+    background: linear-gradient(145deg, #ff66ff, #aa44aa);
     border-color: #ff66ff;
-    box-shadow: 0 0 15px rgba(255,102,255,0.6);
-    animation: pulse 1s infinite;
+    box-shadow: 0 0 20px rgba(255,102,255,0.6);
 }
 
 #otagei-btn.active {
-    background: linear-gradient(135deg, rgba(255,102,255,0.8), rgba(102,255,255,0.8));
-    border-color: #66ffff;
-    box-shadow: 0 0 15px rgba(102,255,255,0.6);
-    animation: pulse 1s infinite;
+    background: linear-gradient(145deg, #ffff00, #ffaa00);
+    border-color: #ffff00;
+    box-shadow: 0 0 20px rgba(255,255,0,0.6);
+    animation: otageiPulse 0.3s infinite alternate;
 }
 
-@keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.1); }
+@keyframes otageiPulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.15); }
 }
 
 /* ペンライトカラー選択 */
 #penlight-colors {
     position: absolute;
-    bottom: 90px;
-    left: 50%;
-    transform: translateX(-50%);
+    right: 140px;
+    bottom: 30px;
     display: flex;
-    gap: 10px;
-    padding: 12px 16px;
+    gap: 8px;
+    padding: 10px 14px;
     background: rgba(0,0,0,0.9);
     border-radius: 30px;
     border: 1px solid rgba(255,102,255,0.3);
@@ -252,12 +296,12 @@ body {
 }
 
 .color-btn {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.3);
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
 }
 
 .color-btn:hover {
@@ -271,10 +315,10 @@ body {
     transform: scale(1.15);
 }
 
-/* スピーカーコントロール */
+/* スピーカーコントロール（右上） */
 #speaker-controls {
     position: absolute;
-    top: 120px;
+    top: 80px;
     right: 16px;
     display: flex;
     flex-direction: column;
@@ -378,7 +422,6 @@ body {
     background: rgba(255,102,255,0.8);
 }
 
-/* 選択 */
 ::selection {
     background: rgba(255,102,255,0.5);
     color: #fff;

@@ -2,6 +2,8 @@
 // ユーティリティ・UI・アバター
 // ============================================
 
+const THREE = window.THREE;
+
 // --------------------------------------------
 // デバッグログ
 // --------------------------------------------
@@ -114,7 +116,7 @@ export function addChatMessage(name, message) {
 // --------------------------------------------
 // アバター作成
 // --------------------------------------------
-export function createAvatar(THREE, userId, userName, color) {
+export function createAvatar(userId, userName, color) {
     const group = new THREE.Group();
     group.userData = { odUserId: userId, userName };
 
@@ -140,7 +142,7 @@ export function createAvatar(THREE, userId, userName, color) {
 // --------------------------------------------
 // ペンライト作成
 // --------------------------------------------
-export function createPenlight(THREE, color) {
+export function createPenlight(color) {
     const group = new THREE.Group();
 
     const handle = new THREE.Mesh(
@@ -171,7 +173,7 @@ export function createPenlight(THREE, color) {
 // --------------------------------------------
 // スピーカーインジケーター
 // --------------------------------------------
-export function addSpeakerIndicator(THREE, avatar) {
+export function addSpeakerIndicator(avatar) {
     if (avatar.getObjectByName('speakerIndicator')) return;
     const indicator = new THREE.Mesh(
         new THREE.RingGeometry(0.4, 0.45, 32),

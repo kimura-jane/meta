@@ -1,11 +1,9 @@
-// 設定画面・主催者メニュー
+// settings.js - 設定画面・主催者メニュー
 
-// 主催者パスワード
 const HOST_PASSWORD = 'jomon2026';
 
-// 背景画像データ（デフォルト追加）
 const STAGE_BACKGROUNDS = [
-    { name: 'デフォルト', file: 'IMG_3206.jpeg' },
+    { name: 'デフォルト', file: 'IMG_3206.jpeg', isRoot: true },
     { name: 'IMG_0967', file: 'IMG_0967.png' },
     { name: 'IMG_3273', file: 'IMG_3273.jpeg' },
     { name: 'IMG_3274', file: 'IMG_3274.jpeg' },
@@ -14,19 +12,11 @@ const STAGE_BACKGROUNDS = [
 ];
 
 const STAGE_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/stage/';
+const ROOT_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/';
 
-// アバター画像データ
 const CHARA_LIST = [
-    '12444',
-    '12555',
-    'IMG_1677',
-    'IMG_1861',
-    'IMG_1889',
-    'IMG_2958',
-    'IMG_3264',
-    'IMG_3267',
-    'IMG_3269',
-    'IMG_7483',
+    '12444', '12555', 'IMG_1677', 'IMG_1861', 'IMG_1889',
+    'IMG_2958', 'IMG_3264', 'IMG_3267', 'IMG_3269', 'IMG_7483',
     'onigiriya_kanatake_512'
 ];
 
@@ -46,7 +36,6 @@ const CHARA_EXTENSIONS = {
 
 const CHARA_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/chara/';
 
-// 状態
 let isHost = false;
 let currentSettings = {
     userName: 'ゲスト',
@@ -56,23 +45,17 @@ let currentSettings = {
 };
 let callbacks = {};
 
-// 初期化
 function initSettings(userName, cbs) {
     currentSettings.userName = userName;
     callbacks = cbs;
     createSettingsUI();
 }
 
-// 設定取得
 function getSettings() {
     return { ...currentSettings };
 }
 
-// 通知表示
 function showNotification(message, type = 'info') {
-    const existing = document.querySelector('.notification');
-    if (existing) existing.remove();
-    
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;
@@ -85,53 +68,49 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-// 登壇リクエスト更新
 function updateSpeakRequests(requests) {
-    const list = document.getElementById('speak-request-list');
-    if (!list) return;
+    const container = document.getElementById('speak-requests-list');
+    if (!container) return;
     
     if (requests.length === 0) {
-        list.innerHTML = '<div style="color: #888; font-size: 12px;">リクエストなし</div>';
+        container.innerHTML = '<div style="color: #888; font-size: 12px;">リクエストなし</div>';
         return;
     }
     
-    list.innerHTML = requests.map(req => `
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 4px;">
-            <span>${req.name}</span>
+    container.innerHTML = requests.map(req => `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-bottom: 4px;">
+            <span>${req.userName}</span>
             <div>
-                <button onclick="window.approveSpeak('${req.id}')" style="background: #4CAF50; border: none; color: white; padding: 4px 8px; border-radius: 4px; margin-right: 4px; cursor: pointer;">承認</button>
-                <button onclick="window.denySpeak('${req.id}')" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">却下</button>
+                <button onclick="window.approveSpeak('${req.oderId}')" style="background: #4CAF50; border: none; color: white; padding: 4px 8px; border-radius: 4px; margin-right: 4px; cursor: pointer;">許可</button>
+                <button onclick="window.denySpeak('${req.userId}')" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">拒否</button>
             </div>
         </div>
     `).join('');
 }
 
-// 現在の登壇者更新
 function updateCurrentSpeakers(speakers) {
-    const list = document.getElementById('current-speakers-list');
-    if (!list) return;
+    const container = document.getElementById('current-speakers-list');
+    if (!container) return;
     
     if (speakers.length === 0) {
-        list.innerHTML = '<div style="color: #888; font-size: 12px;">登壇者なし</div>';
+        container.innerHTML = '<div style="color: #888; font-size: 12px;">登壇者なし</div>';
         return;
     }
     
-    list.innerHTML = speakers.map(speaker => `
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 4px;">
-            <span>🎤 ${speaker.name}</span>
-            <button onclick="window.kickSpeaker('${speaker.id}')" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">退場</button>
+    container.innerHTML = speakers.map(speaker => `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-bottom: 4px;">
+            <span>🎤 ${speaker.userName}</span>
+            <button onclick="window.kickSpeaker('${speaker.userId}')" style="background: #ff9800; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">降壇</button>
         </div>
     `).join('');
 }
 
-// ユーザー数更新
 function updateUserCount(count) {
-    // main.jsで直接DOMを更新
+    // main.jsで直接DOM更新するため、ここでは何もしない
 }
 
-// 設定UI作成
 function createSettingsUI() {
-    // 設定ボタン（右上）
+    // 設定ボタン
     const settingsBtn = document.createElement('button');
     settingsBtn.id = 'settings-btn';
     settingsBtn.innerHTML = '⚙️';
@@ -142,21 +121,28 @@ function createSettingsUI() {
         width: 56px;
         height: 56px;
         border-radius: 50%;
-        background: rgba(0,0,0,0.8);
-        color: white;
+        background: rgba(30, 30, 40, 0.9);
         border: 2px solid rgba(255, 102, 255, 0.5);
+        color: white;
         font-size: 28px;
         cursor: pointer;
         z-index: 1000;
-        backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 0 15px rgba(255,102,255,0.3);
+        box-shadow: 0 0 15px rgba(255, 102, 255, 0.3);
+        transition: all 0.3s ease;
     `;
+    settingsBtn.onmouseenter = () => {
+        settingsBtn.style.transform = 'scale(1.1)';
+        settingsBtn.style.boxShadow = '0 0 25px rgba(255, 102, 255, 0.6)';
+    };
+    settingsBtn.onmouseleave = () => {
+        settingsBtn.style.transform = 'scale(1)';
+        settingsBtn.style.boxShadow = '0 0 15px rgba(255, 102, 255, 0.3)';
+    };
     document.body.appendChild(settingsBtn);
-    
+
     // オーバーレイ
     const overlay = document.createElement('div');
     overlay.id = 'settings-overlay';
@@ -166,14 +152,12 @@ function createSettingsUI() {
         left: 0;
         width: 100%;
         height: 100%;
-        background: rgba(0,0,0,0.7);
+        background: rgba(0,0,0,0.5);
         z-index: 999;
         display: none;
-        opacity: 0;
-        transition: opacity 0.3s ease;
     `;
     document.body.appendChild(overlay);
-    
+
     // 設定パネル
     const panel = document.createElement('div');
     panel.id = 'settings-panel';
@@ -183,47 +167,46 @@ function createSettingsUI() {
         right: -350px;
         width: 320px;
         height: 100%;
-        background: linear-gradient(180deg, rgba(20,0,40,0.98), rgba(0,0,0,0.98));
+        background: linear-gradient(180deg, rgba(20,20,30,0.98) 0%, rgba(30,20,40,0.98) 100%);
         z-index: 1001;
-        padding: 20px;
-        overflow-y: auto;
         transition: right 0.3s ease;
-        border-left: 1px solid rgba(255,102,255,0.3);
+        overflow-y: auto;
+        padding: 20px;
+        box-sizing: border-box;
     `;
     
     panel.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h2 style="margin: 0; font-size: 20px; color: #ff66ff;">⚙️ 設定</h2>
-            <button id="close-settings" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">✕</button>
+            <h2 style="margin: 0; font-size: 18px;">⚙️ 設定</h2>
+            <button id="close-settings" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">×</button>
         </div>
-        
-        <!-- 登壇リクエストボタン -->
+
+        <!-- 登壇リクエスト -->
         <div style="margin-bottom: 20px;">
-            <button id="request-stage-btn-panel" style="
+            <button id="request-speak-btn" style="
                 width: 100%;
-                padding: 14px;
-                background: linear-gradient(135deg, #ff0066, #cc0052);
-                border: 2px solid #ff66ff;
-                border-radius: 12px;
+                padding: 12px;
+                background: linear-gradient(135deg, #ff0066 0%, #ff66ff 100%);
+                border: none;
+                border-radius: 8px;
                 color: white;
-                font-size: 15px;
+                font-size: 16px;
                 font-weight: bold;
                 cursor: pointer;
-                box-shadow: 0 0 15px rgba(255,0,102,0.5);
-                text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 15px rgba(255, 0, 102, 0.4);
             ">🎤 登壇リクエスト</button>
         </div>
-        
+
         <!-- アバター選択 -->
-        <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-            <h3 style="margin: 0 0 12px 0; font-size: 14px; color: #66ffff;">🎭 アバター選択</h3>
-            <div id="avatar-selection" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-            </div>
+        <div style="margin-bottom: 20px;">
+            <h3 style="font-size: 14px; margin-bottom: 10px; color: #ff66ff;">🎭 アバター選択</h3>
+            <div id="avatar-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;"></div>
         </div>
-        
+
         <!-- 一般設定 -->
-        <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-            <h3 style="margin: 0 0 12px 0; font-size: 14px; color: #66ffff;">👤 一般設定</h3>
+        <div style="margin-bottom: 20px;">
+            <h3 style="font-size: 14px; margin-bottom: 10px; color: #66ffff;">📋 一般設定</h3>
             
             <div style="margin-bottom: 12px;">
                 <label style="font-size: 12px; color: #aaa;">名前</label>
@@ -231,149 +214,144 @@ function createSettingsUI() {
                     <input type="text" id="user-name-input" value="${currentSettings.userName}" style="
                         flex: 1;
                         padding: 8px;
-                        background: rgba(0,0,0,0.5);
+                        background: rgba(255,255,255,0.1);
                         border: 1px solid rgba(255,255,255,0.2);
-                        border-radius: 8px;
+                        border-radius: 4px;
                         color: white;
                         font-size: 14px;
                     ">
                     <button id="save-name-btn" style="
                         padding: 8px 12px;
-                        background: linear-gradient(135deg, #ff66ff, #66ffff);
+                        background: #66ffff;
                         border: none;
-                        border-radius: 8px;
-                        color: white;
-                        font-size: 12px;
+                        border-radius: 4px;
+                        color: black;
                         cursor: pointer;
                     ">保存</button>
                 </div>
             </div>
-            
+
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span style="font-size: 12px;">名前を表示</span>
+                <span style="font-size: 13px;">名前を表示</span>
                 <label class="toggle-switch">
-                    <input type="checkbox" id="show-names-toggle" ${currentSettings.visibleNames ? 'checked' : ''}>
+                    <input type="checkbox" id="visible-names-toggle" ${currentSettings.visibleNames ? 'checked' : ''}>
                     <span class="toggle-slider"></span>
                 </label>
             </div>
-            
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span style="font-size: 12px;">入退室通知</span>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 13px;">入退室通知</span>
                 <label class="toggle-switch">
                     <input type="checkbox" id="notifications-toggle" ${currentSettings.notifications ? 'checked' : ''}>
                     <span class="toggle-slider"></span>
                 </label>
             </div>
-            
+
             <button id="reset-camera-btn" style="
                 width: 100%;
-                padding: 8px;
+                padding: 10px;
                 background: rgba(255,255,255,0.1);
                 border: 1px solid rgba(255,255,255,0.2);
-                border-radius: 8px;
+                border-radius: 4px;
                 color: white;
-                font-size: 12px;
                 cursor: pointer;
+                margin-top: 8px;
             ">📷 カメラ視点リセット</button>
         </div>
-        
+
         <!-- 主催者ログイン -->
-        <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-            <h3 style="margin: 0 0 12px 0; font-size: 14px; color: #66ffff;">🔐 主催者ログイン</h3>
+        <div style="margin-bottom: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+            <h3 style="font-size: 14px; margin-bottom: 10px; color: #ffaa00;">👑 主催者ログイン</h3>
             
             <div id="host-login-area">
-                <div style="display: flex; gap: 8px;">
-                    <input type="password" id="host-password-input" placeholder="パスワード" style="
-                        flex: 1;
-                        padding: 8px;
-                        background: rgba(0,0,0,0.5);
-                        border: 1px solid rgba(255,255,255,0.2);
-                        border-radius: 8px;
-                        color: white;
-                        font-size: 14px;
-                    ">
-                    <button id="host-login-btn" style="
-                        padding: 8px 12px;
-                        background: linear-gradient(135deg, #ff66ff, #66ffff);
-                        border: none;
-                        border-radius: 8px;
-                        color: white;
-                        font-size: 12px;
-                        cursor: pointer;
-                    ">認証</button>
-                </div>
+                <input type="password" id="host-password" placeholder="パスワード" style="
+                    width: 100%;
+                    padding: 10px;
+                    background: rgba(255,255,255,0.1);
+                    border: 1px solid rgba(255,255,255,0.2);
+                    border-radius: 4px;
+                    color: white;
+                    margin-bottom: 8px;
+                    box-sizing: border-box;
+                ">
+                <button id="host-login-btn" style="
+                    width: 100%;
+                    padding: 10px;
+                    background: linear-gradient(135deg, #ffaa00 0%, #ff6600 100%);
+                    border: none;
+                    border-radius: 4px;
+                    color: white;
+                    font-weight: bold;
+                    cursor: pointer;
+                ">認証</button>
             </div>
-            
-            <div id="host-menu-area" style="display: none;">
-                <div style="background: linear-gradient(135deg, #ff66ff, #66ffff); padding: 8px; border-radius: 8px; text-align: center; margin-bottom: 12px;">
-                    <span style="font-weight: bold;">✨ 主催者モード有効</span>
+
+            <div id="host-controls" style="display: none;">
+                <div style="background: rgba(255,170,0,0.2); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+                    <span style="color: #ffaa00; font-weight: bold;">👑 主催者モード有効</span>
                 </div>
-                
-                <!-- 明るさ調整（最大200%） -->
-                <div style="margin-bottom: 12px;">
+
+                <!-- 明るさ調整 -->
+                <div style="margin-bottom: 15px;">
                     <label style="font-size: 12px; color: #aaa;">🔆 部屋の明るさ</label>
-                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
                         <input type="range" id="brightness-slider" min="0" max="200" value="60" style="flex: 1;">
-                        <span id="brightness-value" style="font-size: 12px; width: 45px;">60%</span>
+                        <span id="brightness-value" style="width: 80px; text-align: center; font-size: 14px; color: #66ffff; background: rgba(102,255,255,0.1); padding: 4px 8px; border-radius: 4px;">60%</span>
                     </div>
                 </div>
-                
+
                 <!-- 背景選択 -->
-                <div style="margin-bottom: 12px;">
+                <div style="margin-bottom: 15px;">
                     <label style="font-size: 12px; color: #aaa;">🖼️ ステージ背景</label>
-                    <div id="background-selection" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px;">
-                    </div>
+                    <div id="background-selection" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px;"></div>
                 </div>
-                
-                <!-- 登壇リクエスト一覧 -->
-                <div style="margin-bottom: 12px;">
+
+                <!-- 登壇リクエスト管理 -->
+                <div style="margin-bottom: 15px;">
                     <label style="font-size: 12px; color: #aaa;">📋 登壇リクエスト</label>
-                    <div id="speak-request-list" style="margin-top: 8px;">
+                    <div id="speak-requests-list" style="margin-top: 8px; max-height: 150px; overflow-y: auto;">
                         <div style="color: #888; font-size: 12px;">リクエストなし</div>
                     </div>
                 </div>
-                
+
                 <!-- 現在の登壇者 -->
-                <div style="margin-bottom: 12px;">
+                <div style="margin-bottom: 15px;">
                     <label style="font-size: 12px; color: #aaa;">🎤 現在の登壇者</label>
-                    <div id="current-speakers-list" style="margin-top: 8px;">
+                    <div id="current-speakers-list" style="margin-top: 8px; max-height: 150px; overflow-y: auto;">
                         <div style="color: #888; font-size: 12px;">登壇者なし</div>
                     </div>
                 </div>
-                
-                <!-- アナウンス -->
-                <div style="margin-bottom: 12px;">
+
+                <!-- 全体アナウンス -->
+                <div style="margin-bottom: 15px;">
                     <label style="font-size: 12px; color: #aaa;">📢 全体アナウンス</label>
-                    <div style="display: flex; gap: 8px; margin-top: 4px;">
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
                         <input type="text" id="announce-input" placeholder="メッセージ" style="
                             flex: 1;
                             padding: 8px;
-                            background: rgba(0,0,0,0.5);
+                            background: rgba(255,255,255,0.1);
                             border: 1px solid rgba(255,255,255,0.2);
-                            border-radius: 8px;
+                            border-radius: 4px;
                             color: white;
-                            font-size: 14px;
                         ">
-                        <button id="send-announce-btn" style="
+                        <button id="announce-btn" style="
                             padding: 8px 12px;
-                            background: linear-gradient(135deg, #ff66ff, #66ffff);
+                            background: #ff66ff;
                             border: none;
-                            border-radius: 8px;
+                            border-radius: 4px;
                             color: white;
-                            font-size: 12px;
                             cursor: pointer;
                         ">送信</button>
                     </div>
                 </div>
-                
+
                 <button id="host-logout-btn" style="
                     width: 100%;
-                    padding: 8px;
-                    background: rgba(255,0,0,0.3);
-                    border: 1px solid rgba(255,0,0,0.5);
-                    border-radius: 8px;
-                    color: white;
-                    font-size: 12px;
+                    padding: 10px;
+                    background: rgba(255,255,255,0.1);
+                    border: 1px solid rgba(255,255,255,0.2);
+                    border-radius: 4px;
+                    color: #ff6666;
                     cursor: pointer;
                 ">ログアウト</button>
             </div>
@@ -381,8 +359,163 @@ function createSettingsUI() {
     `;
     
     document.body.appendChild(panel);
-    
-    // スタイル追加
+
+    // アバターグリッド生成
+    const avatarGrid = document.getElementById('avatar-grid');
+    CHARA_LIST.forEach(charaId => {
+        const ext = CHARA_EXTENSIONS[charaId] || 'png';
+        const url = `${CHARA_BASE_URL}${charaId}.${ext}`;
+        
+        const avatarOption = document.createElement('div');
+        avatarOption.className = 'avatar-option';
+        avatarOption.style.cssText = `
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            background: url('${url}') center/cover;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        `;
+        avatarOption.dataset.charaId = charaId;
+        
+        avatarOption.onclick = () => {
+            document.querySelectorAll('.avatar-option').forEach(opt => {
+                opt.style.border = '2px solid transparent';
+            });
+            avatarOption.style.border = '2px solid #ff66ff';
+            currentSettings.selectedAvatar = charaId;
+            if (callbacks.onAvatarChange) {
+                callbacks.onAvatarChange(charaId);
+            }
+        };
+        
+        avatarGrid.appendChild(avatarOption);
+    });
+
+    // 背景選択グリッド生成
+    const bgSelection = document.getElementById('background-selection');
+    STAGE_BACKGROUNDS.forEach(bg => {
+        const url = bg.isRoot 
+            ? `${ROOT_BASE_URL}${bg.file}` 
+            : `${STAGE_BASE_URL}${bg.file}`;
+        
+        const bgOption = document.createElement('div');
+        bgOption.className = 'bg-option';
+        bgOption.style.cssText = `
+            width: 80px;
+            height: 50px;
+            border-radius: 4px;
+            background: url('${url}') center/cover;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        `;
+        bgOption.title = bg.name;
+        
+        bgOption.onclick = () => {
+            document.querySelectorAll('.bg-option').forEach(opt => {
+                opt.style.border = '2px solid transparent';
+            });
+            bgOption.style.border = '2px solid #66ffff';
+            if (callbacks.onBackgroundChange) {
+                callbacks.onBackgroundChange(url);
+            }
+        };
+        
+        bgSelection.appendChild(bgOption);
+    });
+
+    // イベントリスナー
+    settingsBtn.onclick = () => {
+        overlay.style.display = 'block';
+        panel.style.right = '0';
+    };
+
+    overlay.onclick = () => {
+        overlay.style.display = 'none';
+        panel.style.right = '-350px';
+    };
+
+    document.getElementById('close-settings').onclick = () => {
+        overlay.style.display = 'none';
+        panel.style.right = '-350px';
+    };
+
+    document.getElementById('request-speak-btn').onclick = () => {
+        if (callbacks.onRequestSpeak) {
+            callbacks.onRequestSpeak();
+        }
+    };
+
+    document.getElementById('save-name-btn').onclick = () => {
+        const newName = document.getElementById('user-name-input').value.trim();
+        if (newName) {
+            currentSettings.userName = newName;
+            if (callbacks.onNameChange) {
+                callbacks.onNameChange(newName);
+            }
+            showNotification('名前を保存しました', 'success');
+        }
+    };
+
+    document.getElementById('visible-names-toggle').onchange = (e) => {
+        currentSettings.visibleNames = e.target.checked;
+        if (callbacks.onVisibleNamesChange) {
+            callbacks.onVisibleNamesChange(e.target.checked);
+        }
+    };
+
+    document.getElementById('notifications-toggle').onchange = (e) => {
+        currentSettings.notifications = e.target.checked;
+    };
+
+    document.getElementById('reset-camera-btn').onclick = () => {
+        if (callbacks.onResetCamera) {
+            callbacks.onResetCamera();
+        }
+    };
+
+    document.getElementById('host-login-btn').onclick = () => {
+        const password = document.getElementById('host-password').value;
+        if (password === HOST_PASSWORD) {
+            isHost = true;
+            document.getElementById('host-login-area').style.display = 'none';
+            document.getElementById('host-controls').style.display = 'block';
+            showNotification('主催者としてログインしました', 'success');
+            if (callbacks.onHostLogin) {
+                callbacks.onHostLogin();
+            }
+        } else {
+            showNotification('パスワードが違います', 'error');
+        }
+    };
+
+    document.getElementById('host-logout-btn').onclick = () => {
+        isHost = false;
+        document.getElementById('host-login-area').style.display = 'block';
+        document.getElementById('host-controls').style.display = 'none';
+        document.getElementById('host-password').value = '';
+        showNotification('ログアウトしました', 'info');
+    };
+
+    document.getElementById('brightness-slider').oninput = (e) => {
+        const value = e.target.value;
+        document.getElementById('brightness-value').textContent = `${value}%`;
+        if (callbacks.onBrightnessChange) {
+            callbacks.onBrightnessChange(value / 100);
+        }
+    };
+
+    document.getElementById('announce-btn').onclick = () => {
+        const message = document.getElementById('announce-input').value.trim();
+        if (message && callbacks.onAnnounce) {
+            callbacks.onAnnounce(message);
+            document.getElementById('announce-input').value = '';
+        }
+    };
+
+    // トグルスイッチのスタイル
     const style = document.createElement('style');
     style.textContent = `
         .toggle-switch {
@@ -402,9 +535,9 @@ function createSettingsUI() {
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(255,255,255,0.2);
-            border-radius: 24px;
+            background-color: rgba(255,255,255,0.2);
             transition: 0.3s;
+            border-radius: 24px;
         }
         .toggle-slider:before {
             position: absolute;
@@ -413,201 +546,29 @@ function createSettingsUI() {
             width: 18px;
             left: 3px;
             bottom: 3px;
-            background: white;
-            border-radius: 50%;
+            background-color: white;
             transition: 0.3s;
+            border-radius: 50%;
         }
         .toggle-switch input:checked + .toggle-slider {
-            background: linear-gradient(135deg, #ff66ff, #66ffff);
+            background: linear-gradient(135deg, #ff66ff 0%, #66ffff 100%);
         }
         .toggle-switch input:checked + .toggle-slider:before {
             transform: translateX(20px);
         }
-        .bg-option {
-            width: 100%;
-            aspect-ratio: 16/9;
-            border-radius: 8px;
-            border: 2px solid transparent;
-            cursor: pointer;
-            object-fit: cover;
-            transition: all 0.3s ease;
+        .avatar-option:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(255,102,255,0.5);
         }
         .bg-option:hover {
-            border-color: rgba(255,102,255,0.5);
-        }
-        .bg-option.selected {
-            border-color: #ff66ff;
-            box-shadow: 0 0 10px rgba(255,102,255,0.5);
-        }
-        .avatar-option {
-            width: 100%;
-            aspect-ratio: 1;
-            border-radius: 8px;
-            border: 2px solid transparent;
-            cursor: pointer;
-            object-fit: cover;
-            transition: all 0.3s ease;
-            background: rgba(0,0,0,0.3);
-        }
-        .avatar-option:hover {
-            border-color: rgba(255,102,255,0.5);
-        }
-        .avatar-option.selected {
-            border-color: #ff66ff;
-            box-shadow: 0 0 10px rgba(255,102,255,0.5);
-        }
-        #settings-btn:hover {
-            border-color: rgba(255,102,255,0.8);
-            transform: scale(1.1);
-            box-shadow: 0 0 25px rgba(255,102,255,0.5);
-        }
-        #request-stage-btn-panel:hover {
-            transform: scale(1.02);
-            box-shadow: 0 0 25px rgba(255,0,102,0.7);
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(102,255,255,0.5);
         }
     `;
     document.head.appendChild(style);
-    
-    // アバター選択肢を生成
-    const avatarSelection = document.getElementById('avatar-selection');
-    CHARA_LIST.forEach(name => {
-        const ext = CHARA_EXTENSIONS[name] || 'png';
-        const img = document.createElement('img');
-        img.src = `${CHARA_BASE_URL}${name}.${ext}`;
-        img.className = 'avatar-option';
-        img.title = name;
-        img.onclick = () => {
-            document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
-            img.classList.add('selected');
-            currentSettings.selectedAvatar = name;
-            if (callbacks.onAvatarChange) {
-                callbacks.onAvatarChange(name);
-            }
-        };
-        avatarSelection.appendChild(img);
-    });
-    
-    // 背景選択肢を生成
-    const bgSelection = document.getElementById('background-selection');
-    STAGE_BACKGROUNDS.forEach(bg => {
-        const img = document.createElement('img');
-        img.src = `${STAGE_BASE_URL}${bg.file}`;
-        img.className = 'bg-option';
-        img.title = bg.name;
-        img.onclick = () => {
-            document.querySelectorAll('.bg-option').forEach(el => el.classList.remove('selected'));
-            img.classList.add('selected');
-            if (callbacks.onChangeBackground) {
-                callbacks.onChangeBackground(bg.file);
-            }
-        };
-        bgSelection.appendChild(img);
-    });
-    
-    // イベントリスナー
-    settingsBtn.onclick = () => {
-        overlay.style.display = 'block';
-        setTimeout(() => {
-            overlay.style.opacity = '1';
-            panel.style.right = '0';
-        }, 10);
-    };
-    
-    const closeSettings = () => {
-        overlay.style.opacity = '0';
-        panel.style.right = '-350px';
-        setTimeout(() => {
-            overlay.style.display = 'none';
-        }, 300);
-    };
-    
-    document.getElementById('close-settings').onclick = closeSettings;
-    overlay.onclick = closeSettings;
-    
-    // 登壇リクエストボタン
-    document.getElementById('request-stage-btn-panel').onclick = () => {
-        if (callbacks.onRequestSpeak) {
-            callbacks.onRequestSpeak();
-        }
-    };
-    
-    // 名前保存
-    document.getElementById('save-name-btn').onclick = () => {
-        const newName = document.getElementById('user-name-input').value.trim();
-        if (newName && newName !== currentSettings.userName) {
-            currentSettings.userName = newName;
-            if (callbacks.onNameChange) {
-                callbacks.onNameChange(newName);
-            }
-        }
-    };
-    
-    // 名前表示切替
-    document.getElementById('show-names-toggle').onchange = (e) => {
-        currentSettings.visibleNames = e.target.checked;
-        if (callbacks.onShowNamesChange) {
-            callbacks.onShowNamesChange(e.target.checked);
-        }
-    };
-    
-    // 通知切替
-    document.getElementById('notifications-toggle').onchange = (e) => {
-        currentSettings.notifications = e.target.checked;
-    };
-    
-    // カメラリセット
-    document.getElementById('reset-camera-btn').onclick = () => {
-        if (callbacks.onResetCamera) {
-            callbacks.onResetCamera();
-        }
-        showNotification('カメラをリセットしました', 'info');
-    };
-    
-    // 主催者ログイン
-    document.getElementById('host-login-btn').onclick = () => {
-        const password = document.getElementById('host-password-input').value.trim();
-        
-        if (password === HOST_PASSWORD) {
-            isHost = true;
-            document.getElementById('host-login-area').style.display = 'none';
-            document.getElementById('host-menu-area').style.display = 'block';
-            showNotification('主催者モードが有効になりました', 'success');
-        } else {
-            showNotification('パスワードが正しくありません', 'error');
-        }
-    };
-    
-    // 主催者ログアウト
-    document.getElementById('host-logout-btn').onclick = () => {
-        isHost = false;
-        document.getElementById('host-login-area').style.display = 'block';
-        document.getElementById('host-menu-area').style.display = 'none';
-        document.getElementById('host-password-input').value = '';
-        showNotification('ログアウトしました', 'info');
-    };
-    
-    // 明るさ調整（0〜200%）
-    document.getElementById('brightness-slider').oninput = (e) => {
-        const value = e.target.value;
-        document.getElementById('brightness-value').textContent = `${value}%`;
-        if (callbacks.onBrightnessChange) {
-            callbacks.onBrightnessChange(value / 100);
-        }
-    };
-    
-    // アナウンス送信
-    document.getElementById('send-announce-btn').onclick = () => {
-        const message = document.getElementById('announce-input').value.trim();
-        if (message) {
-            if (callbacks.onAnnounce) {
-                callbacks.onAnnounce(message);
-            }
-            document.getElementById('announce-input').value = '';
-        }
-    };
 }
 
-// グローバル関数
+// グローバル関数（主催者用）
 window.approveSpeak = (userId) => {
     if (callbacks.onApproveSpeak) {
         callbacks.onApproveSpeak(userId);
@@ -626,5 +587,4 @@ window.kickSpeaker = (userId) => {
     }
 };
 
-// エクスポート
 export { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers, updateUserCount };

@@ -380,7 +380,7 @@ function createMirrorBall() {
 }
 
 // --------------------------------------------
-// Zepp風ステージ
+// Zepp風ステージ（修正版：Zファイティング対策）
 // --------------------------------------------
 function createZeppStage() {
     const stageGeometry = new THREE.BoxGeometry(16, 1.2, 6);
@@ -408,14 +408,22 @@ function createZeppStage() {
     underLight.position.set(0, 0.02, -3.2);
     scene.add(underLight);
 
-    // LEDスクリーン
+    // ★★★ 修正：フレームを先に配置（奥に） ★★★
+    const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(14.4, 6.4, 0.3),
+        new THREE.MeshStandardMaterial({ color: 0x111111 })
+    );
+    frame.position.set(0, 4, -9.2);  // 奥に移動
+    scene.add(frame);
+
+    // ★★★ 修正：LEDスクリーンをフレームの手前に配置 ★★★
     const screenGeometry = new THREE.PlaneGeometry(14, 6);
-    const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x330066, side: THREE.DoubleSide });
+    const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x330066, side: THREE.FrontSide });
     ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
-    ledScreen.position.set(0, 4, -8.5);
+    ledScreen.position.set(0, 4, -9);  // フレームより手前（z=-9 vs z=-9.2）
     scene.add(ledScreen);
     
-    // 背景画像読み込み（モザイク対策）
+    // 背景画像読み込み
     const loader = new THREE.TextureLoader();
     loader.load(stageBackgroundUrl, function(texture) {
         texture.colorSpace = THREE.SRGBColorSpace;
@@ -429,20 +437,12 @@ function createZeppStage() {
         ledScreen.material.dispose();
         ledScreen.material = new THREE.MeshBasicMaterial({ 
             map: texture, 
-            side: THREE.DoubleSide 
+            side: THREE.FrontSide  // 片面だけ描画（Zファイティング軽減）
         });
         debugLog('背景画像ロード成功', 'success');
     }, undefined, function(err) {
         debugLog('背景画像ロード失敗: ' + err, 'warn');
     });
-
-    // フレーム
-    const frame = new THREE.Mesh(
-        new THREE.BoxGeometry(14.4, 6.4, 0.2),
-        new THREE.MeshStandardMaterial({ color: 0x111111 })
-    );
-    frame.position.set(0, 4, -8.6);
-    scene.add(frame);
 
     // ステージを照らすライト
     const stageLight = new THREE.SpotLight(0xffffff, 2, 20, Math.PI / 4, 0.5);
@@ -471,7 +471,7 @@ export function changeStageBackground(imageUrl) {
             ledScreen.material.dispose();
             ledScreen.material = new THREE.MeshBasicMaterial({ 
                 map: texture, 
-                side: THREE.DoubleSide 
+                side: THREE.FrontSide
             });
             debugLog('背景変更成功', 'success');
         }

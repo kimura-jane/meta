@@ -63,6 +63,9 @@ let subscriberSessionId = null;
 const subscribedTracks = new Map();
 const pendingSubscriptions = new Map();
 
+// 現在購読中のトラック情報（ontrack用）
+let currentSubscribingTrack = null;
+
 let speakerCount = 0;
 
 let turnCredentials = null;
@@ -148,6 +151,7 @@ function showAudioUnlockButton() {
         for (const [trackName, obj] of subscribedTracks) {
             if (obj.audio) {
                 try {
+                    obj.audio.muted = false;
                     await obj.audio.play();
                     debugLog(`音声再生成功: ${trackName}`, 'success');
                 } catch (e) {
@@ -373,10 +377,8 @@ function handleServerMessage(data) {
             isSpeaker = true;
             speakerCount++;
             updateSpeakerButton();
-            // 登壇時に他の音声をミュート（エコー対策）
-            muteAllRemoteAudio();
             startPublishing();
-            addChatMessage('システム', '登壇が承認されました！（エコー対策で他の音声をミュートしました）');
+            addChatMessage('システム', '登壇が承認されました！');
             break;
 
         case 'speakDenied':
@@ -471,32 +473,8 @@ function stopSpeaking() {
     myPublishedTrackName = null;
     updateSpeakerButton();
     
-    // 登壇終了時に他の音声をミュート解除
-    unmuteAllRemoteAudio();
-    
     socket.send(JSON.stringify({ type: 'stopSpeak' }));
     addChatMessage('システム', '登壇を終了しました');
-}
-
-// --------------------------------------------
-// エコー対策: リモート音声のミュート/ミュート解除
-// --------------------------------------------
-function muteAllRemoteAudio() {
-    debugLog('エコー対策: 他の音声をミュート', 'info');
-    subscribedTracks.forEach((obj, trackName) => {
-        if (obj.audio) {
-            obj.audio.volume = 0;
-        }
-    });
-}
-
-function unmuteAllRemoteAudio() {
-    debugLog('他の音声をミュート解除', 'info');
-    subscribedTracks.forEach((obj, trackName) => {
-        if (obj.audio) {
-            obj.audio.volume = 1;
-        }
-    });
 }
 
 async function startPublishing() {
@@ -510,9 +488,7 @@ async function startPublishing() {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: 48000,
-                    channelCount: 1
+                    autoGainControl: true
                 }, 
                 video: false 
             });
@@ -528,7 +504,6 @@ async function startPublishing() {
             isSpeaker = false;
             mySessionId = null;
             updateSpeakerButton();
-            unmuteAllRemoteAudio();
             socket.send(JSON.stringify({ type: 'stopSpeak' }));
             return;
         }
@@ -625,6 +600,7 @@ async function handleTrackPublished(data) {
         debugLog('setRemoteDescription成功！', 'success');
         addChatMessage('システム', '音声配信を開始しました');
         
+        setTimeout(resumeAllAudio, 100);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
     }
@@ -683,6 +659,12 @@ async function handleSubscribed(data) {
         debugLog(`対応する購読待ちが見つからない: ${trackName}`, 'error');
         return;
     }
+    
+    // ontrack用に現在のトラック情報を保存
+    currentSubscribingTrack = {
+        trackName: trackName,
+        odUserId: pendingInfo.odUserId
+    };
     
     try {
         const needNewPC = !subscriberPC || 
@@ -801,6 +783,7 @@ async function handleSubscribed(data) {
         }));
         debugLog('subscribeAnswer送信完了', 'success');
         
+        // 購読完了を登録
         pendingSubscriptions.delete(trackName);
         subscribedTracks.set(trackName, { 
             odUserId: pendingInfo.odUserId, 
@@ -812,26 +795,29 @@ async function handleSubscribed(data) {
         debugLog(`handleSubscribedエラー: ${e.message}`, 'error');
         console.error(e);
         pendingSubscriptions.delete(trackName);
+        currentSubscribingTrack = null;
     }
 }
 
 function handleRemoteTrack(event) {
     debugLog(`リモートトラック受信: kind=${event.track.kind}, id=${event.track.id}`, 'success');
     
+    if (event.track.kind !== 'audio') {
+        debugLog('audioトラックではないのでスキップ', 'info');
+        return;
+    }
+    
     const audio = new Audio();
     audio.srcObject = event.streams[0] || new MediaStream([event.track]);
     audio.autoplay = true;
-    
-    // エコー対策: 自分が登壇中なら音量0
-    if (isSpeaker) {
-        audio.volume = 0;
-        debugLog('登壇中のためリモート音声をミュート', 'info');
-    }
+    audio.playsInline = true;
     
     audio.play()
         .then(() => {
             debugLog(`音声再生開始`, 'success');
             audioUnlocked = true;
+            const unlockBtn = document.getElementById('audio-unlock-btn');
+            if (unlockBtn) unlockBtn.remove();
         })
         .catch(e => {
             debugLog(`再生失敗（タップ必要）: ${e.message}`, 'warn');
@@ -840,16 +826,43 @@ function handleRemoteTrack(event) {
             }
         });
     
-    for (const [trackName, obj] of subscribedTracks) {
-        if (!obj.audio) {
-            obj.audio = audio;
-            debugLog(`${trackName}に音声を関連付け`, 'success');
+    // 現在購読中のトラック情報を使って紐付け
+    if (currentSubscribingTrack) {
+        const trackInfo = subscribedTracks.get(currentSubscribingTrack.trackName);
+        if (trackInfo) {
+            trackInfo.audio = audio;
+            debugLog(`${currentSubscribingTrack.trackName}に音声を関連付け`, 'success');
             
-            const avatar = remoteAvatars.get(obj.odUserId);
+            const avatar = remoteAvatars.get(trackInfo.odUserId);
             if (avatar) {
                 addSpeakerIndicator(avatar);
             }
-            break;
+        } else {
+            // まだsubscribedTracksに登録されていない場合は、直接登録
+            subscribedTracks.set(currentSubscribingTrack.trackName, {
+                odUserId: currentSubscribingTrack.odUserId,
+                audio: audio
+            });
+            debugLog(`${currentSubscribingTrack.trackName}を直接登録`, 'success');
+            
+            const avatar = remoteAvatars.get(currentSubscribingTrack.odUserId);
+            if (avatar) {
+                addSpeakerIndicator(avatar);
+            }
+        }
+    } else {
+        // フォールバック: audio: null のエントリを探す
+        for (const [trackName, obj] of subscribedTracks) {
+            if (!obj.audio) {
+                obj.audio = audio;
+                debugLog(`${trackName}に音声を関連付け（フォールバック）`, 'success');
+                
+                const avatar = remoteAvatars.get(obj.odUserId);
+                if (avatar) {
+                    addSpeakerIndicator(avatar);
+                }
+                break;
+            }
         }
     }
 }

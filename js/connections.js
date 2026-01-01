@@ -17,6 +17,7 @@ let socket = null;
 let connected = false;
 let myServerConnectionId = null;
 let turnCredentials = null;
+let currentUserName = '';
 
 let localStream = null;
 let peerConnection = null;
@@ -30,7 +31,7 @@ const pendingSubscriptions = new Map();
 let speakerCount = 0;
 let audioUnlocked = false;
 
-// コールバック（main.jsから設定）
+// コールバック
 let callbacks = {
     onUserJoin: null,
     onUserLeave: null,
@@ -40,7 +41,6 @@ let callbacks = {
     onSpeakerJoined: null,
     onSpeakerLeft: null,
     onConnectedChange: null,
-    THREE: null,
     remoteAvatars: null
 };
 
@@ -158,6 +158,7 @@ function resumeAllAudio() {
 // PartyKit接続
 // --------------------------------------------
 export function connectToPartyKit(userName) {
+    currentUserName = userName;
     const wsUrl = `wss://${PARTYKIT_HOST}/party/${ROOM_ID}?name=${encodeURIComponent(userName)}`;
     debugLog(`接続開始: ${PARTYKIT_HOST}`);
     
@@ -198,11 +199,11 @@ export function connectToPartyKit(userName) {
         subscribedTracks.clear();
         pendingSubscriptions.clear();
         
-        setTimeout(() => connectToPartyKit(userName), 3000);
+        setTimeout(() => connectToPartyKit(currentUserName), 3000);
     };
     
     socket.onerror = () => {
-        debugLog(`WebSocketエラー`, 'error');
+        debugLog('WebSocketエラー', 'error');
     };
 }
 
@@ -469,9 +470,9 @@ async function handleSubscribed(data) {
             const trackInfo = subscribedTracks.get(trackName);
             if (trackInfo) {
                 trackInfo.audio = audio;
-                if (callbacks.remoteAvatars && callbacks.THREE) {
+                if (callbacks.remoteAvatars) {
                     const avatar = callbacks.remoteAvatars.get(trackInfo.odUserId);
-                    if (avatar) addSpeakerIndicator(callbacks.THREE, avatar);
+                    if (avatar) addSpeakerIndicator(avatar);
                 }
             }
         };
@@ -522,10 +523,10 @@ function updateSpeakerList(speakers) {
     speakerCount = speakersArray.length;
     updateSpeakerButton();
     
-    if (callbacks.remoteAvatars && callbacks.THREE) {
+    if (callbacks.remoteAvatars) {
         callbacks.remoteAvatars.forEach((avatar, odUserId) => {
             if (speakersArray.includes(odUserId)) {
-                addSpeakerIndicator(callbacks.THREE, avatar);
+                addSpeakerIndicator(avatar);
             } else {
                 removeSpeakerIndicator(avatar);
             }

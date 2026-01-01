@@ -1,112 +1,108 @@
-// メタバース空間メインスクリプト (Three.js)
+// main.js - Metaverse空間のメインスクリプト
 
 import { initVenue, createAllVenue, animateVenue, changeStageBackground, setRoomBrightness } from './venue.js';
-import { 
-    connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange,
-    sendBackgroundChange, sendBrightness, requestSpeak, stopSpeaking, toggleMic, setCallbacks, getState
-} from './connection.js';
+import { connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange, sendBackgroundChange, sendBrightness, sendAnnounce, requestSpeak, stopSpeaking, toggleMic, approveSpeak, denySpeak, kickSpeaker, setCallbacks, getState } from './connection.js';
 import { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers } from './settings.js';
-import { createAvatar, setAvatarImage, setAvatarSpotlight, createPenlight, debugLog } from './utils.js';
+import { createAvatar, setAvatarImage, setAvatarSpotlight, createPenlight, addChatMessage, debugLog, createDebugUI } from './utils.js';
 
-// Three.js基本設定
+// Three.js
 let scene, camera, renderer;
-let myAvatar, myPenlight;
-let myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
-let myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
-let remoteAvatars = new Map();
+let clock;
 
-// アバター画像リスト
-const CHARA_LIST = [
-    '12444',
-    '12555',
-    'IMG_1677',
-    'IMG_1861',
-    'IMG_1889',
-    'IMG_2958',
-    'IMG_3264',
-    'IMG_3267',
-    'IMG_3269',
-    'IMG_7483',
-    'onigiriya_kanatake_512'
-];
-
+// アバター設定
+const CHARA_LIST = ['12444', '12555', 'IMG_1677', 'IMG_1861', 'IMG_1889', 'IMG_2958', 'IMG_3264', 'IMG_3267', 'IMG_3269', 'IMG_7483', 'onigiriya_kanatake_512'];
 const CHARA_EXTENSIONS = {
-    '12444': 'png',
-    '12555': 'png',
-    'IMG_1677': 'png',
-    'IMG_1861': 'png',
-    'IMG_1889': 'png',
-    'IMG_2958': 'png',
-    'IMG_3264': 'png',
-    'IMG_3267': 'png',
-    'IMG_3269': 'png',
-    'IMG_7483': 'png',
-    'onigiriya_kanatake_512': 'png'
+    '12444': 'png', '12555': 'png', 'IMG_1677': 'png', 'IMG_1861': 'png',
+    'IMG_1889': 'png', 'IMG_2958': 'png', 'IMG_3264': 'png', 'IMG_3267': 'png',
+    'IMG_3269': 'png', 'IMG_7483': 'png', 'onigiriya_kanatake_512': 'png'
 };
-
 const CHARA_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/chara/';
 
-// 状態管理
+// 背景設定
+const STAGE_BACKGROUNDS = [
+    { name: 'IMG_0967', file: 'IMG_0967.png' },
+    { name: 'IMG_3273', file: 'IMG_3273.jpeg' },
+    { name: 'IMG_3274', file: 'IMG_3274.jpeg' },
+    { name: 'IMG_3275', file: 'IMG_3275.jpeg' },
+    { name: 'IMG_9719', file: 'IMG_9719.jpeg' }
+];
+const STAGE_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/stage/';
+
+// ローカルユーザー
+let myUserId = 'user_' + Math.random().toString(36).substr(2, 9);
+let myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
+let myAvatar = null;
+let myPenlight = null;
+let myAvatarImage = null;
+
+// リモートユーザー
+const remoteAvatars = new Map();
+
+// 状態
 let isOnStage = false;
 let isPenlightActive = false;
 let isOtageiActive = false;
 let penlightColor = '#ff00ff';
-let penlightInterval = null;
-let otageiInterval = null;
+let penlightLongPressTimer = null;
+let otageiAnimationId = null;
+let otageiBaseY = 0;
+
+// カメラ追従用
+let cameraFollowMode = 'normal'; // 'normal' or 'stage'
+let normalCameraOffset = new THREE.Vector3(0, 3, 8);
 
 // 初期化
-function init() {
-    // シーン作成
+async function init() {
+    debugLog('Initializing...');
+    createDebugUI();
+
+    // Three.js セットアップ
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0010);
-    scene.fog = new THREE.Fog(0x0a0010, 30, 80);
-    
-    // カメラ
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 8, 25);
-    camera.lookAt(0, 3, 0);
-    
-    // レンダラー
+    scene.background = new THREE.Color(0x000011);
+    scene.fog = new THREE.Fog(0x000011, 20, 80);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 3, 10);
+
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.getElementById('canvas-container').appendChild(renderer.domElement);
-    
+
+    clock = new THREE.Clock();
+
     // 会場作成
     initVenue(scene);
     createAllVenue();
-    
+
     // 自分のアバター作成
-    myAvatar = createAvatar(myUserId, myUserName, 0x00ffff);
-    myAvatar.position.set(0, 0, 15);
-    scene.add(myAvatar);
-    
+    myAvatar = createAvatar(scene, myUserId);
+    myAvatar.position.set((Math.random() - 0.5) * 10, 0, 5 + Math.random() * 5);
+
     // ペンライト作成
-    myPenlight = createPenlight(0xff00ff);
-    myAvatar.add(myPenlight);
+    myPenlight = createPenlight(scene);
     myPenlight.visible = false;
-    
+
     // 設定初期化
     initSettings(myUserName, {
         onNameChange: (newName) => {
             myUserName = newName;
-            myAvatar.userData.userName = newName;
             sendNameChange(newName);
+            showNotification(`名前を「${newName}」に変更しました`, 'success');
         },
-        onAvatarChange: (avatarId) => {
-            const ext = CHARA_EXTENSIONS[avatarId] || 'png';
-            const url = `${CHARA_BASE_URL}${avatarId}.${ext}`;
-            setAvatarImage(myAvatar, url);
+        onAvatarChange: (avatarName) => {
+            const ext = CHARA_EXTENSIONS[avatarName] || 'png';
+            const imageUrl = `${CHARA_BASE_URL}${avatarName}.${ext}`;
+            setAvatarImage(myAvatar, imageUrl);
+            myAvatarImage = avatarName;
+            showNotification(`アバターを変更しました`, 'success');
         },
-        onResetCamera: () => {
-            camera.position.set(0, 8, 25);
-            camera.lookAt(0, 3, 0);
-        },
-        onChangeBackground: (url) => {
-            changeStageBackground(url);
-            sendBackgroundChange(url);
+        onChangeBackground: (bgFile) => {
+            const imageUrl = `${STAGE_BASE_URL}${bgFile}`;
+            changeStageBackground(imageUrl);
+            sendBackgroundChange(imageUrl);
+            showNotification('背景を変更しました', 'success');
         },
         onBrightnessChange: (value) => {
             setRoomBrightness(value);
@@ -114,101 +110,103 @@ function init() {
         },
         onRequestSpeak: () => {
             requestSpeak();
+            showNotification('登壇リクエストを送信しました', 'info');
         },
         onApproveSpeak: (userId) => {
-            // approveSpeak(userId) from connection.js
+            approveSpeak(userId);
         },
         onDenySpeak: (userId) => {
-            // denySpeak(userId) from connection.js
+            denySpeak(userId);
         },
         onKickSpeaker: (userId) => {
-            // kickSpeaker(userId) from connection.js
+            kickSpeaker(userId);
         },
         onAnnounce: (message) => {
-            sendChat('📢 運営', message);
-        },
-        onShowNamesChange: (visible) => {
-            // 名前表示切替
+            sendAnnounce(message);
+            showNotification('アナウンスを送信しました', 'success');
         }
     });
-    
-    // 接続設定
+
+    // 接続セットアップ
     setupConnection();
-    
-    // UI設定
+
+    // UI セットアップ
     setupChatUI();
     setupActionButtons();
     setupSpeakerControls();
-    
-    // イベント
-    window.addEventListener('resize', onWindowResize);
     setupTouchControls();
-    
-    // 初期値設定
-    updateUserCount();
-    updateSpeakerCount(0);
-    
+
+    // リサイズ対応
+    window.addEventListener('resize', onWindowResize);
+
     // アニメーション開始
     animate();
-    
-    debugLog('初期化完了', 'success');
+
+    // 初期ユーザー数
+    updateUserCount();
+    updateSpeakerCount(0);
+
+    debugLog('Initialization complete');
 }
 
-// ペンライトの色変更
-function setPenlightColor(color) {
-    penlightColor = color;
-    const light = myPenlight.getObjectByName('penlightLight');
-    const pointLight = myPenlight.getObjectByName('penlightPointLight');
-    if (light) light.material.color.set(color);
-    if (pointLight) pointLight.color.set(color);
-}
-
-// 接続設定
+// 接続セットアップ
 function setupConnection() {
     setCallbacks({
-        onUserJoin: (user) => {
-            if (user.id === myUserId) return;
-            
-            const avatar = createAvatar(user.id, user.name, getRandomColor());
-            avatar.position.set(user.x || 0, user.y || 0, user.z || 15);
-            scene.add(avatar);
-            remoteAvatars.set(user.id, avatar);
-            
-            updateUserCount();
-            if (getSettings().notifications) {
-                showNotification(`${user.name} が参加しました`, 'info');
+        onUserJoin: (userId, userName) => {
+            debugLog(`User joined: ${userId} (${userName})`);
+            if (!remoteAvatars.has(userId)) {
+                const avatar = createAvatar(scene, userId);
+                avatar.position.set((Math.random() - 0.5) * 10, 0, 5 + Math.random() * 5);
+                remoteAvatars.set(userId, { avatar, userName });
             }
+            updateUserCount();
         },
         onUserLeave: (userId) => {
-            const avatar = remoteAvatars.get(userId);
-            if (avatar) {
-                scene.remove(avatar);
+            debugLog(`User left: ${userId}`);
+            const userData = remoteAvatars.get(userId);
+            if (userData) {
+                scene.remove(userData.avatar);
                 remoteAvatars.delete(userId);
-                updateUserCount();
             }
+            updateUserCount();
         },
         onPosition: (userId, x, y, z) => {
-            const avatar = remoteAvatars.get(userId);
-            if (avatar) {
-                avatar.position.set(x, y, z);
+            const userData = remoteAvatars.get(userId);
+            if (userData) {
+                userData.avatar.position.set(x, y, z);
             }
         },
-        onReaction: (userId, reaction, color) => {
-            const avatar = remoteAvatars.get(userId);
-            if (avatar) {
-                // リアクション処理（他ユーザーのペンライト等）
-            }
+        onReaction: (userId, reactionType, color) => {
+            debugLog(`Reaction from ${userId}: ${reactionType}`);
+            // リアクションエフェクト処理
         },
-        onChat: (name, message, senderId) => {
+        onChat: (userId, userName, message) => {
+            // 自分のメッセージは送信時に表示済みなのでスキップ
             const state = getState();
-            if (senderId === state.myServerConnectionId) return;
-            addChatMessage(name, message);
+            if (userId !== state.myServerConnectionId) {
+                addChatMessage(userName, message);
+            }
         },
-        onBackgroundChange: (url) => {
-            changeStageBackground(url);
+        onSpeakApproved: () => {
+            debugLog('Speak approved!');
+            isOnStage = true;
+            moveToStage();
+            showSpeakerControls(true);
+            showNotification('登壇が承認されました！', 'success');
         },
-        onBrightnessChange: (value) => {
-            setRoomBrightness(value);
+        onSpeakerJoined: (userId, userName) => {
+            debugLog(`Speaker joined: ${userId}`);
+            const userData = remoteAvatars.get(userId);
+            if (userData) {
+                setAvatarSpotlight(userData.avatar, true);
+            }
+        },
+        onSpeakerLeft: (userId) => {
+            debugLog(`Speaker left: ${userId}`);
+            const userData = remoteAvatars.get(userId);
+            if (userData) {
+                setAvatarSpotlight(userData.avatar, false);
+            }
         },
         onSpeakRequestsUpdate: (requests) => {
             updateSpeakRequests(requests);
@@ -217,89 +215,76 @@ function setupConnection() {
             updateCurrentSpeakers(speakers);
             updateSpeakerCount(speakers.length);
         },
-        onSpeakApproved: () => {
-            isOnStage = true;
-            document.getElementById('speaker-controls').classList.remove('hidden');
-            showNotification('登壇が承認されました！', 'success');
-            moveToStage();
-        },
-        onSpeakerJoined: (userId) => {
-            const avatar = remoteAvatars.get(userId);
-            if (avatar) {
-                setAvatarSpotlight(avatar, true);
-            }
-            updateUserCount();
-        },
-        onSpeakerLeft: (userId) => {
-            const avatar = remoteAvatars.get(userId);
-            if (avatar) {
-                setAvatarSpotlight(avatar, false);
-            }
-            
-            const state = getState();
-            if (userId === state.myServerConnectionId) {
-                isOnStage = false;
-                document.getElementById('speaker-controls').classList.add('hidden');
-                moveToAudience();
-            }
-            updateUserCount();
-        },
-        onConnectedChange: (connected) => {
-            if (connected) {
-                updateUserCount();
-                showNotification('接続しました', 'success');
-            } else {
-                showNotification('接続が切断されました', 'error');
-            }
-        },
         onAnnounce: (message) => {
             showNotification(`📢 ${message}`, 'info');
-            addChatMessage('📢 運営', message);
+        },
+        onBackgroundChange: (imageUrl) => {
+            changeStageBackground(imageUrl);
+        },
+        onBrightnessChange: (value) => {
+            setRoomBrightness(value);
         },
         remoteAvatars: remoteAvatars
     });
-    
+
     connectToPartyKit(myUserName);
 }
 
-// ステージに移動（ステージはZ=-6〜-3、高さY=1.2）
+// ステージへ移動
 function moveToStage() {
     const targetX = (Math.random() - 0.5) * 10;
     const targetZ = -5;
-    animateMove(myAvatar, targetX, 1.2, targetZ);
-    setAvatarSpotlight(myAvatar, true);
+    const targetY = 1.2;
+
+    animateMove(myAvatar, targetX, targetY, targetZ, () => {
+        setAvatarSpotlight(myAvatar, true);
+        sendPosition(targetX, targetY, targetZ);
+
+        // 1秒後にカメラを観客席向きに切り替え
+        setTimeout(() => {
+            cameraFollowMode = 'stage';
+            camera.position.set(targetX, 4, -8);
+            camera.lookAt(targetX, 2, 10);
+        }, 1000);
+    });
 }
 
-// 観客席に戻る
+// 観客席へ移動
 function moveToAudience() {
     const targetX = (Math.random() - 0.5) * 10;
     const targetZ = 5 + Math.random() * 5;
-    animateMove(myAvatar, targetX, 0, targetZ);
-    setAvatarSpotlight(myAvatar, false);
+    const targetY = 0;
+
+    animateMove(myAvatar, targetX, targetY, targetZ, () => {
+        setAvatarSpotlight(myAvatar, false);
+        sendPosition(targetX, targetY, targetZ);
+
+        // カメラを通常モードに戻す
+        cameraFollowMode = 'normal';
+    });
 }
 
-// アニメーション移動
-function animateMove(avatar, targetX, targetY, targetZ) {
+// スムーズ移動アニメーション
+function animateMove(avatar, targetX, targetY, targetZ, onComplete) {
     const startX = avatar.position.x;
     const startY = avatar.position.y;
     const startZ = avatar.position.z;
     const duration = 1000;
     const startTime = Date.now();
-    
+
     function update() {
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        
+        const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+
         avatar.position.x = startX + (targetX - startX) * eased;
         avatar.position.y = startY + (targetY - startY) * eased;
         avatar.position.z = startZ + (targetZ - startZ) * eased;
-        
+
         if (progress < 1) {
             requestAnimationFrame(update);
         } else {
-            // 移動完了後に位置を送信
-            sendPosition(avatar.position.x, avatar.position.y, avatar.position.z);
+            if (onComplete) onComplete();
         }
     }
     update();
@@ -307,210 +292,155 @@ function animateMove(avatar, targetX, targetY, targetZ) {
 
 // ユーザー数更新
 function updateUserCount() {
-    const count = remoteAvatars.size + 1;
+    const count = remoteAvatars.size + 1; // 自分 + リモート
     const el = document.getElementById('user-count');
-    if (el) el.textContent = `👥 ${count}`;
+    if (el) el.textContent = count;
 }
 
 // 登壇者数更新
 function updateSpeakerCount(count) {
     const el = document.getElementById('speaker-count');
-    if (el) el.textContent = `🎤 ${count}`;
+    if (el) el.textContent = count;
 }
 
-// チャットUI設定
+// チャットUIセットアップ
 function setupChatUI() {
     const form = document.getElementById('chat-form');
     const input = document.getElementById('chat-input');
-    
+
     form.addEventListener('submit', (e) => {
         e.preventDefault();
         const message = input.value.trim();
         if (message) {
-            sendChat(myUserName, message);
-            addChatMessage(myUserName, message);
+            sendChat(message);
+            addChatMessage(myUserName, message, true);
             input.value = '';
         }
     });
 }
 
-// チャットメッセージ追加
-function addChatMessage(name, message) {
-    const messages = document.getElementById('chat-messages');
-    const div = document.createElement('div');
-    div.className = 'chat-message';
-    div.innerHTML = `<span class="name">${name}</span><span class="text">${message}</span>`;
-    messages.appendChild(div);
-    messages.scrollTop = messages.scrollHeight;
-    
-    while (messages.children.length > 50) {
-        messages.removeChild(messages.firstChild);
-    }
-}
-
-// スピーカーコントロール設定
-function setupSpeakerControls() {
-    const micBtn = document.getElementById('mic-toggle-btn');
-    const leaveBtn = document.getElementById('leave-stage-btn');
-    
-    micBtn.addEventListener('click', () => {
-        const isMicOn = toggleMic();
-        if (isMicOn) {
-            micBtn.textContent = '🎙️ マイク ON';
-            micBtn.classList.remove('muted');
-        } else {
-            micBtn.textContent = '🔇 マイク OFF';
-            micBtn.classList.add('muted');
-        }
-    });
-    
-    leaveBtn.addEventListener('click', () => {
-        stopSpeaking();
-        isOnStage = false;
-        document.getElementById('speaker-controls').classList.add('hidden');
-        moveToAudience();
-        showNotification('降壇しました', 'info');
-    });
-}
-
-// アクションボタン設定
+// アクションボタンセットアップ
 function setupActionButtons() {
     const penlightBtn = document.getElementById('penlight-btn');
     const otageiBtn = document.getElementById('otagei-btn');
     const penlightColors = document.getElementById('penlight-colors');
-    
-    let pressTimer = null;
-    let isLongPress = false;
-    
-    const startPress = () => {
-        isLongPress = false;
-        pressTimer = setTimeout(() => {
-            isLongPress = true;
-            penlightColors.classList.remove('hidden');
-        }, 500);
-    };
-    
-    const endPress = () => {
-        if (pressTimer) {
-            clearTimeout(pressTimer);
-            pressTimer = null;
-        }
-    };
-    
-    penlightBtn.addEventListener('mousedown', startPress);
-    penlightBtn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        startPress();
-    });
-    penlightBtn.addEventListener('mouseup', endPress);
-    penlightBtn.addEventListener('mouseleave', endPress);
-    penlightBtn.addEventListener('touchend', (e) => {
-        endPress();
-        if (!isLongPress && penlightColors.classList.contains('hidden')) {
-            togglePenlight();
-        }
-    });
-    
+
+    // ペンライトボタン
     penlightBtn.addEventListener('click', () => {
-        if (!isLongPress && penlightColors.classList.contains('hidden')) {
-            togglePenlight();
+        if (penlightLongPressTimer) return; // 長押し中はスキップ
+
+        isPenlightActive = !isPenlightActive;
+        myPenlight.visible = isPenlightActive;
+        penlightBtn.classList.toggle('active', isPenlightActive);
+
+        if (isPenlightActive) {
+            updatePenlightPosition();
+            sendReaction('penlight', penlightColor);
         }
     });
-    
+
+    // 長押しで色選択パネル表示
+    penlightBtn.addEventListener('mousedown', startPenlightLongPress);
+    penlightBtn.addEventListener('touchstart', startPenlightLongPress);
+    penlightBtn.addEventListener('mouseup', cancelPenlightLongPress);
+    penlightBtn.addEventListener('touchend', cancelPenlightLongPress);
+    penlightBtn.addEventListener('mouseleave', cancelPenlightLongPress);
+
+    function startPenlightLongPress(e) {
+        e.preventDefault();
+        penlightLongPressTimer = setTimeout(() => {
+            penlightColors.classList.toggle('hidden');
+            penlightLongPressTimer = null;
+        }, 500);
+    }
+
+    function cancelPenlightLongPress() {
+        if (penlightLongPressTimer) {
+            clearTimeout(penlightLongPressTimer);
+            penlightLongPressTimer = null;
+        }
+    }
+
+    // 色選択
     document.querySelectorAll('.color-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const color = btn.dataset.color;
-            setPenlightColor(color);
+            penlightColor = btn.dataset.color;
             document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
+            updatePenlightColor();
             penlightColors.classList.add('hidden');
-            
-            if (!isPenlightActive) {
-                togglePenlight();
-            }
         });
     });
-    
-    document.addEventListener('click', (e) => {
-        if (!penlightBtn.contains(e.target) && !penlightColors.contains(e.target)) {
-            penlightColors.classList.add('hidden');
+
+    // オタ芸ボタン
+    otageiBtn.addEventListener('click', () => {
+        isOtageiActive = !isOtageiActive;
+        otageiBtn.classList.toggle('active', isOtageiActive);
+
+        if (isOtageiActive) {
+            startOtageiAnimation();
+            sendReaction('otagei', null);
+        } else {
+            stopOtageiAnimation();
         }
     });
-    
-    otageiBtn.addEventListener('click', toggleOtagei);
 }
 
-// ペンライトON/OFF
-function togglePenlight() {
-    isPenlightActive = !isPenlightActive;
-    const btn = document.getElementById('penlight-btn');
-    
-    if (isPenlightActive) {
-        btn.classList.add('active');
-        myPenlight.visible = true;
-        startPenlightAnimation();
-        sendReaction('penlight', penlightColor);
-    } else {
-        btn.classList.remove('active');
-        myPenlight.visible = false;
-        stopPenlightAnimation();
-        sendReaction('penlight_off', null);
+// ペンライト位置更新
+function updatePenlightPosition() {
+    if (myPenlight && myAvatar) {
+        myPenlight.position.set(
+            myAvatar.position.x + 0.5,
+            myAvatar.position.y + 2,
+            myAvatar.position.z
+        );
     }
 }
 
-// ペンライトアニメーション開始
-function startPenlightAnimation() {
-    if (penlightInterval) clearInterval(penlightInterval);
-    penlightInterval = setInterval(() => {
-        const time = Date.now() * 0.005;
-        myPenlight.rotation.z = Math.sin(time) * 0.5;
-    }, 16);
-}
-
-// ペンライトアニメーション停止
-function stopPenlightAnimation() {
-    if (penlightInterval) {
-        clearInterval(penlightInterval);
-        penlightInterval = null;
-    }
-    myPenlight.rotation.z = 0;
-}
-
-// オタ芸ON/OFF
-function toggleOtagei() {
-    isOtageiActive = !isOtageiActive;
-    const btn = document.getElementById('otagei-btn');
-    
-    if (isOtageiActive) {
-        btn.classList.add('active');
-        startOtageiAnimation();
-        sendReaction('otagei', null);
-    } else {
-        btn.classList.remove('active');
-        stopOtageiAnimation();
-        sendReaction('otagei_off', null);
+// ペンライト色更新
+function updatePenlightColor() {
+    if (myPenlight) {
+        const light = myPenlight.children.find(c => c.isPointLight);
+        if (light) {
+            light.color.setStyle(penlightColor);
+        }
+        const mesh = myPenlight.children.find(c => c.isMesh);
+        if (mesh) {
+            mesh.material.emissive.setStyle(penlightColor);
+        }
     }
 }
 
 // オタ芸アニメーション開始
 function startOtageiAnimation() {
-    if (otageiInterval) clearInterval(otageiInterval);
-    const baseY = myAvatar.position.y;
-    otageiInterval = setInterval(() => {
-        const time = Date.now() * 0.01;
-        myAvatar.rotation.y = Math.sin(time) * 0.3;
-        myAvatar.position.y = baseY + Math.abs(Math.sin(time * 2)) * 0.3;
-    }, 16);
+    otageiBaseY = myAvatar.position.y;
+    let time = 0;
+
+    function animateOtagei() {
+        if (!isOtageiActive) return;
+
+        time += 0.15;
+        const jumpHeight = Math.abs(Math.sin(time)) * 0.5;
+        myAvatar.position.y = otageiBaseY + jumpHeight;
+
+        // ペンライトも一緒に動かす
+        if (isPenlightActive) {
+            updatePenlightPosition();
+            myPenlight.rotation.z = Math.sin(time * 2) * 0.5;
+        }
+
+        otageiAnimationId = requestAnimationFrame(animateOtagei);
+    }
+    animateOtagei();
 }
 
 // オタ芸アニメーション停止
 function stopOtageiAnimation() {
-    if (otageiInterval) {
-        clearInterval(otageiInterval);
-        otageiInterval = null;
+    if (otageiAnimationId) {
+        cancelAnimationFrame(otageiAnimationId);
+        otageiAnimationId = null;
     }
-    myAvatar.rotation.y = 0;
-    // ステージ上なら高さを維持
+    // 元の高さに戻す
     if (isOnStage) {
         myAvatar.position.y = 1.2;
     } else {
@@ -518,37 +448,106 @@ function stopOtageiAnimation() {
     }
 }
 
-// タッチコントロール
+// スピーカーコントロールセットアップ
+function setupSpeakerControls() {
+    const micBtn = document.getElementById('mic-toggle-btn');
+    const leaveBtn = document.getElementById('leave-stage-btn');
+
+    micBtn.addEventListener('click', () => {
+        toggleMic();
+        const state = getState();
+        micBtn.textContent = state.isMicMuted ? '🎙️ マイク OFF' : '🎙️ マイク ON';
+    });
+
+    leaveBtn.addEventListener('click', () => {
+        stopSpeaking();
+        isOnStage = false;
+        moveToAudience();
+        showSpeakerControls(false);
+        showNotification('降壇しました', 'info');
+    });
+}
+
+// スピーカーコントロール表示/非表示
+function showSpeakerControls(show) {
+    const controls = document.getElementById('speaker-controls');
+    if (controls) {
+        controls.classList.toggle('hidden', !show);
+    }
+}
+
+// タッチ操作セットアップ
 function setupTouchControls() {
-    let touchStartX = 0;
-    let touchStartY = 0;
-    
+    let isDragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
     const canvas = renderer.domElement;
-    
-    canvas.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1) {
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-        }
-    }, { passive: true });
-    
-    canvas.addEventListener('touchmove', (e) => {
-        if (e.touches.length === 1 && !isOnStage) {
-            const deltaX = e.touches[0].clientX - touchStartX;
-            const deltaY = e.touches[0].clientY - touchStartY;
-            
-            myAvatar.position.x += deltaX * 0.01;
-            myAvatar.position.z += deltaY * 0.01;
-            
+
+    canvas.addEventListener('mousedown', onPointerDown);
+    canvas.addEventListener('touchstart', onPointerDown);
+    canvas.addEventListener('mousemove', onPointerMove);
+    canvas.addEventListener('touchmove', onPointerMove);
+    canvas.addEventListener('mouseup', onPointerUp);
+    canvas.addEventListener('touchend', onPointerUp);
+
+    function onPointerDown(e) {
+        isDragging = true;
+        const pos = getPointerPosition(e);
+        lastX = pos.x;
+        lastY = pos.y;
+    }
+
+    function onPointerMove(e) {
+        if (!isDragging) return;
+
+        const pos = getPointerPosition(e);
+        const deltaX = (pos.x - lastX) * 0.02;
+        const deltaY = (pos.y - lastY) * 0.02;
+
+        if (isOnStage) {
+            // ステージ上: X方向のみ移動
+            let newX = myAvatar.position.x - deltaX;
+            newX = Math.max(-7, Math.min(7, newX)); // ステージ範囲内
+            myAvatar.position.x = newX;
+            sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
+
+            // ステージモードのカメラも追従
+            if (cameraFollowMode === 'stage') {
+                camera.position.x = myAvatar.position.x;
+                camera.lookAt(myAvatar.position.x, 2, 10);
+            }
+        } else {
+            // 観客席: 自由移動
+            myAvatar.position.x -= deltaX;
+            myAvatar.position.z += deltaY;
+
+            // 範囲制限
             myAvatar.position.x = Math.max(-15, Math.min(15, myAvatar.position.x));
-            myAvatar.position.z = Math.max(5, Math.min(25, myAvatar.position.z));
-            
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-            
+            myAvatar.position.z = Math.max(2, Math.min(15, myAvatar.position.z));
+
             sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
         }
-    }, { passive: true });
+
+        // ペンライト追従
+        if (isPenlightActive) {
+            updatePenlightPosition();
+        }
+
+        lastX = pos.x;
+        lastY = pos.y;
+    }
+
+    function onPointerUp() {
+        isDragging = false;
+    }
+
+    function getPointerPosition(e) {
+        if (e.touches && e.touches.length > 0) {
+            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+        return { x: e.clientX, y: e.clientY };
+    }
 }
 
 // ウィンドウリサイズ
@@ -558,27 +557,35 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// ランダムカラー
-function getRandomColor() {
-    const colors = [0xff66ff, 0x66ffff, 0xffff00, 0xff6666, 0x66ff66];
-    return colors[Math.floor(Math.random() * colors.length)];
-}
-
 // アニメーションループ
 function animate() {
     requestAnimationFrame(animate);
-    
+
+    const delta = clock.getDelta();
+
+    // 会場アニメーション
     animateVenue();
-    
+
     // カメラ追従
-    const targetX = myAvatar.position.x * 0.3;
-    const targetZ = myAvatar.position.z + 10;
-    camera.position.x += (targetX - camera.position.x) * 0.05;
-    camera.position.z += (targetZ - camera.position.z) * 0.05;
-    camera.lookAt(myAvatar.position.x, 3, myAvatar.position.z - 5);
-    
+    if (cameraFollowMode === 'normal' && myAvatar) {
+        const targetX = myAvatar.position.x;
+        const targetY = myAvatar.position.y + normalCameraOffset.y;
+        const targetZ = myAvatar.position.z + normalCameraOffset.z;
+
+        camera.position.x += (targetX - camera.position.x) * 0.05;
+        camera.position.y += (targetY - camera.position.y) * 0.05;
+        camera.position.z += (targetZ - camera.position.z) * 0.05;
+
+        camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
+    }
+
+    // ペンライトアニメーション
+    if (isPenlightActive && myPenlight) {
+        myPenlight.rotation.z = Math.sin(Date.now() * 0.003) * 0.3;
+    }
+
     renderer.render(scene, camera);
 }
 
-// 初期化実行
+// 開始
 init();

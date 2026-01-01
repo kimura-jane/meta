@@ -20,7 +20,7 @@ let lightTime = 0;
 let ambientLight;
 let roomBrightness = 0.6; // デフォルト60%
 
-let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/stage/IMG_3273.jpeg';
+let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/IMG_3206.jpeg';
 
 // 背景リスト
 const STAGE_BACKGROUNDS = [

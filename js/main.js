@@ -83,6 +83,14 @@ let movingLights = [];
 let ledScreen;
 let lightTime = 0;
 
+// ステージ背景画像URL（後から変更可能）
+let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/IMG_3206.jpeg';
+
+// 登壇者のステージ位置管理
+let isOnStage = false;
+let originalPosition = null;
+let originalCameraMode = 'audience'; // 'audience' or 'stage'
+
 const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
 const myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
 
@@ -383,6 +391,7 @@ function handleServerMessage(data) {
             speakerCount++;
             updateSpeakerButton();
             startPublishing();
+            moveToStage(); // ステージに移動！
             addChatMessage('システム', '登壇が承認されました！');
             break;
 
@@ -397,6 +406,8 @@ function handleServerMessage(data) {
             if (data.speakers) {
                 updateSpeakerList(data.speakers);
             }
+            // リモートの登壇者もステージに移動させる
+            moveRemoteToStage(joinedUserId);
             addChatMessage('システム', '新しい登壇者が参加しました');
             break;
 
@@ -407,6 +418,8 @@ function handleServerMessage(data) {
                 updateSpeakerList(data.speakers);
             }
             removeRemoteAudio(leftUserId);
+            // リモートの登壇者を客席に戻す
+            moveRemoteToAudience(leftUserId);
             break;
 
         case 'trackPublished':
@@ -450,6 +463,106 @@ function handleServerMessage(data) {
 }
 
 // --------------------------------------------
+// ステージ移動機能
+// --------------------------------------------
+function moveToStage() {
+    if (isOnStage) return;
+    
+    debugLog('ステージに移動開始', 'info');
+    
+    // 元の位置を保存
+    originalPosition = {
+        x: myAvatar.position.x,
+        z: myAvatar.position.z
+    };
+    originalCameraMode = 'audience';
+    
+    // ステージ上の位置を計算（最大5人なので横に並ぶ）
+    const stageX = (speakerCount - 1) * 2 - 4; // -4, -2, 0, 2, 4
+    const stageZ = -5; // ステージ上
+    const stageY = 1.7; // ステージの高さ + アバターの高さ
+    
+    // アニメーションでステージに移動
+    animateToPosition(myAvatar, stageX, stageY, stageZ, () => {
+        isOnStage = true;
+        // アバターを客席側に向ける
+        myAvatar.rotation.y = Math.PI;
+        debugLog('ステージ移動完了', 'success');
+    });
+}
+
+function moveOffStage() {
+    if (!isOnStage) return;
+    
+    debugLog('ステージから降りる', 'info');
+    
+    const targetX = originalPosition ? originalPosition.x : (Math.random() - 0.5) * 8;
+    const targetZ = originalPosition ? originalPosition.z : 5 + Math.random() * 3;
+    
+    // アニメーションで客席に戻る
+    animateToPosition(myAvatar, targetX, 0.5, targetZ, () => {
+        isOnStage = false;
+        myAvatar.rotation.y = 0; // 正面（ステージ側）を向く
+        originalPosition = null;
+        debugLog('客席に戻りました', 'success');
+    });
+}
+
+function moveRemoteToStage(odUserId) {
+    const avatar = remoteAvatars.get(odUserId);
+    if (!avatar) return;
+    
+    // ステージ上のランダムな位置
+    const stageX = (Math.random() - 0.5) * 8;
+    const stageZ = -5;
+    const stageY = 1.7;
+    
+    animateToPosition(avatar, stageX, stageY, stageZ, () => {
+        avatar.rotation.y = Math.PI; // 客席側を向く
+    });
+}
+
+function moveRemoteToAudience(odUserId) {
+    const avatar = remoteAvatars.get(odUserId);
+    if (!avatar) return;
+    
+    const targetX = (Math.random() - 0.5) * 8;
+    const targetZ = 5 + Math.random() * 3;
+    
+    animateToPosition(avatar, targetX, 0.5, targetZ, () => {
+        avatar.rotation.y = 0;
+    });
+}
+
+function animateToPosition(object, targetX, targetY, targetZ, onComplete) {
+    const startX = object.position.x;
+    const startY = object.position.y;
+    const startZ = object.position.z;
+    const duration = 1000; // 1秒
+    const startTime = Date.now();
+    
+    function animate() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // イージング（ease-out）
+        const eased = 1 - Math.pow(1 - progress, 3);
+        
+        object.position.x = startX + (targetX - startX) * eased;
+        object.position.y = startY + (targetY - startY) * eased;
+        object.position.z = startZ + (targetZ - startZ) * eased;
+        
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            if (onComplete) onComplete();
+        }
+    }
+    
+    animate();
+}
+
+// --------------------------------------------
 // 音声通話機能
 // --------------------------------------------
 async function requestSpeak() {
@@ -477,6 +590,8 @@ function stopSpeaking() {
     mySessionId = null;
     myPublishedTrackName = null;
     updateSpeakerButton();
+    
+    moveOffStage(); // ステージから降りる！
     
     socket.send(JSON.stringify({ type: 'stopSpeak' }));
     addChatMessage('システム', '登壇を終了しました');
@@ -1071,7 +1186,7 @@ function createZeppFloor() {
 }
 
 // --------------------------------------------
-// Zepp風ステージ
+// Zepp風ステージ（背景画像対応）
 // --------------------------------------------
 function createZeppStage() {
     // メインステージ（黒）
@@ -1106,10 +1221,42 @@ function createZeppStage() {
     underLight.position.set(0, 0.02, -3.2);
     scene.add(underLight);
 
-    // LEDスクリーン（背景）
+    // LEDスクリーン（背景画像）
     const screenGeometry = new THREE.PlaneGeometry(14, 6);
     
-    // グラデーションテクスチャを作成
+    // 画像をロード
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load(
+        stageBackgroundUrl,
+        (texture) => {
+            // 画像読み込み成功
+            debugLog('ステージ背景画像読み込み成功', 'success');
+            const screenMaterial = new THREE.MeshBasicMaterial({ 
+                map: texture,
+                side: THREE.DoubleSide
+            });
+            ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
+            ledScreen.position.set(0, 4, -8.9);
+            scene.add(ledScreen);
+        },
+        undefined,
+        (error) => {
+            // 画像読み込み失敗時はフォールバック
+            debugLog('ステージ背景画像読み込み失敗、フォールバック使用', 'warn');
+            createFallbackScreen(screenGeometry);
+        }
+    );
+
+    // スクリーンフレーム
+    const frameGeometry = new THREE.BoxGeometry(14.4, 6.4, 0.2);
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    frame.position.set(0, 4, -9);
+    scene.add(frame);
+}
+
+// フォールバック用のスクリーン（画像読み込み失敗時）
+function createFallbackScreen(screenGeometry) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 256;
@@ -1121,7 +1268,6 @@ function createZeppStage() {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 512, 256);
     
-    // グリッドパターン
     ctx.strokeStyle = 'rgba(255, 0, 255, 0.1)';
     ctx.lineWidth = 1;
     for (let i = 0; i < 512; i += 32) {
@@ -1145,14 +1291,31 @@ function createZeppStage() {
     ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
     ledScreen.position.set(0, 4, -8.9);
     scene.add(ledScreen);
-
-    // スクリーンフレーム
-    const frameGeometry = new THREE.BoxGeometry(14.4, 6.4, 0.2);
-    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
-    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
-    frame.position.set(0, 4, -9);
-    scene.add(frame);
 }
+
+// ステージ背景を変更する関数（後から呼び出し可能）
+function changeStageBackground(imageUrl) {
+    stageBackgroundUrl = imageUrl;
+    
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load(
+        imageUrl,
+        (texture) => {
+            if (ledScreen) {
+                ledScreen.material.map = texture;
+                ledScreen.material.needsUpdate = true;
+                debugLog(`ステージ背景変更: ${imageUrl}`, 'success');
+            }
+        },
+        undefined,
+        (error) => {
+            debugLog('背景画像読み込み失敗', 'error');
+        }
+    );
+}
+
+// グローバルに公開（コンソールから変更可能に）
+window.changeStageBackground = changeStageBackground;
 
 // --------------------------------------------
 // トラス（照明骨組み）
@@ -1526,74 +1689,20 @@ function setupEventListeners() {
 
     renderer.domElement.addEventListener('touchmove', (e) => {
         if (!touchStartX || !touchStartY) return;
+        
+        // ステージ上にいる場合は移動を制限
+        if (isOnStage) {
+            const deltaX = (e.touches[0].clientX - touchStartX) * 0.01;
+            myAvatar.position.x += deltaX;
+            myAvatar.position.x = Math.max(-6, Math.min(6, myAvatar.position.x));
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            return;
+        }
+        
         const deltaX = (e.touches[0].clientX - touchStartX) * 0.01;
         const deltaZ = (e.touches[0].clientY - touchStartY) * 0.01;
         myAvatar.position.x += deltaX;
         myAvatar.position.z += deltaZ;
         myAvatar.position.x = Math.max(-14, Math.min(14, myAvatar.position.x));
-        myAvatar.position.z = Math.max(-1, Math.min(12, myAvatar.position.z));
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-    });
-
-    renderer.domElement.addEventListener('touchend', () => {
-        touchStartX = null;
-        touchStartY = null;
-    });
-}
-
-function addChatMessage(name, message) {
-    const container = document.getElementById('chat-messages');
-    if (!container) return;
-    const div = document.createElement('div');
-    div.className = 'chat-message';
-    div.innerHTML = `<span class="name">${name}</span>${message}`;
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
-    while (container.children.length > 20) {
-        container.removeChild(container.firstChild);
-    }
-}
-
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-}
-
-// --------------------------------------------
-// ムービングライトアニメーション
-// --------------------------------------------
-function animateMovingLights() {
-    lightTime += 0.02;
-    
-    movingLights.forEach((ml, i) => {
-        // ライトの動き
-        const swingX = Math.sin(lightTime + ml.phase) * 3;
-        const swingZ = Math.cos(lightTime * 0.7 + ml.phase) * 2;
-        
-        ml.light.target.position.set(
-            ml.baseX + swingX,
-            0,
-            2 + swingZ
-        );
-    });
-}
-
-function animate() {
-    requestAnimationFrame(animate);
-    
-    // ムービングライトのアニメーション
-    animateMovingLights();
-    
-    if (myAvatar) {
-        const targetX = myAvatar.position.x * 0.3;
-        const targetZ = myAvatar.position.z + 8;
-        camera.position.x += (targetX - camera.position.x) * 0.05;
-        camera.position.z += (targetZ - camera.position.z) * 0.05;
-        camera.lookAt(myAvatar.position.x * 0.5, 2, myAvatar.position.z - 5);
-    }
-    renderer.render(scene, camera);
-}
-
-init();
+        myAvatar.position.z = Math.max(-1

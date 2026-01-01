@@ -12,6 +12,7 @@ let mirrorBall;
 let movingLights = [];
 let mirrorBallLights = [];
 let floorLightSpots = [];
+let speakerSpotlights = [];
 let lightTime = 0;
 
 let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/IMG_3206.jpeg';
@@ -29,6 +30,7 @@ export function createAllVenue() {
     createBarrier();
     createSideSpeakers();
     createMirrorBall();
+    createSpeakerSpotlights();
 }
 
 export function animateVenue() {
@@ -62,6 +64,72 @@ export function animateVenue() {
 }
 
 // --------------------------------------------
+// 登壇者用スポットライト
+// --------------------------------------------
+function createSpeakerSpotlights() {
+    const spotConfigs = [
+        { offsetX: -5, offsetZ: 4, color: 0xff66ff },
+        { offsetX: 5, offsetZ: 4, color: 0x66ffff },
+        { offsetX: 0, offsetZ: -3, color: 0xffffff }
+    ];
+    
+    spotConfigs.forEach((config) => {
+        const spotlight = new THREE.SpotLight(
+            config.color,
+            0,
+            20,
+            Math.PI / 8,
+            0.5,
+            1
+        );
+        spotlight.position.set(config.offsetX, 10, config.offsetZ);
+        spotlight.castShadow = true;
+        
+        const target = new THREE.Object3D();
+        target.position.set(0, 0, -5);
+        scene.add(target);
+        spotlight.target = target;
+        scene.add(spotlight);
+        
+        speakerSpotlights.push({
+            light: spotlight,
+            target: target,
+            offsetX: config.offsetX,
+            offsetZ: config.offsetZ
+        });
+    });
+    
+    debugLog('登壇者スポットライト作成', 'success');
+}
+
+export function updateSpeakerSpotlights(speakers) {
+    if (!speakers || speakers.length === 0) {
+        speakerSpotlights.forEach(s => {
+            s.light.intensity = 0;
+        });
+        return;
+    }
+    
+    let centerX = 0, centerZ = 0;
+    speakers.forEach(sp => {
+        centerX += sp.x;
+        centerZ += sp.z;
+    });
+    centerX /= speakers.length;
+    centerZ /= speakers.length;
+    
+    speakerSpotlights.forEach((s) => {
+        s.light.position.set(
+            centerX + s.offsetX,
+            10,
+            centerZ + s.offsetZ
+        );
+        s.target.position.set(centerX, 1.5, centerZ);
+        s.light.intensity = Math.min(3, 1.5 + speakers.length * 0.5);
+    });
+}
+
+// --------------------------------------------
 // Zepp風フロア
 // --------------------------------------------
 function createZeppFloor() {
@@ -74,7 +142,6 @@ function createZeppFloor() {
     floor.receiveShadow = true;
     scene.add(floor);
 
-    // ネオンライン
     [-8, -4, 0, 4, 8].forEach((x, i) => {
         const lineGeometry = new THREE.PlaneGeometry(0.05, 20);
         const lineMaterial = new THREE.MeshBasicMaterial({ 
@@ -86,7 +153,6 @@ function createZeppFloor() {
         scene.add(line);
     });
 
-    // 床の光スポット（ミラーボール反射）
     const spotColors = [0xff0066, 0xff00ff, 0x00ffff, 0xffff00, 0xff6600, 0x00ff66];
     for (let i = 0; i < 25; i++) {
         const spotGeo = new THREE.CircleGeometry(0.2 + Math.random() * 0.5, 16);
@@ -117,14 +183,12 @@ function createZeppFloor() {
 // 会場の壁（カーテン風＋幾何学模様）
 // --------------------------------------------
 function createVenueWalls() {
-    // カーテン風の壁素材（濃い青紫）
     const curtainMaterial = new THREE.MeshStandardMaterial({ 
         color: 0x0a0a1a,
         roughness: 0.9,
         metalness: 0.1
     });
 
-    // 後方の壁
     const backWall = new THREE.Mesh(
         new THREE.PlaneGeometry(30, 12),
         curtainMaterial.clone()
@@ -133,7 +197,6 @@ function createVenueWalls() {
     backWall.rotation.y = Math.PI;
     scene.add(backWall);
 
-    // 後方壁のカーテンドレープ（縦線で表現）
     for (let x = -14; x <= 14; x += 1) {
         const drape = new THREE.Mesh(
             new THREE.PlaneGeometry(0.3, 12),
@@ -148,7 +211,6 @@ function createVenueWalls() {
         scene.add(drape);
     }
 
-    // 後方壁を照らすライト
     const backLight1 = new THREE.SpotLight(0x4444ff, 3, 25, Math.PI / 3, 0.5);
     backLight1.position.set(-5, 10, 10);
     backLight1.target.position.set(-5, 5, 15);
@@ -161,9 +223,7 @@ function createVenueWalls() {
     scene.add(backLight2);
     scene.add(backLight2.target);
 
-    // 左右の壁
     [-14, 14].forEach((x, idx) => {
-        // カーテン壁
         const sideWall = new THREE.Mesh(
             new THREE.PlaneGeometry(30, 12),
             curtainMaterial.clone()
@@ -172,7 +232,6 @@ function createVenueWalls() {
         sideWall.rotation.y = x > 0 ? -Math.PI / 2 : Math.PI / 2;
         scene.add(sideWall);
 
-        // カーテンドレープ
         for (let z = -14; z <= 14; z += 1) {
             const drape = new THREE.Mesh(
                 new THREE.PlaneGeometry(0.3, 12),
@@ -187,7 +246,6 @@ function createVenueWalls() {
             scene.add(drape);
         }
 
-        // 壁を照らすウォッシュライト（強め）
         const wallLight = new THREE.SpotLight(
             x < 0 ? 0x6633ff : 0x3366ff, 
             5, 
@@ -200,11 +258,9 @@ function createVenueWalls() {
         scene.add(wallLight);
         scene.add(wallLight.target);
 
-        // 幾何学模様のライトパネル
         createGeometricPanels(x, idx);
     });
 
-    // 天井
     const ceiling = new THREE.Mesh(
         new THREE.PlaneGeometry(30, 30),
         new THREE.MeshStandardMaterial({ color: 0x0a0a0a })
@@ -215,17 +271,14 @@ function createVenueWalls() {
 }
 
 // --------------------------------------------
-// 幾何学模様のライトパネル（発光強化）
+// 幾何学模様のライトパネル
 // --------------------------------------------
 function createGeometricPanels(wallX, wallIdx) {
     const isLeft = wallX < 0;
-    
-    // ダイヤモンド/三角形パターン（発光）
     const panelColors = [0x4466ff, 0x6644ff, 0x8866ff, 0x4488ff];
     
     for (let row = 0; row < 4; row++) {
         for (let col = 0; col < 6; col++) {
-            // ダイヤモンド形状
             const size = 1.2;
             const diamondGeo = new THREE.BufferGeometry();
             const vertices = new Float32Array([
@@ -256,7 +309,6 @@ function createGeometricPanels(wallX, wallIdx) {
             diamond.rotation.y = isLeft ? Math.PI / 2 : -Math.PI / 2;
             scene.add(diamond);
 
-            // 一部にポイントライト追加（より明るく）
             if ((row + col) % 2 === 0) {
                 const pointLight = new THREE.PointLight(
                     panelColors[(row + col) % panelColors.length],
@@ -273,7 +325,6 @@ function createGeometricPanels(wallX, wallIdx) {
         }
     }
 
-    // ネオンフレーム（横線）
     const frameMat = new THREE.MeshBasicMaterial({ 
         color: 0x00ffff, 
         transparent: true, 
@@ -289,7 +340,6 @@ function createGeometricPanels(wallX, wallIdx) {
         scene.add(hLine);
     });
 
-    // ネオンフレーム（縦線）
     const vFrameMat = new THREE.MeshBasicMaterial({ 
         color: 0xff00ff, 
         transparent: true, 
@@ -320,7 +370,6 @@ function createMirrorBall() {
     mirrorBall.position.set(0, 9, 3);
     scene.add(mirrorBall);
 
-    // ミラータイル
     const tileCount = 200;
     for (let i = 0; i < tileCount; i++) {
         const phi = Math.acos(-1 + (2 * i) / tileCount);
@@ -338,7 +387,6 @@ function createMirrorBall() {
         mirrorBall.add(tile);
     }
 
-    // 吊り下げワイヤー
     const wire = new THREE.Mesh(
         new THREE.CylinderGeometry(0.02, 0.02, 1.5, 8),
         new THREE.MeshBasicMaterial({ color: 0x333333 })
@@ -346,13 +394,11 @@ function createMirrorBall() {
     wire.position.set(0, 9.75, 3);
     scene.add(wire);
 
-    // ミラーボールを照らすスポット
     const spotLight = new THREE.SpotLight(0xffffff, 5, 15, Math.PI / 4, 0.5);
     spotLight.position.set(0, 10, 3);
     spotLight.target = mirrorBall;
     scene.add(spotLight);
 
-    // 回転する光線
     const lightColors = [0xff0066, 0x00ffff, 0xffff00, 0xff00ff, 0x00ff66, 0xff6600, 0x6666ff, 0xff6666];
     for (let i = 0; i < 8; i++) {
         const angle = (i / 8) * Math.PI * 2;
@@ -380,7 +426,7 @@ function createMirrorBall() {
 }
 
 // --------------------------------------------
-// Zepp風ステージ（修正版：Zファイティング対策）
+// Zepp風ステージ
 // --------------------------------------------
 function createZeppStage() {
     const stageGeometry = new THREE.BoxGeometry(16, 1.2, 6);
@@ -393,13 +439,11 @@ function createZeppStage() {
     stage.receiveShadow = true;
     scene.add(stage);
 
-    // ステージエッジ
     const edgeMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff });
     const stageEdge = new THREE.Mesh(new THREE.BoxGeometry(16, 0.1, 0.1), edgeMaterial);
     stageEdge.position.set(0, 1.25, -3.05);
     scene.add(stageEdge);
 
-    // ステージ下の光
     const underLight = new THREE.Mesh(
         new THREE.PlaneGeometry(14, 0.5),
         new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5 })
@@ -408,22 +452,19 @@ function createZeppStage() {
     underLight.position.set(0, 0.02, -3.2);
     scene.add(underLight);
 
-    // ★★★ 修正：フレームを先に配置（奥に） ★★★
     const frame = new THREE.Mesh(
         new THREE.BoxGeometry(14.4, 6.4, 0.3),
         new THREE.MeshStandardMaterial({ color: 0x111111 })
     );
-    frame.position.set(0, 4, -9.2);  // 奥に移動
+    frame.position.set(0, 4, -9.2);
     scene.add(frame);
 
-    // ★★★ 修正：LEDスクリーンをフレームの手前に配置 ★★★
     const screenGeometry = new THREE.PlaneGeometry(14, 6);
     const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x330066, side: THREE.FrontSide });
     ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
-    ledScreen.position.set(0, 4, -9);  // フレームより手前（z=-9 vs z=-9.2）
+    ledScreen.position.set(0, 4, -9);
     scene.add(ledScreen);
     
-    // 背景画像読み込み
     const loader = new THREE.TextureLoader();
     loader.load(stageBackgroundUrl, function(texture) {
         texture.colorSpace = THREE.SRGBColorSpace;
@@ -437,14 +478,13 @@ function createZeppStage() {
         ledScreen.material.dispose();
         ledScreen.material = new THREE.MeshBasicMaterial({ 
             map: texture, 
-            side: THREE.FrontSide  // 片面だけ描画（Zファイティング軽減）
+            side: THREE.FrontSide
         });
         debugLog('背景画像ロード成功', 'success');
     }, undefined, function(err) {
         debugLog('背景画像ロード失敗: ' + err, 'warn');
     });
 
-    // ステージを照らすライト
     const stageLight = new THREE.SpotLight(0xffffff, 2, 20, Math.PI / 4, 0.5);
     stageLight.position.set(0, 8, -3);
     stageLight.target.position.set(0, 1, -5);
@@ -534,7 +574,6 @@ function createMovingLights() {
         movingLights.push({ light: spotLight, baseX: x, phase: i * 0.5 });
     });
 
-    // フロント照明
     [-4, 0, 4].forEach((x, i) => {
         const spotLight = new THREE.SpotLight([0x00ffff, 0xff00ff, 0x00ffff][i], 2, 20, Math.PI / 8, 0.5, 1);
         spotLight.position.set(x, 6.8, 0);

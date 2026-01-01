@@ -13,6 +13,7 @@ let movingLights = [];
 let mirrorBallLights = [];
 let floorLightSpots = [];
 let speakerSpotlights = [];
+let speakerFloorLights = [];
 let lightTime = 0;
 
 let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/IMG_3206.jpeg';
@@ -103,6 +104,14 @@ function createSpeakerSpotlights() {
 }
 
 export function updateSpeakerSpotlights(speakers) {
+    // 既存の床ライトをクリア
+    speakerFloorLights.forEach(light => {
+        scene.remove(light);
+        light.geometry.dispose();
+        light.material.dispose();
+    });
+    speakerFloorLights = [];
+    
     if (!speakers || speakers.length === 0) {
         speakerSpotlights.forEach(s => {
             s.light.intensity = 0;
@@ -110,6 +119,29 @@ export function updateSpeakerSpotlights(speakers) {
         return;
     }
     
+    // 各登壇者に床の光の円を追加
+    const floorColors = [0xff66ff, 0x66ffff, 0xffffff, 0xffff66, 0x66ff66];
+    speakers.forEach((sp, idx) => {
+        // 床の光の円（グラデーション風に複数の円）
+        for (let i = 0; i < 3; i++) {
+            const radius = 0.8 - i * 0.2;
+            const opacity = 0.6 - i * 0.15;
+            const circle = new THREE.Mesh(
+                new THREE.CircleGeometry(radius, 32),
+                new THREE.MeshBasicMaterial({
+                    color: floorColors[idx % floorColors.length],
+                    transparent: true,
+                    opacity: opacity
+                })
+            );
+            circle.rotation.x = -Math.PI / 2;
+            circle.position.set(sp.x, 1.21 + i * 0.01, sp.z);
+            scene.add(circle);
+            speakerFloorLights.push(circle);
+        }
+    });
+    
+    // 登壇者の中心位置を計算
     let centerX = 0, centerZ = 0;
     speakers.forEach(sp => {
         centerX += sp.x;
@@ -118,6 +150,7 @@ export function updateSpeakerSpotlights(speakers) {
     centerX /= speakers.length;
     centerZ /= speakers.length;
     
+    // 各スポットライトを更新
     speakerSpotlights.forEach((s) => {
         s.light.position.set(
             centerX + s.offsetX,
@@ -125,7 +158,7 @@ export function updateSpeakerSpotlights(speakers) {
             centerZ + s.offsetZ
         );
         s.target.position.set(centerX, 1.5, centerZ);
-        s.light.intensity = Math.min(3, 1.5 + speakers.length * 0.5);
+        s.light.intensity = Math.min(4, 2 + speakers.length * 0.5);
     });
 }
 

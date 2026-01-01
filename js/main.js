@@ -107,8 +107,7 @@ async function init() {
             myAvatarImage = avatarName;
             showNotification(`アバターを変更しました`, 'success');
         },
-        onChangeBackground: (bgFile) => {
-            const imageUrl = `${STAGE_BASE_URL}${bgFile}`;
+        onBackgroundChange: (imageUrl) => {
             changeStageBackground(imageUrl);
             sendBackgroundChange(imageUrl);
             showNotification('背景を変更しました', 'success');
@@ -133,6 +132,12 @@ async function init() {
         onAnnounce: (message) => {
             sendAnnounce(message);
             showNotification('アナウンスを送信しました', 'success');
+        },
+        onResetCamera: () => {
+            cameraAngleX = 0;
+            cameraHeight = 4;
+            cameraDistance = 6;
+            showNotification('カメラをリセットしました', 'info');
         }
     });
 
@@ -244,6 +249,12 @@ function setupConnection() {
 function setupJoystick() {
     const joystickBase = document.getElementById('joystick-base');
     const joystickStick = document.getElementById('joystick-stick');
+    
+    if (!joystickBase || !joystickStick) {
+        debugLog('Joystick elements not found');
+        return;
+    }
+    
     const maxDistance = 35;
 
     function handleJoystickMove(clientX, clientY) {
@@ -472,6 +483,11 @@ function setupChatUI() {
     const form = document.getElementById('chat-form');
     const input = document.getElementById('chat-input');
 
+    if (!form || !input) {
+        debugLog('Chat elements not found');
+        return;
+    }
+
     form.addEventListener('submit', (e) => {
         e.preventDefault();
         const message = input.value.trim();
@@ -489,12 +505,28 @@ function setupActionButtons() {
     const otageiBtn = document.getElementById('otagei-btn');
     const penlightColors = document.getElementById('penlight-colors');
 
+    if (!penlightBtn || !otageiBtn || !penlightColors) {
+        debugLog('Action button elements not found');
+        return;
+    }
+
+    // ペンライトボタンクリック
     penlightBtn.addEventListener('click', () => {
+        // 長押し中は無視
         if (penlightLongPressTimer) return;
 
         isPenlightActive = !isPenlightActive;
         myPenlight.visible = isPenlightActive;
         penlightBtn.classList.toggle('active', isPenlightActive);
+        
+        // ボタンの色を変更
+        if (isPenlightActive) {
+            penlightBtn.style.background = penlightColor;
+            penlightBtn.style.boxShadow = `0 0 15px ${penlightColor}`;
+        } else {
+            penlightBtn.style.background = '';
+            penlightBtn.style.boxShadow = '';
+        }
 
         if (isPenlightActive) {
             updatePenlightPosition();
@@ -502,16 +534,19 @@ function setupActionButtons() {
         }
     });
 
+    // 長押しで色選択パネル表示
     penlightBtn.addEventListener('mousedown', startPenlightLongPress);
-    penlightBtn.addEventListener('touchstart', startPenlightLongPress);
+    penlightBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        startPenlightLongPress(e);
+    });
     penlightBtn.addEventListener('mouseup', cancelPenlightLongPress);
     penlightBtn.addEventListener('touchend', cancelPenlightLongPress);
     penlightBtn.addEventListener('mouseleave', cancelPenlightLongPress);
 
     function startPenlightLongPress(e) {
-        e.preventDefault();
         penlightLongPressTimer = setTimeout(() => {
-            penlightColors.classList.toggle('hidden');
+            penlightColors.classList.remove('hidden');
             penlightLongPressTimer = null;
         }, 500);
     }
@@ -523,16 +558,27 @@ function setupActionButtons() {
         }
     }
 
+    // 色ボタン
     document.querySelectorAll('.color-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             penlightColor = btn.dataset.color;
             document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
+            
+            // ペンライト色更新
             updatePenlightColor();
+            
+            // ボタンの色も更新（アクティブな場合）
+            if (isPenlightActive) {
+                penlightBtn.style.background = penlightColor;
+                penlightBtn.style.boxShadow = `0 0 15px ${penlightColor}`;
+            }
+            
             penlightColors.classList.add('hidden');
         });
     });
 
+    // オタ芸ボタン
     otageiBtn.addEventListener('click', () => {
         isOtageiActive = !isOtageiActive;
         otageiBtn.classList.toggle('active', isOtageiActive);
@@ -560,14 +606,20 @@ function updatePenlightPosition() {
 // ペンライト色更新
 function updatePenlightColor() {
     if (myPenlight) {
-        const lightMesh = myPenlight.getObjectByName('penlightLight');
-        if (lightMesh) {
-            lightMesh.material.color.setStyle(penlightColor);
-        }
-        const pointLight = myPenlight.getObjectByName('penlightPointLight');
-        if (pointLight) {
-            pointLight.color.setStyle(penlightColor);
-        }
+        // 子オブジェクトを直接走査して更新
+        myPenlight.traverse((child) => {
+            if (child.isMesh && child.material) {
+                if (child.material.color) {
+                    child.material.color.setStyle(penlightColor);
+                }
+                if (child.material.emissive) {
+                    child.material.emissive.setStyle(penlightColor);
+                }
+            }
+            if (child.isPointLight) {
+                child.color.setStyle(penlightColor);
+            }
+        });
     }
 }
 
@@ -610,6 +662,11 @@ function stopOtageiAnimation() {
 function setupSpeakerControls() {
     const micBtn = document.getElementById('mic-toggle-btn');
     const leaveBtn = document.getElementById('leave-stage-btn');
+
+    if (!micBtn || !leaveBtn) {
+        debugLog('Speaker control elements not found');
+        return;
+    }
 
     micBtn.addEventListener('click', () => {
         toggleMic();

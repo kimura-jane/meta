@@ -415,17 +415,16 @@ function createZeppStage() {
     ledScreen.position.set(0, 4, -8.5);
     scene.add(ledScreen);
     
-    // 背景画像読み込み（モザイク対策強化）
+    // 背景画像読み込み（モザイク対策）
     const loader = new THREE.TextureLoader();
     loader.load(stageBackgroundUrl, function(texture) {
-        // テクスチャ設定（モザイク防止）
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.minFilter = THREE.LinearFilter;
         texture.magFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
         texture.wrapS = THREE.ClampToEdgeWrapping;
         texture.wrapT = THREE.ClampToEdgeWrapping;
-        texture.anisotropy = renderer ? renderer.capabilities.getMaxAnisotropy() : 16;
+        texture.anisotropy = 16;
         
         ledScreen.material.dispose();
         ledScreen.material = new THREE.MeshBasicMaterial({ 

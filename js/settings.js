@@ -134,14 +134,14 @@ export function updateUserCount(count) {
 
 // 設定UIを作成
 function createSettingsUI() {
-    // 設定ボタン（タイトル下に配置）
+    // 設定ボタン（右上、登壇リクエストの下に配置）
     const settingsBtn = document.createElement('button');
     settingsBtn.id = 'settings-btn';
     settingsBtn.textContent = '⚙️';
     settingsBtn.style.cssText = `
         position: fixed;
-        top: 68px;
-        left: 18px;
+        top: 60px;
+        right: 16px;
         width: 36px;
         height: 36px;
         border-radius: 50%;

@@ -114,29 +114,72 @@ export function addChatMessage(name, message) {
 }
 
 // --------------------------------------------
-// アバター作成
+// アバター作成（スポットライト対応版）
 // --------------------------------------------
 export function createAvatar(userId, userName, color) {
     const group = new THREE.Group();
-    group.userData = { odUserId: userId, userName };
+    group.userData = { odUserId: userId, userName, onStage: false, baseColor: color };
 
+    // 通常時のマテリアル
+    const bodyMaterial = new THREE.MeshStandardMaterial({ 
+        color,
+        emissive: 0x000000,
+        emissiveIntensity: 0
+    });
     const body = new THREE.Mesh(
         new THREE.CylinderGeometry(0.3, 0.35, 1, 8),
-        new THREE.MeshStandardMaterial({ color })
+        bodyMaterial
     );
     body.position.y = 0.5;
     body.castShadow = true;
+    body.name = 'avatarBody';
     group.add(body);
 
+    const headMaterial = new THREE.MeshStandardMaterial({ 
+        color,
+        emissive: 0x000000,
+        emissiveIntensity: 0
+    });
     const head = new THREE.Mesh(
         new THREE.SphereGeometry(0.25, 8, 8),
-        new THREE.MeshStandardMaterial({ color })
+        headMaterial
     );
     head.position.y = 1.2;
     head.castShadow = true;
+    head.name = 'avatarHead';
     group.add(head);
 
     return group;
+}
+
+// --------------------------------------------
+// アバターをスポットライトで照らす
+// --------------------------------------------
+export function setAvatarSpotlight(avatar, isLit) {
+    const body = avatar.getObjectByName('avatarBody');
+    const head = avatar.getObjectByName('avatarHead');
+    
+    if (body && body.material) {
+        if (isLit) {
+            // 明るく光らせる
+            body.material.emissive.setHex(avatar.userData.baseColor || 0x4fc3f7);
+            body.material.emissiveIntensity = 0.4;
+        } else {
+            // 通常に戻す
+            body.material.emissive.setHex(0x000000);
+            body.material.emissiveIntensity = 0;
+        }
+    }
+    
+    if (head && head.material) {
+        if (isLit) {
+            head.material.emissive.setHex(avatar.userData.baseColor || 0x4fc3f7);
+            head.material.emissiveIntensity = 0.4;
+        } else {
+            head.material.emissive.setHex(0x000000);
+            head.material.emissiveIntensity = 0;
+        }
+    }
 }
 
 // --------------------------------------------

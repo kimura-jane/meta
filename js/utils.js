@@ -250,56 +250,59 @@ export function setAvatarSpotlight(avatar, isLit) {
 }
 
 // --------------------------------------------
-// ペンライト作成
+// ペンライト作成（球体版 - 向き問題なし）
 // --------------------------------------------
 export function createPenlight(color) {
     const group = new THREE.Group();
 
-    // 持ち手（もう少し大きく）
-    const handle = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8),
-        new THREE.MeshStandardMaterial({ color: 0x333333 })
+    // 発光する球体（メイン）
+    const glowSphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.25, 16, 16),
+        new THREE.MeshBasicMaterial({ 
+            color: color,
+            transparent: true, 
+            opacity: 0.95
+        })
     );
-    handle.name = 'penlightHandle';
-    group.add(handle);
+    glowSphere.name = 'penlightGlow';
+    group.add(glowSphere);
 
-    // 発光部分（大きく、目立つように）
-    const lightGeometry = new THREE.CylinderGeometry(0.08, 0.05, 0.5, 8);
-    const lightMaterial = new THREE.MeshStandardMaterial({ 
-        color: color,
-        emissive: color,
-        emissiveIntensity: 1,
-        transparent: true, 
-        opacity: 0.95 
-    });
-    const light = new THREE.Mesh(lightGeometry, lightMaterial);
-    light.position.y = 0.45;
-    light.name = 'penlightLight';
-    group.add(light);
+    // 外側のグロー（大きめ）
+    const outerGlow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.4, 16, 16),
+        new THREE.MeshBasicMaterial({ 
+            color: color,
+            transparent: true, 
+            opacity: 0.4
+        })
+    );
+    outerGlow.name = 'penlightOuterGlow';
+    group.add(outerGlow);
 
-    // グロー効果（外側の光）
-    const glowGeometry = new THREE.CylinderGeometry(0.12, 0.08, 0.6, 8);
-    const glowMaterial = new THREE.MeshBasicMaterial({ 
-        color: color,
-        transparent: true, 
-        opacity: 0.3 
-    });
-    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-    glow.position.y = 0.45;
-    glow.name = 'penlightGlow';
-    group.add(glow);
+    // さらに外側のグロー（ぼんやり）
+    const farGlow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.6, 16, 16),
+        new THREE.MeshBasicMaterial({ 
+            color: color,
+            transparent: true, 
+            opacity: 0.15
+        })
+    );
+    farGlow.name = 'penlightFarGlow';
+    group.add(farGlow);
 
     // ポイントライト（周囲を照らす）
-    const pointLight = new THREE.PointLight(color, 1, 5);
-    pointLight.position.y = 0.5;
+    const pointLight = new THREE.PointLight(color, 2, 10);
     pointLight.name = 'penlightPointLight';
     group.add(pointLight);
+
+    debugLog('Penlight created (sphere version)', 'success');
 
     return group;
 }
 
 // --------------------------------------------
-// ペンライト色更新（エクスポート用）
+// ペンライト色更新
 // --------------------------------------------
 export function updatePenlightColor(penlight, color) {
     if (!penlight) return;
@@ -308,18 +311,14 @@ export function updatePenlightColor(penlight, color) {
     
     penlight.traverse((child) => {
         if (child.isMesh && child.material) {
-            // 持ち手以外の色を更新
-            if (child.name !== 'penlightHandle') {
-                child.material.color.copy(colorValue);
-                if (child.material.emissive) {
-                    child.material.emissive.copy(colorValue);
-                }
-            }
+            child.material.color.copy(colorValue);
         }
         if (child.isPointLight) {
             child.color.copy(colorValue);
         }
     });
+    
+    debugLog(`Penlight color updated: ${color}`, 'info');
 }
 
 // --------------------------------------------

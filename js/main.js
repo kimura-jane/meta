@@ -47,9 +47,15 @@ let penlightLongPressTimer = null;
 let otageiAnimationId = null;
 let otageiBaseY = 0;
 
-// カメラ追従用
-let cameraFollowMode = 'normal'; // 'normal' or 'stage'
-let normalCameraOffset = new THREE.Vector3(0, 3, 8);
+// カメラ制御
+let cameraAngleX = 0; // 水平回転
+let cameraAngleY = 0.3; // 垂直角度
+let cameraDistance = 8; // カメラ距離
+
+// ジョイスティック
+let joystickActive = false;
+let joystickX = 0;
+let joystickY = 0;
 
 // 初期化
 async function init() {
@@ -134,7 +140,8 @@ async function init() {
     setupChatUI();
     setupActionButtons();
     setupSpeakerControls();
-    setupTouchControls();
+    setupJoystick();
+    setupCameraSwipe();
 
     // リサイズ対応
     window.addEventListener('resize', onWindowResize);
@@ -178,10 +185,8 @@ function setupConnection() {
         },
         onReaction: (userId, reactionType, color) => {
             debugLog(`Reaction from ${userId}: ${reactionType}`);
-            // リアクションエフェクト処理
         },
         onChat: (userId, userName, message) => {
-            // 自分のメッセージは送信時に表示済みなのでスキップ
             const state = getState();
             if (userId !== state.myServerConnectionId) {
                 addChatMessage(userName, message);
@@ -230,6 +235,143 @@ function setupConnection() {
     connectToPartyKit(myUserName);
 }
 
+// ジョイスティックセットアップ
+function setupJoystick() {
+    const joystickBase = document.getElementById('joystick-base');
+    const joystickStick = document.getElementById('joystick-stick');
+    const baseRect = joystickBase.getBoundingClientRect();
+    const maxDistance = 40;
+
+    function handleJoystickMove(clientX, clientY) {
+        const rect = joystickBase.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        let deltaX = clientX - centerX;
+        let deltaY = clientY - centerY;
+
+        // 最大距離で制限
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        if (distance > maxDistance) {
+            deltaX = (deltaX / distance) * maxDistance;
+            deltaY = (deltaY / distance) * maxDistance;
+        }
+
+        // スティックの位置を更新
+        joystickStick.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+
+        // ジョイスティックの値を-1〜1に正規化
+        joystickX = deltaX / maxDistance;
+        joystickY = deltaY / maxDistance;
+    }
+
+    function resetJoystick() {
+        joystickStick.style.transform = 'translate(0, 0)';
+        joystickX = 0;
+        joystickY = 0;
+        joystickActive = false;
+    }
+
+    // タッチイベント
+    joystickBase.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        joystickActive = true;
+        const touch = e.touches[0];
+        handleJoystickMove(touch.clientX, touch.clientY);
+    });
+
+    joystickBase.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (!joystickActive) return;
+        const touch = e.touches[0];
+        handleJoystickMove(touch.clientX, touch.clientY);
+    });
+
+    joystickBase.addEventListener('touchend', resetJoystick);
+    joystickBase.addEventListener('touchcancel', resetJoystick);
+
+    // マウスイベント（PC用）
+    joystickBase.addEventListener('mousedown', (e) => {
+        joystickActive = true;
+        handleJoystickMove(e.clientX, e.clientY);
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!joystickActive) return;
+        handleJoystickMove(e.clientX, e.clientY);
+    });
+
+    document.addEventListener('mouseup', resetJoystick);
+}
+
+// カメラスワイプセットアップ
+function setupCameraSwipe() {
+    const canvas = renderer.domElement;
+    let isDragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+            isDragging = true;
+            lastX = e.touches[0].clientX;
+            lastY = e.touches[0].clientY;
+        }
+    });
+
+    canvas.addEventListener('touchmove', (e) => {
+        if (!isDragging || e.touches.length !== 1) return;
+        e.preventDefault();
+
+        const touch = e.touches[0];
+        const deltaX = touch.clientX - lastX;
+        const deltaY = touch.clientY - lastY;
+
+        // 水平方向: カメラ回転
+        cameraAngleX -= deltaX * 0.005;
+
+        // 垂直方向: カメラ角度（制限付き）
+        cameraAngleY += deltaY * 0.003;
+        cameraAngleY = Math.max(0.1, Math.min(1.2, cameraAngleY));
+
+        lastX = touch.clientX;
+        lastY = touch.clientY;
+    });
+
+    canvas.addEventListener('touchend', () => {
+        isDragging = false;
+    });
+
+    // マウスイベント（PC用）
+    canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const deltaX = e.clientX - lastX;
+        const deltaY = e.clientY - lastY;
+
+        cameraAngleX -= deltaX * 0.005;
+        cameraAngleY += deltaY * 0.003;
+        cameraAngleY = Math.max(0.1, Math.min(1.2, cameraAngleY));
+
+        lastX = e.clientX;
+        lastY = e.clientY;
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        isDragging = false;
+    });
+}
+
 // ステージへ移動
 function moveToStage() {
     const targetX = (Math.random() - 0.5) * 10;
@@ -239,13 +381,6 @@ function moveToStage() {
     animateMove(myAvatar, targetX, targetY, targetZ, () => {
         setAvatarSpotlight(myAvatar, true);
         sendPosition(targetX, targetY, targetZ);
-
-        // 1秒後にカメラを観客席向きに切り替え
-        setTimeout(() => {
-            cameraFollowMode = 'stage';
-            camera.position.set(targetX, 4, -8);
-            camera.lookAt(targetX, 2, 10);
-        }, 1000);
     });
 }
 
@@ -258,9 +393,6 @@ function moveToAudience() {
     animateMove(myAvatar, targetX, targetY, targetZ, () => {
         setAvatarSpotlight(myAvatar, false);
         sendPosition(targetX, targetY, targetZ);
-
-        // カメラを通常モードに戻す
-        cameraFollowMode = 'normal';
     });
 }
 
@@ -275,7 +407,7 @@ function animateMove(avatar, targetX, targetY, targetZ, onComplete) {
     function update() {
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+        const eased = 1 - Math.pow(1 - progress, 3);
 
         avatar.position.x = startX + (targetX - startX) * eased;
         avatar.position.y = startY + (targetY - startY) * eased;
@@ -290,9 +422,48 @@ function animateMove(avatar, targetX, targetY, targetZ, onComplete) {
     update();
 }
 
+// ジョイスティックによる移動処理
+function processJoystickMovement() {
+    if (!joystickActive || (joystickX === 0 && joystickY === 0)) return;
+
+    const speed = 0.15;
+
+    // カメラの向きに基づいて移動方向を計算
+    const moveAngle = cameraAngleX;
+    const forward = -joystickY;
+    const right = joystickX;
+
+    const moveX = (Math.sin(moveAngle) * forward + Math.cos(moveAngle) * right) * speed;
+    const moveZ = (Math.cos(moveAngle) * forward - Math.sin(moveAngle) * right) * speed;
+
+    if (isOnStage) {
+        // ステージ上: X方向のみ、範囲制限
+        let newX = myAvatar.position.x + moveX;
+        newX = Math.max(-7, Math.min(7, newX));
+        myAvatar.position.x = newX;
+    } else {
+        // 観客席: 自由移動、範囲制限
+        let newX = myAvatar.position.x + moveX;
+        let newZ = myAvatar.position.z + moveZ;
+
+        newX = Math.max(-15, Math.min(15, newX));
+        newZ = Math.max(2, Math.min(15, newZ));
+
+        myAvatar.position.x = newX;
+        myAvatar.position.z = newZ;
+    }
+
+    sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
+
+    // ペンライト追従
+    if (isPenlightActive) {
+        updatePenlightPosition();
+    }
+}
+
 // ユーザー数更新
 function updateUserCount() {
-    const count = remoteAvatars.size + 1; // 自分 + リモート
+    const count = remoteAvatars.size + 1;
     const el = document.getElementById('user-count');
     if (el) el.textContent = count;
 }
@@ -325,9 +496,8 @@ function setupActionButtons() {
     const otageiBtn = document.getElementById('otagei-btn');
     const penlightColors = document.getElementById('penlight-colors');
 
-    // ペンライトボタン
     penlightBtn.addEventListener('click', () => {
-        if (penlightLongPressTimer) return; // 長押し中はスキップ
+        if (penlightLongPressTimer) return;
 
         isPenlightActive = !isPenlightActive;
         myPenlight.visible = isPenlightActive;
@@ -339,7 +509,6 @@ function setupActionButtons() {
         }
     });
 
-    // 長押しで色選択パネル表示
     penlightBtn.addEventListener('mousedown', startPenlightLongPress);
     penlightBtn.addEventListener('touchstart', startPenlightLongPress);
     penlightBtn.addEventListener('mouseup', cancelPenlightLongPress);
@@ -361,7 +530,6 @@ function setupActionButtons() {
         }
     }
 
-    // 色選択
     document.querySelectorAll('.color-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             penlightColor = btn.dataset.color;
@@ -372,7 +540,6 @@ function setupActionButtons() {
         });
     });
 
-    // オタ芸ボタン
     otageiBtn.addEventListener('click', () => {
         isOtageiActive = !isOtageiActive;
         otageiBtn.classList.toggle('active', isOtageiActive);
@@ -423,7 +590,6 @@ function startOtageiAnimation() {
         const jumpHeight = Math.abs(Math.sin(time)) * 0.5;
         myAvatar.position.y = otageiBaseY + jumpHeight;
 
-        // ペンライトも一緒に動かす
         if (isPenlightActive) {
             updatePenlightPosition();
             myPenlight.rotation.z = Math.sin(time * 2) * 0.5;
@@ -440,7 +606,6 @@ function stopOtageiAnimation() {
         cancelAnimationFrame(otageiAnimationId);
         otageiAnimationId = null;
     }
-    // 元の高さに戻す
     if (isOnStage) {
         myAvatar.position.y = 1.2;
     } else {
@@ -476,80 +641,6 @@ function showSpeakerControls(show) {
     }
 }
 
-// タッチ操作セットアップ
-function setupTouchControls() {
-    let isDragging = false;
-    let lastX = 0;
-    let lastY = 0;
-
-    const canvas = renderer.domElement;
-
-    canvas.addEventListener('mousedown', onPointerDown);
-    canvas.addEventListener('touchstart', onPointerDown);
-    canvas.addEventListener('mousemove', onPointerMove);
-    canvas.addEventListener('touchmove', onPointerMove);
-    canvas.addEventListener('mouseup', onPointerUp);
-    canvas.addEventListener('touchend', onPointerUp);
-
-    function onPointerDown(e) {
-        isDragging = true;
-        const pos = getPointerPosition(e);
-        lastX = pos.x;
-        lastY = pos.y;
-    }
-
-    function onPointerMove(e) {
-        if (!isDragging) return;
-
-        const pos = getPointerPosition(e);
-        const deltaX = (pos.x - lastX) * 0.02;
-        const deltaY = (pos.y - lastY) * 0.02;
-
-        if (isOnStage) {
-            // ステージ上: X方向のみ移動
-            let newX = myAvatar.position.x - deltaX;
-            newX = Math.max(-7, Math.min(7, newX)); // ステージ範囲内
-            myAvatar.position.x = newX;
-            sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
-
-            // ステージモードのカメラも追従
-            if (cameraFollowMode === 'stage') {
-                camera.position.x = myAvatar.position.x;
-                camera.lookAt(myAvatar.position.x, 2, 10);
-            }
-        } else {
-            // 観客席: 自由移動
-            myAvatar.position.x -= deltaX;
-            myAvatar.position.z += deltaY;
-
-            // 範囲制限
-            myAvatar.position.x = Math.max(-15, Math.min(15, myAvatar.position.x));
-            myAvatar.position.z = Math.max(2, Math.min(15, myAvatar.position.z));
-
-            sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
-        }
-
-        // ペンライト追従
-        if (isPenlightActive) {
-            updatePenlightPosition();
-        }
-
-        lastX = pos.x;
-        lastY = pos.y;
-    }
-
-    function onPointerUp() {
-        isDragging = false;
-    }
-
-    function getPointerPosition(e) {
-        if (e.touches && e.touches.length > 0) {
-            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        }
-        return { x: e.clientX, y: e.clientY };
-    }
-}
-
 // ウィンドウリサイズ
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -561,21 +652,19 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
 
-    const delta = clock.getDelta();
-
     // 会場アニメーション
     animateVenue();
 
-    // カメラ追従
-    if (cameraFollowMode === 'normal' && myAvatar) {
-        const targetX = myAvatar.position.x;
-        const targetY = myAvatar.position.y + normalCameraOffset.y;
-        const targetZ = myAvatar.position.z + normalCameraOffset.z;
+    // ジョイスティック移動処理
+    processJoystickMovement();
 
-        camera.position.x += (targetX - camera.position.x) * 0.05;
-        camera.position.y += (targetY - camera.position.y) * 0.05;
-        camera.position.z += (targetZ - camera.position.z) * 0.05;
+    // カメラ位置計算（アバターを中心に回転）
+    if (myAvatar) {
+        const camX = myAvatar.position.x + Math.sin(cameraAngleX) * cameraDistance;
+        const camY = myAvatar.position.y + cameraAngleY * cameraDistance;
+        const camZ = myAvatar.position.z + Math.cos(cameraAngleX) * cameraDistance;
 
+        camera.position.set(camX, camY, camZ);
         camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
     }
 

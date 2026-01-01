@@ -435,7 +435,7 @@ function handleServerMessage(data) {
 }
 
 // --------------------------------------------
-// ステージ移動機能
+// ステージ移動機能（修正版）
 // --------------------------------------------
 function moveToStage() {
     if (isOnStage) return;
@@ -445,13 +445,15 @@ function moveToStage() {
         z: myAvatar.position.z
     };
     
+    // ステージ上の位置（観客側を向く位置）
     const stageX = (speakerCount - 1) * 2 - 4;
-    const stageZ = -5;
+    const stageZ = -4; // ステージ前方（LEDスクリーンより手前）
     const stageY = 1.7;
     
     animateToPosition(myAvatar, stageX, stageY, stageZ, () => {
         isOnStage = true;
-        myAvatar.rotation.y = Math.PI;
+        myAvatar.rotation.y = Math.PI; // 観客側を向く
+        debugLog('ステージに移動完了', 'success');
     });
 }
 
@@ -465,6 +467,7 @@ function moveOffStage() {
         isOnStage = false;
         myAvatar.rotation.y = 0;
         originalPosition = null;
+        debugLog('フロアに戻りました', 'info');
     });
 }
 
@@ -473,7 +476,7 @@ function moveRemoteToStage(odUserId) {
     if (!avatar) return;
     
     const stageX = (Math.random() - 0.5) * 8;
-    animateToPosition(avatar, stageX, 1.7, -5, () => {
+    animateToPosition(avatar, stageX, 1.7, -4, () => {
         avatar.rotation.y = Math.PI;
     });
 }
@@ -946,14 +949,14 @@ function createZeppStage() {
     underLight.position.set(0, 0.02, -3.2);
     scene.add(underLight);
 
-    // LEDスクリーン
+    // LEDスクリーン（サイズ調整・位置をステージ後方に）
     const screenGeometry = new THREE.PlaneGeometry(14, 6);
     const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x330066, side: THREE.DoubleSide });
     ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
-    ledScreen.position.set(0, 4, -8.9);
+    ledScreen.position.set(0, 4, -8.5);
     scene.add(ledScreen);
     
-    // 背景画像を非同期ロード（テクスチャ設定追加でモザイク修正）
+    // 背景画像を非同期ロード（モザイク修正版）
     const loader = new THREE.TextureLoader();
     loader.load(stageBackgroundUrl, function(texture) {
         // モザイク防止のためのテクスチャ設定
@@ -961,18 +964,22 @@ function createZeppStage() {
         texture.minFilter = THREE.LinearFilter;
         texture.magFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
         
+        ledScreen.material.dispose();
         ledScreen.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
         debugLog('背景画像ロード成功', 'success');
     }, undefined, function(err) {
-        debugLog('背景画像ロード失敗', 'warn');
+        debugLog('背景画像ロード失敗: ' + err, 'warn');
     });
 
+    // フレーム（LEDスクリーンの後ろ）
     const frame = new THREE.Mesh(
         new THREE.BoxGeometry(14.4, 6.4, 0.2),
         new THREE.MeshStandardMaterial({ color: 0x111111 })
     );
-    frame.position.set(0, 4, -9);
+    frame.position.set(0, 4, -8.6);
     scene.add(frame);
 }
 
@@ -985,10 +992,16 @@ function changeStageBackground(imageUrl) {
         texture.minFilter = THREE.LinearFilter;
         texture.magFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
         
         if (ledScreen) {
+            ledScreen.material.dispose();
             ledScreen.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+            debugLog('背景変更成功', 'success');
         }
+    }, undefined, function(err) {
+        debugLog('背景変更失敗: ' + err, 'warn');
     });
 }
 window.changeStageBackground = changeStageBackground;
@@ -1300,7 +1313,8 @@ function setupEventListeners() {
         if (!touchStartX || !touchStartY) return;
         
         if (isOnStage) {
-            const deltaX = (e.touches[0].clientX - touchStartX) * 0.01;
+            // ステージ上では左右移動のみ
+            const deltaX = (e.touches[0].clientX - touchStartX) * 0.02;
             myAvatar.position.x += deltaX;
             myAvatar.position.x = Math.max(-6, Math.min(6, myAvatar.position.x));
         } else {
@@ -1353,11 +1367,13 @@ function animate() {
     
     if (myAvatar) {
         if (isOnStage) {
-            camera.position.x += (myAvatar.position.x * 0.3 - camera.position.x) * 0.05;
-            camera.position.z += (myAvatar.position.z - 6 - camera.position.z) * 0.05;
-            camera.position.y += (4 - camera.position.y) * 0.05;
-            camera.lookAt(myAvatar.position.x * 0.5, 1, 8);
+            // ステージ上：カメラはアバターの後ろから客席を見る
+            camera.position.x += (myAvatar.position.x * 0.5 - camera.position.x) * 0.05;
+            camera.position.y += (3.5 - camera.position.y) * 0.05;
+            camera.position.z += (-2 - camera.position.z) * 0.05; // アバターより少し手前
+            camera.lookAt(myAvatar.position.x * 0.3, 1.5, 10); // 客席方向を見る
         } else {
+            // フロア：通常のカメラ追従
             camera.position.x += (myAvatar.position.x * 0.3 - camera.position.x) * 0.05;
             camera.position.z += (myAvatar.position.z + 8 - camera.position.z) * 0.05;
             camera.position.y += (5 - camera.position.y) * 0.05;

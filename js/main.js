@@ -1,9 +1,12 @@
 // メタバース空間メインスクリプト (Three.js)
 
 import { initVenue, createAllVenue, animateVenue, changeStageBackground, setRoomBrightness } from './venue.js';
-import { connectToPartyKit, sendPosition, sendReaction, sendChat, sendSpeakRequest, setCallbacks } from './connection.js';
+import { 
+    connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange,
+    sendBackgroundChange, sendBrightness, requestSpeak, toggleMic, setCallbacks 
+} from './connection.js';
 import { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers } from './settings.js';
-import { createAvatar, updateAvatarPosition, setAvatarReaction, createAvatarImage, removeAvatarImage } from './utils.js';
+import { createAvatar, setAvatarImage, setAvatarSpotlight, createPenlight, debugLog } from './utils.js';
 
 // Three.js基本設定
 let scene, camera, renderer;
@@ -68,11 +71,12 @@ function init() {
     createAllVenue();
     
     // 自分のアバター作成
-    myAvatar = createAvatar(scene, myUserName, 0x00ffff);
+    myAvatar = createAvatar(myUserId, myUserName, 0x00ffff);
     myAvatar.position.set(0, 0, 15);
+    scene.add(myAvatar);
     
     // ペンライト作成
-    myPenlight = createPenlight();
+    myPenlight = createPenlight(0xff00ff);
     myAvatar.add(myPenlight);
     myPenlight.visible = false;
     
@@ -80,12 +84,14 @@ function init() {
     initSettings(myUserName, {
         onNameChange: (newName) => {
             myUserName = newName;
-            updateAvatarName(myAvatar, newName);
+            myAvatar.userData.userName = newName;
             sendNameChange(newName);
+            showNotification('名前を変更しました', 'success');
         },
         onAvatarChange: (avatarId) => {
-            applyAvatarImage(myAvatar, avatarId);
-            sendAvatarChange(avatarId);
+            const ext = CHARA_EXTENSIONS[avatarId] || 'png';
+            const url = `${CHARA_BASE_URL}${avatarId}.${ext}`;
+            setAvatarImage(myAvatar, url);
         },
         onResetCamera: () => {
             camera.position.set(0, 8, 25);
@@ -97,30 +103,30 @@ function init() {
         },
         onBrightnessChange: (value) => {
             setRoomBrightness(value);
-            sendBrightnessChange(value);
+            sendBrightness(value);
         },
         onRequestSpeak: () => {
-            sendSpeakRequest(myUserId, myUserName);
+            requestSpeak();
             showNotification('登壇リクエストを送信しました', 'info');
         },
         onApproveSpeak: (userId) => {
-            // サーバーに承認を送信
+            // connection.jsのapproveSpeak
         },
         onDenySpeak: (userId) => {
-            // サーバーに却下を送信
+            // connection.jsのdenySpeak
         },
         onKickSpeaker: (userId) => {
-            // サーバーに退場を送信
+            // connection.jsのkickSpeaker
         },
         onAnnounce: (message) => {
-            sendChat(`📢 ${message}`);
+            sendChat('📢 運営', message);
         },
         onShowNamesChange: (visible) => {
             // 名前表示切替
         }
     });
     
-    // 接続
+    // 接続設定
     setupConnection();
     
     // UI設定
@@ -133,95 +139,60 @@ function init() {
     
     // アニメーション開始
     animate();
-}
-
-// ペンライト作成
-function createPenlight() {
-    const group = new THREE.Group();
     
-    // 光の棒
-    const lightGeom = new THREE.CylinderGeometry(0.05, 0.05, 1.5, 8);
-    const lightMat = new THREE.MeshBasicMaterial({ 
-        color: 0xff00ff,
-        transparent: true,
-        opacity: 0.8
-    });
-    const light = new THREE.Mesh(lightGeom, lightMat);
-    light.position.y = 2.5;
-    light.name = 'penlightGlow';
-    group.add(light);
-    
-    // ポイントライト
-    const pointLight = new THREE.PointLight(0xff00ff, 1, 5);
-    pointLight.position.y = 3;
-    pointLight.name = 'penlightLight';
-    group.add(pointLight);
-    
-    return group;
+    debugLog('初期化完了', 'success');
 }
 
 // ペンライトの色変更
 function setPenlightColor(color) {
     penlightColor = color;
-    const glow = myPenlight.getObjectByName('penlightGlow');
     const light = myPenlight.getObjectByName('penlightLight');
-    if (glow) glow.material.color.set(color);
-    if (light) light.color.set(color);
-}
-
-// アバター画像適用
-function applyAvatarImage(avatar, avatarId) {
-    const ext = CHARA_EXTENSIONS[avatarId] || 'png';
-    const url = `${CHARA_BASE_URL}${avatarId}.${ext}`;
-    createAvatarImage(avatar, url, scene);
-}
-
-// アバター名更新
-function updateAvatarName(avatar, name) {
-    // 既存の名前スプライトを更新
-    const nameSprite = avatar.getObjectByName('nameSprite');
-    if (nameSprite) {
-        avatar.remove(nameSprite);
-    }
-    // 新しい名前スプライト作成は utils.js で
+    const pointLight = myPenlight.getObjectByName('penlightPointLight');
+    if (light) light.material.color.set(color);
+    if (pointLight) pointLight.color.set(color);
 }
 
 // 接続設定
 function setupConnection() {
     setCallbacks({
-        onUserJoin: (userId, userName, position) => {
-            if (userId === myUserId) return;
+        onUserJoin: (user) => {
+            if (user.id === myUserId) return;
             
-            const avatar = createAvatar(scene, userName, getRandomColor());
-            avatar.position.set(position.x || 0, position.y || 0, position.z || 15);
-            remoteAvatars.set(userId, { avatar, userName });
+            const avatar = createAvatar(user.id, user.name, getRandomColor());
+            avatar.position.set(user.x || 0, user.y || 0, user.z || 15);
+            scene.add(avatar);
+            remoteAvatars.set(user.id, avatar);
             
             updateUserCount();
-            showNotification(`${userName} が参加しました`, 'info');
+            showNotification(`${user.name} が参加しました`, 'info');
         },
         onUserLeave: (userId) => {
-            const remote = remoteAvatars.get(userId);
-            if (remote) {
-                scene.remove(remote.avatar);
+            const avatar = remoteAvatars.get(userId);
+            if (avatar) {
+                scene.remove(avatar);
                 remoteAvatars.delete(userId);
                 updateUserCount();
-                showNotification(`${remote.userName} が退出しました`, 'info');
             }
         },
-        onUserMove: (userId, position) => {
-            const remote = remoteAvatars.get(userId);
-            if (remote) {
-                updateAvatarPosition(remote.avatar, position);
+        onPosition: (userId, x, y, z) => {
+            const avatar = remoteAvatars.get(userId);
+            if (avatar) {
+                avatar.position.set(x, y, z);
             }
         },
-        onReaction: (userId, type, data) => {
-            const remote = remoteAvatars.get(userId);
-            if (remote) {
-                setAvatarReaction(remote.avatar, type, data);
+        onReaction: (userId, reaction, color) => {
+            const avatar = remoteAvatars.get(userId);
+            if (avatar) {
+                // リアクション処理
+                if (reaction === 'penlight') {
+                    // ペンライト表示
+                }
             }
         },
-        onChat: (userId, userName, message) => {
-            addChatMessage(userName, message);
+        onChat: (name, message, senderId) => {
+            if (senderId !== myUserId) {
+                addChatMessage(name, message);
+            }
         },
         onBackgroundChange: (url) => {
             changeStageBackground(url);
@@ -229,16 +200,17 @@ function setupConnection() {
         onBrightnessChange: (value) => {
             setRoomBrightness(value);
         },
-        onSpeakRequest: (requests) => {
+        onSpeakRequestsUpdate: (requests) => {
             updateSpeakRequests(requests);
         },
-        onSpeakerChange: (speakers) => {
+        onCurrentSpeakersUpdate: (speakers) => {
             updateCurrentSpeakers(speakers);
             updateSpeakerCount(speakers.length);
-        }
+        },
+        remoteAvatars: remoteAvatars
     });
     
-    connectToPartyKit(myUserId, myUserName);
+    connectToPartyKit(myUserName);
 }
 
 // ユーザー数更新
@@ -261,7 +233,7 @@ function setupChatUI() {
         e.preventDefault();
         const message = input.value.trim();
         if (message) {
-            sendChat(message);
+            sendChat(myUserName, message);
             addChatMessage(myUserName, message);
             input.value = '';
         }
@@ -291,13 +263,16 @@ function setupActionButtons() {
     
     // ペンライト - タップでON/OFF
     penlightBtn.addEventListener('click', () => {
-        if (penlightLongPressTimer) return; // 長押し中は無視
+        if (penlightLongPressTimer) return;
         togglePenlight();
     });
     
     // ペンライト - 長押しで色選択
     penlightBtn.addEventListener('mousedown', startPenlightLongPress);
-    penlightBtn.addEventListener('touchstart', startPenlightLongPress);
+    penlightBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        startPenlightLongPress(e);
+    });
     penlightBtn.addEventListener('mouseup', cancelPenlightLongPress);
     penlightBtn.addEventListener('mouseleave', cancelPenlightLongPress);
     penlightBtn.addEventListener('touchend', cancelPenlightLongPress);
@@ -323,7 +298,6 @@ function setupActionButtons() {
 
 // ペンライト長押し開始
 function startPenlightLongPress(e) {
-    e.preventDefault();
     penlightLongPressTimer = setTimeout(() => {
         document.getElementById('penlight-colors').classList.remove('hidden');
         penlightLongPressTimer = null;
@@ -347,12 +321,12 @@ function togglePenlight() {
         btn.classList.add('active');
         myPenlight.visible = true;
         startPenlightAnimation();
-        sendReaction('penlight', { color: penlightColor, active: true });
+        sendReaction('penlight', penlightColor);
     } else {
         btn.classList.remove('active');
         myPenlight.visible = false;
         stopPenlightAnimation();
-        sendReaction('penlight', { active: false });
+        sendReaction('penlight_off', null);
     }
 }
 
@@ -382,11 +356,11 @@ function toggleOtagei() {
     if (isOtageiActive) {
         btn.classList.add('active');
         startOtageiAnimation();
-        sendReaction('otagei', { active: true });
+        sendReaction('otagei', null);
     } else {
         btn.classList.remove('active');
         stopOtageiAnimation();
-        sendReaction('otagei', { active: false });
+        sendReaction('otagei_off', null);
     }
 }
 
@@ -422,32 +396,25 @@ function setupTouchControls() {
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
         }
-    });
+    }, { passive: true });
     
     canvas.addEventListener('touchmove', (e) => {
         if (e.touches.length === 1) {
             const deltaX = e.touches[0].clientX - touchStartX;
             const deltaY = e.touches[0].clientY - touchStartY;
             
-            // アバター移動
             myAvatar.position.x += deltaX * 0.01;
             myAvatar.position.z += deltaY * 0.01;
             
-            // 範囲制限
             myAvatar.position.x = Math.max(-15, Math.min(15, myAvatar.position.x));
             myAvatar.position.z = Math.max(5, Math.min(25, myAvatar.position.z));
             
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
             
-            // 位置送信
-            sendPosition({
-                x: myAvatar.position.x,
-                y: myAvatar.position.y,
-                z: myAvatar.position.z
-            });
+            sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
         }
-    });
+    }, { passive: true });
 }
 
 // ウィンドウリサイズ
@@ -459,25 +426,8 @@ function onWindowResize() {
 
 // ランダムカラー
 function getRandomColor() {
-    const colors = [0xff66ff, 0x66ffff, 0xffff66, 0xff6666, 0x66ff66];
+    const colors = [0xff66ff, 0x66ffff, 0xffff00, 0xff6666, 0x66ff66];
     return colors[Math.floor(Math.random() * colors.length)];
-}
-
-// 送信関数（connection.jsに委譲）
-function sendNameChange(name) {
-    // connection.jsの関数を呼ぶ
-}
-
-function sendAvatarChange(avatarId) {
-    // connection.jsの関数を呼ぶ
-}
-
-function sendBackgroundChange(url) {
-    // connection.jsの関数を呼ぶ
-}
-
-function sendBrightnessChange(value) {
-    // connection.jsの関数を呼ぶ
 }
 
 // アニメーションループ
@@ -486,7 +436,7 @@ function animate() {
     
     animateVenue();
     
-    // カメラ追従（スムーズ）
+    // カメラ追従
     const targetX = myAvatar.position.x * 0.3;
     const targetZ = myAvatar.position.z + 10;
     camera.position.x += (targetX - camera.position.x) * 0.05;
@@ -495,9 +445,6 @@ function animate() {
     
     renderer.render(scene, camera);
 }
-
-// 背景変更のグローバルアクセス
-window.changeStageBackground = changeStageBackground;
 
 // 初期化実行
 init();

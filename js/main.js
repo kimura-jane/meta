@@ -7,7 +7,7 @@ const THREE = window.THREE;
 
 import { debugLog, createDebugUI, setupErrorHandlers, addChatMessage, createAvatar, createPenlight } from './utils.js';
 import { connectToPartyKit, setCallbacks, getState, requestSpeak, toggleMic, sendPosition, sendReaction, sendChat } from './connection.js';
-import { initVenue, createAllVenue, animateVenue, changeStageBackground } from './venue.js';
+import { initVenue, createAllVenue, animateVenue, changeStageBackground, updateSpeakerSpotlights } from './venue.js';
 
 // --------------------------------------------
 // 状態
@@ -106,6 +106,7 @@ function handleUserJoin(user) {
     if (remoteAvatars.has(user.id)) return;
     const avatar = createAvatar(user.id, user.name, user.color || 0xff6b6b);
     avatar.position.set(user.x || 0, 0.5, user.z || 5);
+    avatar.userData = { onStage: false };
     scene.add(avatar);
     remoteAvatars.set(user.id, avatar);
     updateUserCount();
@@ -189,6 +190,33 @@ function updateUserCount() {
 }
 
 // --------------------------------------------
+// 登壇者スポットライト更新
+// --------------------------------------------
+function updateStageSpeakers() {
+    const speakers = [];
+    
+    if (isOnStage && myAvatar) {
+        speakers.push({
+            x: myAvatar.position.x,
+            y: myAvatar.position.y,
+            z: myAvatar.position.z
+        });
+    }
+    
+    remoteAvatars.forEach((avatar) => {
+        if (avatar.userData && avatar.userData.onStage) {
+            speakers.push({
+                x: avatar.position.x,
+                y: avatar.position.y,
+                z: avatar.position.z
+            });
+        }
+    });
+    
+    updateSpeakerSpotlights(speakers);
+}
+
+// --------------------------------------------
 // ステージ移動
 // --------------------------------------------
 function moveToStage() {
@@ -232,6 +260,8 @@ function moveRemoteToStage(userId) {
     const stageX = (Math.random() - 0.5) * 8;
     animateToPosition(avatar, stageX, 1.7, -4, () => {
         avatar.rotation.y = Math.PI;
+        avatar.userData = avatar.userData || {};
+        avatar.userData.onStage = true;
     });
 }
 
@@ -244,6 +274,9 @@ function moveRemoteToAudience(userId) {
     
     animateToPosition(avatar, targetX, 0.5, targetZ, () => {
         avatar.rotation.y = 0;
+        if (avatar.userData) {
+            avatar.userData.onStage = false;
+        }
     });
 }
 
@@ -455,6 +488,10 @@ function onWindowResize() {
 // --------------------------------------------
 function animate() {
     requestAnimationFrame(animate);
+    
+    // 登壇者スポットライト更新
+    updateStageSpeakers();
+    
     animateVenue();
     
     if (myAvatar) {

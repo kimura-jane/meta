@@ -17,13 +17,23 @@ let remoteAvatars = new Map();
 
 // アバター画像リスト
 const CHARA_LIST = [
-    '12555', 'IMG_1677', 'IMG_1861', 'IMG_1889', 'IMG_2958',
-    'IMG_3264', 'IMG_3267', 'IMG_3269', 'IMG_7483', 'onigiriya_kanatake_512'
+    '12444',
+    '12555',
+    'IMG_1677',
+    'IMG_1861',
+    'IMG_1889',
+    'IMG_2958',
+    'IMG_3264',
+    'IMG_3267',
+    'IMG_3269',
+    'IMG_7483',
+    'onigiriya_kanatake_512'
 ];
 
 const CHARA_EXTENSIONS = {
+    '12444': 'png',
     '12555': 'png',
-    'IMG_1677': 'jpeg',
+    'IMG_1677': 'png',
     'IMG_1861': 'png',
     'IMG_1889': 'png',
     'IMG_2958': 'png',
@@ -211,8 +221,6 @@ function setupConnection() {
             isOnStage = true;
             document.getElementById('speaker-controls').classList.remove('hidden');
             showNotification('登壇が承認されました！', 'success');
-            
-            // ステージに移動
             moveToStage();
         },
         onSpeakerJoined: (userId) => {
@@ -228,7 +236,6 @@ function setupConnection() {
                 setAvatarSpotlight(avatar, false);
             }
             
-            // 自分が降壇した場合
             const state = getState();
             if (userId === state.myServerConnectionId) {
                 isOnStage = false;
@@ -257,8 +264,8 @@ function setupConnection() {
 
 // ステージに移動
 function moveToStage() {
-    const targetX = (Math.random() - 0.5) * 6;
-    const targetZ = 2;
+    const targetX = (Math.random() - 0.5) * 10;
+    const targetZ = 3;
     animateMove(myAvatar, targetX, 0, targetZ);
     setAvatarSpotlight(myAvatar, true);
 }
@@ -282,7 +289,7 @@ function animateMove(avatar, targetX, targetY, targetZ) {
     function update() {
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3); // ease-out
+        const eased = 1 - Math.pow(1 - progress, 3);
         
         avatar.position.x = startX + (targetX - startX) * eased;
         avatar.position.y = startY + (targetY - startY) * eased;
@@ -369,7 +376,6 @@ function setupActionButtons() {
     const otageiBtn = document.getElementById('otagei-btn');
     const penlightColors = document.getElementById('penlight-colors');
     
-    // ペンライト - 長押し判定用
     let pressTimer = null;
     let isLongPress = false;
     
@@ -402,14 +408,12 @@ function setupActionButtons() {
         }
     });
     
-    // クリックでもトグル（長押しじゃない場合）
     penlightBtn.addEventListener('click', () => {
         if (!isLongPress && penlightColors.classList.contains('hidden')) {
             togglePenlight();
         }
     });
     
-    // 色選択
     document.querySelectorAll('.color-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const color = btn.dataset.color;
@@ -424,14 +428,12 @@ function setupActionButtons() {
         });
     });
     
-    // 画面タップで色パネルを閉じる
     document.addEventListener('click', (e) => {
         if (!penlightBtn.contains(e.target) && !penlightColors.contains(e.target)) {
             penlightColors.classList.add('hidden');
         }
     });
     
-    // オタ芸
     otageiBtn.addEventListener('click', toggleOtagei);
 }
 
@@ -559,7 +561,6 @@ function animate() {
     
     animateVenue();
     
-    // カメラ追従
     const targetX = myAvatar.position.x * 0.3;
     const targetZ = myAvatar.position.z + 10;
     camera.position.x += (targetX - camera.position.x) * 0.05;

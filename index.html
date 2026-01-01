@@ -22,41 +22,18 @@
       </div>
     </div>
 
-    <!-- ステージ参加ボタン -->
-    <div id="stage-controls">
-      <button id="request-stage-btn">🎤 登壇リクエスト (0/5)</button>
-    </div>
-
     <!-- チャット表示エリア -->
     <div id="chat-container">
       <div id="chat-messages"></div>
       <form id="chat-form">
         <input type="text" id="chat-input" placeholder="メッセージを入力..." autocomplete="off">
         <button type="submit">送信</button>
+        <button type="button" id="penlight-btn" class="action-btn" title="ペンライト（長押しで色変更）">🔦</button>
+        <button type="button" id="otagei-btn" class="action-btn" title="オタ芸">🙌</button>
       </form>
     </div>
 
-    <!-- 下部：応援ボタン -->
-    <div id="reaction-buttons">
-      <button class="reaction-btn" data-type="penlight">
-        <span class="icon">🔦</span>
-        <span class="label">ペンライト</span>
-      </button>
-      <button class="reaction-btn" data-type="jump">
-        <span class="icon">⬆️</span>
-        <span class="label">ジャンプ</span>
-      </button>
-      <button class="reaction-btn" data-type="clap">
-        <span class="icon">👏</span>
-        <span class="label">拍手</span>
-      </button>
-      <button class="reaction-btn" data-type="otagei">
-        <span class="icon">🙌</span>
-        <span class="label">オタ芸</span>
-      </button>
-    </div>
-
-    <!-- ペンライト色選択 -->
+    <!-- ペンライト色選択（長押しで表示） -->
     <div id="penlight-colors" class="hidden">
       <button class="color-btn" data-color="#ff0000" style="background:#ff0000"></button>
       <button class="color-btn selected" data-color="#ff00ff" style="background:#ff00ff"></button>

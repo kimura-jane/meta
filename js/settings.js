@@ -16,6 +16,7 @@ const STAGE_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/
 
 // アバター画像データ
 const CHARA_LIST = [
+    '12444',
     '12555',
     'IMG_1677',
     'IMG_1861',
@@ -29,8 +30,9 @@ const CHARA_LIST = [
 ];
 
 const CHARA_EXTENSIONS = {
+    '12444': 'png',
     '12555': 'png',
-    'IMG_1677': 'jpeg',
+    'IMG_1677': 'png',
     'IMG_1861': 'png',
     'IMG_1889': 'png',
     'IMG_2958': 'png',

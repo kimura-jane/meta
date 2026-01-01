@@ -1,29 +1,46 @@
-name: Deploy PartyKit
+name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - run: npm install
-
-      - name: Deploy
-        env:
-          PARTYKIT_TOKEN: ${{ secrets.PARTYKIT_TOKEN }}
-          PARTYKIT_LOGIN: ${{ secrets.PARTYKIT_LOGIN }}
+      - name: Replace secrets in settings.js
         run: |
-          set -euo pipefail
-          export PARTYKIT_LOGIN="$(printf %s "$PARTYKIT_LOGIN" | tr -d '\r\n')"
-          npx partykit deploy --var CLOUDFLARE_CALLS_TOKEN=${{ secrets.CLOUDFLARE_CALLS_TOKEN }}
+          sed -i "s/__HOST_PASSWORDS__/${{ secrets.HOST_PASSWORDS }}/g" js/settings.js
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

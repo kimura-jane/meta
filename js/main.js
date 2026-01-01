@@ -5,9 +5,9 @@
 
 const THREE = window.THREE;
 
-import { debugLog, createDebugUI, setupErrorHandlers, addChatMessage, createAvatar, createPenlight, setAvatarSpotlight } from './utils.js';
-import { connectToPartyKit, setCallbacks, getState, requestSpeak, toggleMic, sendPosition, sendReaction, sendChat, sendNameChange, sendBackgroundChange, sendAnnounce, approveSpeak, denySpeak, kickSpeaker } from './connection.js';
-import { initVenue, createAllVenue, animateVenue, changeStageBackground, updateSpeakerSpotlights } from './venue.js';
+import { debugLog, createDebugUI, setupErrorHandlers, addChatMessage, createAvatar, createPenlight, setAvatarSpotlight, setAvatarImage } from './utils.js';
+import { connectToPartyKit, setCallbacks, getState, requestSpeak, toggleMic, sendPosition, sendReaction, sendChat, sendNameChange, sendBackgroundChange, sendAnnounce, sendBrightness, approveSpeak, denySpeak, kickSpeaker } from './connection.js';
+import { initVenue, createAllVenue, animateVenue, changeStageBackground, updateSpeakerSpotlights, setRoomBrightness } from './venue.js';
 import { initSettings, getSettings, updateSpeakRequests, updateCurrentSpeakers, showNotification, updateUserCount as updateSettingsUserCount } from './settings.js';
 
 // --------------------------------------------
@@ -17,6 +17,10 @@ let scene, camera, renderer;
 let myAvatar, myPenlight;
 let penlightOn = false;
 let penlightColor = '#ff00ff';
+let otageiOn = false;
+
+let penlightAnimationId = null;
+let otageiAnimationId = null;
 
 let isOnStage = false;
 let originalPosition = null;
@@ -25,6 +29,33 @@ const remoteAvatars = new Map();
 
 const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
 let myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
+
+// アバター画像リスト
+const CHARA_LIST = [
+    '12555',
+    'IMG_1677',
+    'IMG_1861',
+    'IMG_1889',
+    'IMG_2958',
+    'IMG_3264',
+    'IMG_3267',
+    'IMG_3269',
+    'IMG_7483',
+    'onigiriya_kanatake_512'
+];
+
+const CHARA_EXTENSIONS = {
+    '12555': 'png',
+    'IMG_1677': 'jpeg',
+    'IMG_1861': 'png',
+    'IMG_1889': 'png',
+    'IMG_2958': 'png',
+    'IMG_3264': 'png',
+    'IMG_3267': 'png',
+    'IMG_3269': 'png',
+    'IMG_7483': 'png',
+    'onigiriya_kanatake_512': 'png'
+};
 
 // --------------------------------------------
 // 初期化
@@ -36,7 +67,7 @@ function init() {
     
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x050508);
-    scene.fog = new THREE.Fog(0x050508, 15, 40);
+    scene.fog = new THREE.Fog(0x050508, 20, 50);
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 5, 12);
@@ -56,9 +87,6 @@ function init() {
         document.body.appendChild(renderer.domElement);
     }
 
-    const ambientLight = new THREE.AmbientLight(0x222233, 0.4);
-    scene.add(ambientLight);
-
     // 会場作成
     initVenue(scene);
     createAllVenue();
@@ -77,6 +105,10 @@ function init() {
         onNameChange: (newName) => {
             myUserName = newName;
             myAvatar.userData.userName = newName;
+            
+            // 名前に対応するアバター画像があるかチェック
+            checkAndApplyAvatarImage(myAvatar, newName);
+            
             sendNameChange(newName);
             showNotification(`名前を「${newName}」に変更しました`);
         },
@@ -110,6 +142,13 @@ function init() {
         },
         onShowNamesChange: (show) => {
             updateNameVisibility(show);
+        },
+        onBrightnessChange: (value) => {
+            setRoomBrightness(value);
+            sendBrightness(value);
+        },
+        onRequestSpeak: () => {
+            requestSpeak();
         }
     });
 
@@ -134,6 +173,9 @@ function init() {
         },
         onBackgroundChange: (url) => {
             changeStageBackground(url);
+        },
+        onBrightnessChange: (value) => {
+            setRoomBrightness(value);
         },
         onChat: (name, message, senderId) => {
             const state = getState();
@@ -165,6 +207,18 @@ function init() {
 }
 
 // --------------------------------------------
+// アバター画像チェック・適用
+// --------------------------------------------
+function checkAndApplyAvatarImage(avatar, userName) {
+    if (CHARA_LIST.includes(userName)) {
+        const ext = CHARA_EXTENSIONS[userName] || 'png';
+        const imageUrl = `https://raw.githubusercontent.com/kimura-jane/meta/main/chara/${userName}.${ext}`;
+        setAvatarImage(avatar, imageUrl);
+        debugLog(`アバター画像適用: ${userName}`, 'success');
+    }
+}
+
+// --------------------------------------------
 // 名前表示切替
 // --------------------------------------------
 function updateNameVisibility(show) {
@@ -182,6 +236,10 @@ function handleUserJoin(user) {
     avatar.userData.userName = user.name;
     scene.add(avatar);
     remoteAvatars.set(user.id, avatar);
+    
+    // アバター画像チェック
+    checkAndApplyAvatarImage(avatar, user.name);
+    
     updateUserCount();
     showNotification(`${user.name || '誰か'} が参加しました`, 'join-leave');
 }
@@ -208,31 +266,38 @@ function handleReaction(userId, reaction, color) {
     const avatar = remoteAvatars.get(userId);
     if (!avatar) return;
     
-    if (reaction === 'jump') {
+    if (reaction === 'penlight') {
+        // リモートユーザーのペンライト表示
+        let penlight = avatar.getObjectByName('remotePenlight');
+        if (!penlight) {
+            penlight = createPenlight(color || '#ff00ff');
+            penlight.name = 'remotePenlight';
+            avatar.add(penlight);
+        }
+        penlight.visible = true;
+        
+        // 振るアニメーション
         let progress = 0;
-        function jumpAnim() {
-            progress += 0.1;
-            if (progress <= Math.PI) {
-                avatar.position.y = 0.5 + Math.sin(progress) * 1;
-                requestAnimationFrame(jumpAnim);
-            } else {
-                avatar.position.y = 0.5;
+        function swing() {
+            progress += 0.15;
+            if (progress <= Math.PI * 4) {
+                penlight.rotation.z = Math.PI / 6 + Math.sin(progress) * 0.3;
+                requestAnimationFrame(swing);
             }
         }
-        jumpAnim();
-    } else if (reaction === 'clap') {
+        swing();
+    } else if (reaction === 'otagei') {
         let progress = 0;
-        function clapAnim() {
-            progress += 0.2;
-            if (progress <= Math.PI) {
-                const scale = 1 + Math.sin(progress) * 0.1;
-                avatar.scale.set(scale, scale, scale);
-                requestAnimationFrame(clapAnim);
+        function otageiAnim() {
+            progress += 0.12;
+            if (progress <= Math.PI * 4) {
+                avatar.rotation.z = Math.sin(progress * 3) * 0.2;
+                requestAnimationFrame(otageiAnim);
             } else {
-                avatar.scale.set(1, 1, 1);
+                avatar.rotation.z = 0;
             }
         }
-        clapAnim();
+        otageiAnim();
     }
 }
 
@@ -270,20 +335,17 @@ function updateUserCount() {
     const state = getState();
     const count = remoteAvatars.size + (state.connected ? 1 : 0);
     
-    // 新しいHTML構造用
     const numEl = document.getElementById('user-count-num');
     if (numEl) {
         numEl.textContent = count;
     }
     
-    // settings.js の更新も呼ぶ
     if (typeof updateSettingsUserCount === 'function') {
         updateSettingsUserCount(count);
     }
 }
 
 function updateSpeakerCount() {
-    // 登壇者をカウント
     let speakerCount = isOnStage ? 1 : 0;
     
     remoteAvatars.forEach((avatar) => {
@@ -292,7 +354,6 @@ function updateSpeakerCount() {
         }
     });
     
-    // HTML要素を更新
     const speakerCountEl = document.getElementById('speaker-count');
     if (speakerCountEl) {
         speakerCountEl.textContent = speakerCount;
@@ -426,7 +487,7 @@ function animateToPosition(obj, targetX, targetY, targetZ, onComplete) {
 }
 
 // --------------------------------------------
-// リアクション
+// ペンライト
 // --------------------------------------------
 function setPenlightColor(color) {
     penlightColor = color;
@@ -434,74 +495,107 @@ function setPenlightColor(color) {
     if (light) light.material.color.set(color);
     const pointLight = myPenlight.getObjectByName('penlightPointLight');
     if (pointLight) pointLight.color.set(color);
+    
+    // ボタンの光る色も更新
+    const penlightBtn = document.getElementById('penlight-btn');
+    if (penlightBtn && penlightOn) {
+        penlightBtn.style.setProperty('--glow-color', color);
+    }
 }
 
-function wavePenlight() {
-    if (!penlightOn) return;
-    const startRotation = myPenlight.rotation.z;
-    let progress = 0;
+function startPenlightLoop() {
+    if (penlightAnimationId) return;
+    
     function swing() {
-        progress += 0.15;
-        if (progress <= Math.PI) {
-            myPenlight.rotation.z = startRotation + Math.sin(progress) * 0.3;
-            requestAnimationFrame(swing);
-        } else {
-            myPenlight.rotation.z = startRotation;
+        if (!penlightOn) {
+            penlightAnimationId = null;
+            return;
         }
+        
+        const time = Date.now() * 0.005;
+        myPenlight.rotation.z = Math.PI / 6 + Math.sin(time) * 0.3;
+        
+        penlightAnimationId = requestAnimationFrame(swing);
     }
     swing();
+    sendReaction('penlight', penlightColor);
 }
 
-function doJump() {
-    const startY = myAvatar.position.y;
-    let progress = 0;
-    function jump() {
-        progress += 0.1;
-        if (progress <= Math.PI) {
-            myAvatar.position.y = startY + Math.sin(progress) * 1;
-            requestAnimationFrame(jump);
+function stopPenlightLoop() {
+    if (penlightAnimationId) {
+        cancelAnimationFrame(penlightAnimationId);
+        penlightAnimationId = null;
+    }
+    myPenlight.rotation.z = Math.PI / 6;
+}
+
+function togglePenlight() {
+    penlightOn = !penlightOn;
+    myPenlight.visible = penlightOn;
+    
+    const penlightBtn = document.getElementById('penlight-btn');
+    if (penlightBtn) {
+        if (penlightOn) {
+            penlightBtn.classList.add('active');
+            penlightBtn.style.setProperty('--glow-color', penlightColor);
+            startPenlightLoop();
         } else {
-            myAvatar.position.y = startY;
+            penlightBtn.classList.remove('active');
+            stopPenlightLoop();
         }
     }
-    jump();
-    sendReaction('jump', null);
 }
 
-function doOtagei() {
-    let progress = 0;
+// --------------------------------------------
+// オタ芸
+// --------------------------------------------
+function startOtageiLoop() {
+    if (otageiAnimationId) return;
+    
     function otagei() {
-        progress += 0.12;
-        if (progress <= Math.PI * 2) {
-            myAvatar.rotation.z = Math.sin(progress * 3) * 0.2;
-            if (myPenlight.visible) {
-                myPenlight.rotation.z = Math.PI / 6 + Math.sin(progress * 5) * 0.5;
-            }
-            requestAnimationFrame(otagei);
-        } else {
+        if (!otageiOn) {
+            otageiAnimationId = null;
             myAvatar.rotation.z = 0;
-            myPenlight.rotation.z = Math.PI / 6;
+            if (myPenlight.visible) {
+                myPenlight.rotation.z = Math.PI / 6;
+            }
+            return;
         }
+        
+        const time = Date.now() * 0.008;
+        myAvatar.rotation.z = Math.sin(time * 3) * 0.2;
+        if (myPenlight.visible) {
+            myPenlight.rotation.z = Math.PI / 6 + Math.sin(time * 5) * 0.5;
+        }
+        
+        otageiAnimationId = requestAnimationFrame(otagei);
     }
     otagei();
     sendReaction('otagei', penlightColor);
 }
 
-function doClap() {
-    const originalScale = myAvatar.scale.x;
-    let progress = 0;
-    function clap() {
-        progress += 0.2;
-        if (progress <= Math.PI) {
-            const scale = originalScale + Math.sin(progress) * 0.1;
-            myAvatar.scale.set(scale, scale, scale);
-            requestAnimationFrame(clap);
+function stopOtageiLoop() {
+    if (otageiAnimationId) {
+        cancelAnimationFrame(otageiAnimationId);
+        otageiAnimationId = null;
+    }
+    myAvatar.rotation.z = 0;
+}
+
+function toggleOtagei() {
+    otageiOn = !otageiOn;
+    
+    const otageiBtn = document.getElementById('otagei-btn');
+    if (otageiBtn) {
+        if (otageiOn) {
+            otageiBtn.classList.add('active');
+            otageiBtn.style.setProperty('--glow-color', '#ff66ff');
+            startOtageiLoop();
         } else {
-            myAvatar.scale.set(originalScale, originalScale, originalScale);
+            otageiBtn.classList.remove('active');
+            stopOtageiLoop();
         }
     }
-    clap();
-    sendReaction('clap', null);
 }
 
 // --------------------------------------------
@@ -510,34 +604,71 @@ function doClap() {
 function setupEventListeners() {
     window.addEventListener('resize', onWindowResize);
 
-    document.querySelectorAll('.reaction-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const type = btn.dataset.type;
-            if (type === 'penlight') {
-                penlightOn = !penlightOn;
-                myPenlight.visible = penlightOn;
+    // ペンライトボタン
+    const penlightBtn = document.getElementById('penlight-btn');
+    if (penlightBtn) {
+        let pressTimer = null;
+        let isLongPress = false;
+        
+        const startPress = (e) => {
+            e.preventDefault();
+            isLongPress = false;
+            pressTimer = setTimeout(() => {
+                isLongPress = true;
+                // 長押し: 色選択パネル表示
                 const colorPanel = document.getElementById('penlight-colors');
-                if (colorPanel) colorPanel.classList.toggle('hidden', !penlightOn);
-                if (penlightOn) { wavePenlight(); sendReaction('penlight', penlightColor); }
-            } else if (type === 'jump') {
-                doJump();
-            } else if (type === 'clap') {
-                doClap();
-            } else if (type === 'otagei') {
-                doOtagei();
+                if (colorPanel) {
+                    colorPanel.classList.toggle('hidden');
+                }
+            }, 500);
+        };
+        
+        const endPress = (e) => {
+            e.preventDefault();
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+            if (!isLongPress) {
+                // 短押し: ON/OFF切替
+                togglePenlight();
+            }
+        };
+        
+        penlightBtn.addEventListener('mousedown', startPress);
+        penlightBtn.addEventListener('mouseup', endPress);
+        penlightBtn.addEventListener('mouseleave', () => {
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
             }
         });
-    });
+        penlightBtn.addEventListener('touchstart', startPress);
+        penlightBtn.addEventListener('touchend', endPress);
+    }
 
+    // オタ芸ボタン
+    const otageiBtn = document.getElementById('otagei-btn');
+    if (otageiBtn) {
+        otageiBtn.addEventListener('click', toggleOtagei);
+    }
+
+    // 色選択ボタン
     document.querySelectorAll('.color-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
             setPenlightColor(btn.dataset.color);
-            wavePenlight();
+            
+            // 色選択後にパネルを閉じる
+            const colorPanel = document.getElementById('penlight-colors');
+            if (colorPanel) {
+                colorPanel.classList.add('hidden');
+            }
         });
     });
 
+    // チャットフォーム
     const chatForm = document.getElementById('chat-form');
     if (chatForm) {
         chatForm.addEventListener('submit', (e) => {
@@ -552,11 +683,7 @@ function setupEventListeners() {
         });
     }
 
-    const stageBtn = document.getElementById('request-stage-btn');
-    if (stageBtn) {
-        stageBtn.addEventListener('click', () => requestSpeak());
-    }
-
+    // マイクボタン
     const micBtn = document.getElementById('mic-toggle-btn');
     if (micBtn) {
         micBtn.addEventListener('click', () => {
@@ -566,6 +693,7 @@ function setupEventListeners() {
         });
     }
 
+    // タッチ操作
     let touchStartX, touchStartY;
     renderer.domElement.addEventListener('touchstart', (e) => {
         touchStartX = e.touches[0].clientX;

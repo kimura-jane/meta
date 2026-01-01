@@ -5,9 +5,10 @@
 
 const THREE = window.THREE;
 
-import { debugLog, createDebugUI, setupErrorHandlers, addChatMessage, createAvatar, createPenlight } from './utils.js';
-import { connectToPartyKit, setCallbacks, getState, requestSpeak, toggleMic, sendPosition, sendReaction, sendChat } from './connection.js';
+import { debugLog, createDebugUI, setupErrorHandlers, addChatMessage, createAvatar, createPenlight, setAvatarSpotlight } from './utils.js';
+import { connectToPartyKit, setCallbacks, getState, requestSpeak, toggleMic, sendPosition, sendReaction, sendChat, sendNameChange, sendBackgroundChange, sendAnnounce, approveSpeak, denySpeak, kickSpeaker } from './connection.js';
 import { initVenue, createAllVenue, animateVenue, changeStageBackground, updateSpeakerSpotlights } from './venue.js';
+import { initSettings, getSettings, updateSpeakRequests, updateCurrentSpeakers, showNotification } from './settings.js';
 
 // --------------------------------------------
 // 状態
@@ -23,7 +24,7 @@ let originalPosition = null;
 const remoteAvatars = new Map();
 
 const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
-const myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
+let myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
 
 // --------------------------------------------
 // 初期化
@@ -71,6 +72,47 @@ function init() {
     myPenlight.visible = false;
     myAvatar.add(myPenlight);
 
+    // 設定画面初期化
+    initSettings(myUserName, {
+        onNameChange: (newName) => {
+            myUserName = newName;
+            myAvatar.userData.userName = newName;
+            sendNameChange(newName);
+            showNotification(`名前を「${newName}」に変更しました`);
+        },
+        onResetCamera: () => {
+            if (isOnStage) {
+                camera.position.set(myAvatar.position.x * 0.5, 3.5, -2);
+                camera.lookAt(myAvatar.position.x * 0.3, 1.5, 10);
+            } else {
+                camera.position.set(0, 5, 12);
+                camera.lookAt(0, 2, 0);
+            }
+            showNotification('カメラ視点をリセットしました');
+        },
+        onApproveSpeak: (userId) => {
+            approveSpeak(userId);
+        },
+        onDenySpeak: (userId) => {
+            denySpeak(userId);
+        },
+        onKickSpeaker: (userId) => {
+            kickSpeaker(userId);
+        },
+        onChangeBackground: (url) => {
+            changeStageBackground(url);
+            sendBackgroundChange(url);
+            showNotification('背景を変更しました');
+        },
+        onAnnounce: (text) => {
+            sendAnnounce(text);
+            showNotification(`📢 ${text}`, 'announce');
+        },
+        onShowNamesChange: (show) => {
+            updateNameVisibility(show);
+        }
+    });
+
     // コールバック設定
     setCallbacks({
         onUserJoin: handleUserJoin,
@@ -81,6 +123,15 @@ function init() {
         onSpeakerJoined: handleSpeakerJoined,
         onSpeakerLeft: handleSpeakerLeft,
         onConnectedChange: handleConnectedChange,
+        onSpeakRequestsUpdate: updateSpeakRequests,
+        onCurrentSpeakersUpdate: updateCurrentSpeakers,
+        onAnnounce: (message) => {
+            showNotification(`📢 ${message}`, 'announce');
+            addChatMessage('📢 アナウンス', message);
+        },
+        onBackgroundChange: (url) => {
+            changeStageBackground(url);
+        },
         remoteAvatars: remoteAvatars
     });
 
@@ -100,21 +151,32 @@ function init() {
 }
 
 // --------------------------------------------
+// 名前表示切替
+// --------------------------------------------
+function updateNameVisibility(show) {
+    // 将来的にアバター上に名前を表示する機能で使用
+    debugLog(`名前表示: ${show ? 'ON' : 'OFF'}`, 'info');
+}
+
+// --------------------------------------------
 // コールバックハンドラー
 // --------------------------------------------
 function handleUserJoin(user) {
     if (remoteAvatars.has(user.id)) return;
     const avatar = createAvatar(user.id, user.name, user.color || 0xff6b6b);
     avatar.position.set(user.x || 0, 0.5, user.z || 5);
-    avatar.userData = { onStage: false };
+    avatar.userData.onStage = false;
+    avatar.userData.userName = user.name;
     scene.add(avatar);
     remoteAvatars.set(user.id, avatar);
     updateUserCount();
+    showNotification(`${user.name || '誰か'} が参加しました`, 'join-leave');
 }
 
 function handleUserLeave(userId) {
     const avatar = remoteAvatars.get(userId);
     if (avatar) {
+        showNotification(`${avatar.userData.userName || '誰か'} が退出しました`, 'join-leave');
         scene.remove(avatar);
         remoteAvatars.delete(userId);
     }
@@ -235,6 +297,8 @@ function moveToStage() {
     animateToPosition(myAvatar, stageX, stageY, stageZ, () => {
         isOnStage = true;
         myAvatar.rotation.y = Math.PI;
+        myAvatar.userData.onStage = true;
+        setAvatarSpotlight(myAvatar, true);
         debugLog('ステージに移動完了', 'success');
     });
 }
@@ -248,6 +312,8 @@ function moveOffStage() {
     animateToPosition(myAvatar, targetX, 0.5, targetZ, () => {
         isOnStage = false;
         myAvatar.rotation.y = 0;
+        myAvatar.userData.onStage = false;
+        setAvatarSpotlight(myAvatar, false);
         originalPosition = null;
         debugLog('フロアに戻りました', 'info');
     });
@@ -262,6 +328,7 @@ function moveRemoteToStage(userId) {
         avatar.rotation.y = Math.PI;
         avatar.userData = avatar.userData || {};
         avatar.userData.onStage = true;
+        setAvatarSpotlight(avatar, true);
     });
 }
 
@@ -277,6 +344,7 @@ function moveRemoteToAudience(userId) {
         if (avatar.userData) {
             avatar.userData.onStage = false;
         }
+        setAvatarSpotlight(avatar, false);
     });
 }
 

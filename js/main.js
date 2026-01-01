@@ -8,7 +8,7 @@ const THREE = window.THREE;
 import { debugLog, createDebugUI, setupErrorHandlers, addChatMessage, createAvatar, createPenlight, setAvatarSpotlight } from './utils.js';
 import { connectToPartyKit, setCallbacks, getState, requestSpeak, toggleMic, sendPosition, sendReaction, sendChat, sendNameChange, sendBackgroundChange, sendAnnounce, approveSpeak, denySpeak, kickSpeaker } from './connection.js';
 import { initVenue, createAllVenue, animateVenue, changeStageBackground, updateSpeakerSpotlights } from './venue.js';
-import { initSettings, getSettings, updateSpeakRequests, updateCurrentSpeakers, showNotification } from './settings.js';
+import { initSettings, getSettings, updateSpeakRequests, updateCurrentSpeakers, showNotification, updateUserCount as updateSettingsUserCount } from './settings.js';
 
 // --------------------------------------------
 // 状態
@@ -124,7 +124,10 @@ function init() {
         onSpeakerLeft: handleSpeakerLeft,
         onConnectedChange: handleConnectedChange,
         onSpeakRequestsUpdate: updateSpeakRequests,
-        onCurrentSpeakersUpdate: updateCurrentSpeakers,
+        onCurrentSpeakersUpdate: (speakers) => {
+            updateCurrentSpeakers(speakers);
+            updateSpeakerCount();
+        },
         onAnnounce: (message) => {
             showNotification(`📢 ${message}`, 'announce');
             addChatMessage('📢 アナウンス', message);
@@ -143,6 +146,11 @@ function init() {
 
     setupEventListeners();
     connectToPartyKit(myUserName);
+    
+    // 初期の人数表示
+    updateUserCount();
+    updateSpeakerCount();
+    
     setInterval(() => {
         if (myAvatar) {
             sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
@@ -231,11 +239,13 @@ function handleReaction(userId, reaction, color) {
 function handleSpeakApproved() {
     moveToStage();
     addChatMessage('システム', '登壇が承認されました！');
+    updateSpeakerCount();
 }
 
 function handleSpeakerJoined(userId) {
     moveRemoteToStage(userId);
     addChatMessage('システム', '新しい登壇者が参加しました');
+    updateSpeakerCount();
 }
 
 function handleSpeakerLeft(userId) {
@@ -246,17 +256,47 @@ function handleSpeakerLeft(userId) {
     } else {
         moveRemoteToAudience(userId);
     }
+    updateSpeakerCount();
 }
 
 function handleConnectedChange(connected) {
     updateUserCount();
 }
 
+// --------------------------------------------
+// 人数更新
+// --------------------------------------------
 function updateUserCount() {
     const state = getState();
     const count = remoteAvatars.size + (state.connected ? 1 : 0);
-    const el = document.getElementById('user-count');
-    if (el) el.textContent = `${count}人`;
+    
+    // 新しいHTML構造用
+    const numEl = document.getElementById('user-count-num');
+    if (numEl) {
+        numEl.textContent = count;
+    }
+    
+    // settings.js の更新も呼ぶ
+    if (typeof updateSettingsUserCount === 'function') {
+        updateSettingsUserCount(count);
+    }
+}
+
+function updateSpeakerCount() {
+    // 登壇者をカウント
+    let speakerCount = isOnStage ? 1 : 0;
+    
+    remoteAvatars.forEach((avatar) => {
+        if (avatar.userData && avatar.userData.onStage) {
+            speakerCount++;
+        }
+    });
+    
+    // HTML要素を更新
+    const speakerCountEl = document.getElementById('speaker-count');
+    if (speakerCountEl) {
+        speakerCountEl.textContent = speakerCount;
+    }
 }
 
 // --------------------------------------------
@@ -307,6 +347,7 @@ function moveToStage() {
         myAvatar.rotation.y = Math.PI;
         myAvatar.userData.onStage = true;
         setAvatarSpotlight(myAvatar, true);
+        updateSpeakerCount();
         debugLog('ステージに移動完了', 'success');
     });
 }
@@ -323,6 +364,7 @@ function moveOffStage() {
         myAvatar.userData.onStage = false;
         setAvatarSpotlight(myAvatar, false);
         originalPosition = null;
+        updateSpeakerCount();
         debugLog('フロアに戻りました', 'info');
     });
 }
@@ -337,6 +379,7 @@ function moveRemoteToStage(userId) {
         avatar.userData = avatar.userData || {};
         avatar.userData.onStage = true;
         setAvatarSpotlight(avatar, true);
+        updateSpeakerCount();
     });
 }
 
@@ -353,6 +396,7 @@ function moveRemoteToAudience(userId) {
             avatar.userData.onStage = false;
         }
         setAvatarSpotlight(avatar, false);
+        updateSpeakerCount();
     });
 }
 

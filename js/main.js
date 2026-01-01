@@ -132,6 +132,12 @@ function init() {
         onBackgroundChange: (url) => {
             changeStageBackground(url);
         },
+        onChat: (name, message, senderId) => {
+            const state = getState();
+            if (senderId !== state.myServerConnectionId) {
+                addChatMessage(name, message);
+            }
+        },
         remoteAvatars: remoteAvatars
     });
 
@@ -154,7 +160,6 @@ function init() {
 // 名前表示切替
 // --------------------------------------------
 function updateNameVisibility(show) {
-    // 将来的にアバター上に名前を表示する機能で使用
     debugLog(`名前表示: ${show ? 'ON' : 'OFF'}`, 'info');
 }
 
@@ -176,7 +181,7 @@ function handleUserJoin(user) {
 function handleUserLeave(userId) {
     const avatar = remoteAvatars.get(userId);
     if (avatar) {
-        showNotification(`${avatar.userData.userName || '誰か'} が退出しました`, 'join-leave');
+        showNotification(`${avatar.userData?.userName || '誰か'} が退出しました`, 'join-leave');
         scene.remove(avatar);
         remoteAvatars.delete(userId);
     }
@@ -225,16 +230,19 @@ function handleReaction(userId, reaction, color) {
 
 function handleSpeakApproved() {
     moveToStage();
+    addChatMessage('システム', '登壇が承認されました！');
 }
 
 function handleSpeakerJoined(userId) {
     moveRemoteToStage(userId);
+    addChatMessage('システム', '新しい登壇者が参加しました');
 }
 
 function handleSpeakerLeft(userId) {
     const state = getState();
     if (userId === state.myServerConnectionId) {
         moveOffStage();
+        addChatMessage('システム', '登壇を終了しました');
     } else {
         moveRemoteToAudience(userId);
     }
@@ -557,9 +565,7 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
     
-    // 登壇者スポットライト更新
     updateStageSpeakers();
-    
     animateVenue();
     
     if (myAvatar) {

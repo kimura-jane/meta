@@ -14,39 +14,53 @@
         <div id="room-info">
             <div id="room-title">縄文式生住居</div>
             <div id="room-stats">
-                <span id="user-count">👥 0</span>
-                <span id="speaker-count">🎤 0</span>
+                <span>👥 <span id="user-count">0</span></span>
+                <span>🎤 <span id="speaker-count">0</span></span>
             </div>
         </div>
-        
+
+        <!-- 右上: スピーカーコントロール -->
+        <div id="speaker-controls" class="hidden">
+            <button id="mic-toggle-btn">🎙️ マイク ON</button>
+            <button id="leave-stage-btn">降壇する</button>
+        </div>
+
         <!-- チャットエリア -->
         <div id="chat-container">
             <div id="chat-messages"></div>
             <form id="chat-form">
                 <input type="text" id="chat-input" placeholder="メッセージを入力..." autocomplete="off">
                 <button type="submit" id="chat-submit">送信</button>
-                <button type="button" id="penlight-btn" title="ペンライト">🔦</button>
-                <button type="button" id="otagei-btn" title="オタ芸">🙌</button>
             </form>
         </div>
-        
-        <!-- ペンライトカラー選択（長押しで表示） -->
-        <div id="penlight-colors" class="hidden">
-            <button class="color-btn" data-color="#ff0000" style="background: #ff0000;"></button>
-            <button class="color-btn" data-color="#ff00ff" style="background: #ff00ff;"></button>
-            <button class="color-btn" data-color="#00ffff" style="background: #00ffff;"></button>
-            <button class="color-btn" data-color="#00ff00" style="background: #00ff00;"></button>
-            <button class="color-btn" data-color="#ffff00" style="background: #ffff00;"></button>
-            <button class="color-btn" data-color="#ffffff" style="background: #ffffff;"></button>
+
+        <!-- 右下: ジョイスティック＆アクションボタン -->
+        <div id="right-controls">
+            <!-- ジョイスティック -->
+            <div id="joystick-container">
+                <div id="joystick-base">
+                    <div id="joystick-stick"></div>
+                </div>
+            </div>
+            
+            <!-- アクションボタン -->
+            <div id="action-buttons">
+                <button id="penlight-btn">🔦</button>
+                <button id="otagei-btn">🙌</button>
+            </div>
         </div>
-        
-        <!-- スピーカーコントロール（登壇時のみ表示） -->
-        <div id="speaker-controls" class="hidden">
-            <button id="mic-toggle-btn">🎙️ マイク ON</button>
-            <button id="leave-stage-btn">降壇する</button>
+
+        <!-- ペンライト色選択 -->
+        <div id="penlight-colors" class="hidden">
+            <button class="color-btn" data-color="#ff0000" style="background:#ff0000"></button>
+            <button class="color-btn" data-color="#ff00ff" style="background:#ff00ff"></button>
+            <button class="color-btn" data-color="#00ffff" style="background:#00ffff"></button>
+            <button class="color-btn" data-color="#00ff00" style="background:#00ff00"></button>
+            <button class="color-btn" data-color="#ffff00" style="background:#ffff00"></button>
+            <button class="color-btn" data-color="#ffffff" style="background:#ffffff"></button>
         </div>
     </div>
-    
+
     <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
     <script type="module" src="js/main.js"></script>
 </body>

@@ -474,10 +474,6 @@ function processJoystickMovement() {
     }
 
     sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
-
-    if (isPenlightActive) {
-        updatePenlightPosition();
-    }
 }
 
 // ユーザー数更新
@@ -558,7 +554,6 @@ function setupActionButtons() {
     // クリックイベント（PC用）
     penlightBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        // 長押し後やタッチデバイスでは無視
         if (longPressTriggered) {
             longPressTriggered = false;
             return;
@@ -645,7 +640,6 @@ function setupActionButtons() {
             debugLog(`Penlight color changed to ${penlightColor}`, 'info');
         });
         
-        // タッチでも反応
         btn.addEventListener('touchend', (e) => {
             e.stopPropagation();
             e.preventDefault();
@@ -681,7 +675,6 @@ function setupActionButtons() {
         }
     });
     
-    // タッチでも反応
     otageiBtn.addEventListener('touchend', (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -704,13 +697,13 @@ function setupActionButtons() {
 // ペンライト位置更新
 function updatePenlightPosition() {
     if (myPenlight && myAvatar) {
-        // カメラの向きを考慮して、アバターの前方（カメラ側）に配置
-        const offsetX = -Math.sin(cameraAngleX) * 0.8;
-        const offsetZ = -Math.cos(cameraAngleX) * 0.8;
+        // カメラの向きを考慮して、アバターの前方（カメラから見える側）に配置
+        const offsetX = -Math.sin(cameraAngleX) * 1.0;
+        const offsetZ = -Math.cos(cameraAngleX) * 1.0;
         
         myPenlight.position.set(
             myAvatar.position.x + offsetX,
-            myAvatar.position.y + 1.5,
+            myAvatar.position.y + 2.0,
             myAvatar.position.z + offsetZ
         );
     }
@@ -723,13 +716,7 @@ function updatePenlightColor() {
         
         myPenlight.traverse((child) => {
             if (child.isMesh && child.material) {
-                // 持ち手以外の色を更新
-                if (child.name !== 'penlightHandle') {
-                    child.material.color.copy(colorValue);
-                    if (child.material.emissive) {
-                        child.material.emissive.copy(colorValue);
-                    }
-                }
+                child.material.color.copy(colorValue);
             }
             if (child.isPointLight) {
                 child.color.copy(colorValue);
@@ -751,11 +738,6 @@ function startOtageiAnimation() {
         time += 0.15;
         const jumpHeight = Math.abs(Math.sin(time)) * 0.5;
         myAvatar.position.y = otageiBaseY + jumpHeight;
-
-        if (isPenlightActive) {
-            updatePenlightPosition();
-            myPenlight.rotation.z = Math.sin(time * 2) * 0.5;
-        }
 
         otageiAnimationId = requestAnimationFrame(animateOtagei);
     }
@@ -834,14 +816,18 @@ function animate() {
         camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
     }
 
-    // ペンライト揺れアニメーション（常に位置も更新）
+    // ペンライト揺れアニメーション
     if (isPenlightActive && myPenlight && myPenlight.visible) {
+        // 位置を更新（カメラの動きに追従）
         updatePenlightPosition();
-        myPenlight.rotation.z = Math.sin(Date.now() * 0.005) * 0.4;
-        myPenlight.rotation.x = Math.sin(Date.now() * 0.003) * 0.2;
         
-        // ペンライトをカメラの方に向ける
-        myPenlight.lookAt(camera.position);
+        // 上下に揺れる
+        const swing = Math.sin(Date.now() * 0.005) * 0.2;
+        myPenlight.position.y += swing;
+        
+        // スケールでパルス効果
+        const pulse = 1 + Math.sin(Date.now() * 0.008) * 0.15;
+        myPenlight.scale.set(pulse, pulse, pulse);
     }
 
     renderer.render(scene, camera);

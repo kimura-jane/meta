@@ -48,9 +48,9 @@ let otageiAnimationId = null;
 let otageiBaseY = 0;
 
 // カメラ制御
-let cameraAngleX = 0; // 水平回転
-let cameraAngleY = 0.3; // 垂直角度
-let cameraDistance = 8; // カメラ距離
+let cameraAngleX = 0;
+let cameraAngleY = 0.3;
+let cameraDistance = 8;
 
 // ジョイスティック
 let joystickActive = false;
@@ -239,8 +239,7 @@ function setupConnection() {
 function setupJoystick() {
     const joystickBase = document.getElementById('joystick-base');
     const joystickStick = document.getElementById('joystick-stick');
-    const baseRect = joystickBase.getBoundingClientRect();
-    const maxDistance = 40;
+    const maxDistance = 35;
 
     function handleJoystickMove(clientX, clientY) {
         const rect = joystickBase.getBoundingClientRect();
@@ -250,29 +249,27 @@ function setupJoystick() {
         let deltaX = clientX - centerX;
         let deltaY = clientY - centerY;
 
-        // 最大距離で制限
         const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
         if (distance > maxDistance) {
             deltaX = (deltaX / distance) * maxDistance;
             deltaY = (deltaY / distance) * maxDistance;
         }
 
-        // スティックの位置を更新
-        joystickStick.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+        joystickStick.style.left = `calc(50% + ${deltaX}px)`;
+        joystickStick.style.top = `calc(50% + ${deltaY}px)`;
 
-        // ジョイスティックの値を-1〜1に正規化
         joystickX = deltaX / maxDistance;
         joystickY = deltaY / maxDistance;
     }
 
     function resetJoystick() {
-        joystickStick.style.transform = 'translate(0, 0)';
+        joystickStick.style.left = '50%';
+        joystickStick.style.top = '50%';
         joystickX = 0;
         joystickY = 0;
         joystickActive = false;
     }
 
-    // タッチイベント
     joystickBase.addEventListener('touchstart', (e) => {
         e.preventDefault();
         joystickActive = true;
@@ -290,7 +287,6 @@ function setupJoystick() {
     joystickBase.addEventListener('touchend', resetJoystick);
     joystickBase.addEventListener('touchcancel', resetJoystick);
 
-    // マウスイベント（PC用）
     joystickBase.addEventListener('mousedown', (e) => {
         joystickActive = true;
         handleJoystickMove(e.clientX, e.clientY);
@@ -327,10 +323,7 @@ function setupCameraSwipe() {
         const deltaX = touch.clientX - lastX;
         const deltaY = touch.clientY - lastY;
 
-        // 水平方向: カメラ回転
         cameraAngleX -= deltaX * 0.005;
-
-        // 垂直方向: カメラ角度（制限付き）
         cameraAngleY += deltaY * 0.003;
         cameraAngleY = Math.max(0.1, Math.min(1.2, cameraAngleY));
 
@@ -342,7 +335,6 @@ function setupCameraSwipe() {
         isDragging = false;
     });
 
-    // マウスイベント（PC用）
     canvas.addEventListener('mousedown', (e) => {
         isDragging = true;
         lastX = e.clientX;
@@ -428,7 +420,6 @@ function processJoystickMovement() {
 
     const speed = 0.15;
 
-    // カメラの向きに基づいて移動方向を計算
     const moveAngle = cameraAngleX;
     const forward = -joystickY;
     const right = joystickX;
@@ -437,12 +428,10 @@ function processJoystickMovement() {
     const moveZ = (Math.cos(moveAngle) * forward - Math.sin(moveAngle) * right) * speed;
 
     if (isOnStage) {
-        // ステージ上: X方向のみ、範囲制限
         let newX = myAvatar.position.x + moveX;
         newX = Math.max(-7, Math.min(7, newX));
         myAvatar.position.x = newX;
     } else {
-        // 観客席: 自由移動、範囲制限
         let newX = myAvatar.position.x + moveX;
         let newZ = myAvatar.position.z + moveZ;
 
@@ -455,7 +444,6 @@ function processJoystickMovement() {
 
     sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
 
-    // ペンライト追従
     if (isPenlightActive) {
         updatePenlightPosition();
     }
@@ -652,13 +640,10 @@ function onWindowResize() {
 function animate() {
     requestAnimationFrame(animate);
 
-    // 会場アニメーション
     animateVenue();
 
-    // ジョイスティック移動処理
     processJoystickMovement();
 
-    // カメラ位置計算（アバターを中心に回転）
     if (myAvatar) {
         const camX = myAvatar.position.x + Math.sin(cameraAngleX) * cameraDistance;
         const camY = myAvatar.position.y + cameraAngleY * cameraDistance;
@@ -668,7 +653,6 @@ function animate() {
         camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
     }
 
-    // ペンライトアニメーション
     if (isPenlightActive && myPenlight) {
         myPenlight.rotation.z = Math.sin(Date.now() * 0.003) * 0.3;
     }

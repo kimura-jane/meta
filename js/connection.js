@@ -2,7 +2,7 @@
 // PartyKit接続・音声通話
 // ============================================
 
-import { debugLog, isIOS, addChatMessage, addSpeakerIndicator, removeSpeakerIndicator } from './utils.js';
+import { debugLog, isIOS, addSpeakerIndicator, removeSpeakerIndicator } from './utils.js';
 
 // --------------------------------------------
 // 設定
@@ -49,6 +49,7 @@ let callbacks = {
     onCurrentSpeakersUpdate: null,
     onAnnounce: null,
     onBackgroundChange: null,
+    onChat: null,
     remoteAvatars: null
 };
 
@@ -278,11 +279,13 @@ function handleServerMessage(data) {
             break;
             
         case 'chat':
-            addChatMessage(data.name, data.message);
+            if (callbacks.onChat) {
+                const senderId = data.senderId || data.odUserId || data.userId;
+                callbacks.onChat(data.name, data.message, senderId);
+            }
             break;
 
         case 'speakRequest':
-            // 主催者向け：新しい登壇リクエスト
             speakRequests.push({ id: data.userId, name: data.userName });
             if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
             break;
@@ -294,18 +297,18 @@ function handleServerMessage(data) {
             updateSpeakerButton();
             startPublishing();
             if (callbacks.onSpeakApproved) callbacks.onSpeakApproved();
-            addChatMessage('システム', '登壇が承認されました！');
             break;
 
         case 'speakDenied':
-            addChatMessage('システム', data.reason || '登壇リクエストが却下されました');
+            if (callbacks.onChat) {
+                callbacks.onChat('システム', data.reason || '登壇リクエストが却下されました', 'system');
+            }
             break;
 
         case 'speakerJoined':
             const joinedUserId = data.odUserId || data.userId;
             if (data.speakers) updateSpeakerList(data.speakers);
             if (callbacks.onSpeakerJoined) callbacks.onSpeakerJoined(joinedUserId);
-            addChatMessage('システム', '新しい登壇者が参加しました');
             break;
 
         case 'speakerLeft':
@@ -340,19 +343,18 @@ function handleServerMessage(data) {
             break;
 
         case 'announce':
-            // 全体アナウンス受信
             if (callbacks.onAnnounce) callbacks.onAnnounce(data.message);
             break;
 
         case 'backgroundChange':
-            // 背景変更受信
             if (callbacks.onBackgroundChange) callbacks.onBackgroundChange(data.url);
             break;
 
         case 'kicked':
-            // 強制退場された
             stopSpeaking();
-            addChatMessage('システム', '主催者により登壇を終了しました');
+            if (callbacks.onChat) {
+                callbacks.onChat('システム', '主催者により登壇を終了しました', 'system');
+            }
             break;
             
         case 'error':
@@ -388,7 +390,6 @@ export function stopSpeaking() {
     updateSpeakerButton();
     
     socket.send(JSON.stringify({ type: 'stopSpeak' }));
-    addChatMessage('システム', '登壇を終了しました');
     
     if (callbacks.onSpeakerLeft) callbacks.onSpeakerLeft(myServerConnectionId);
 }
@@ -442,7 +443,6 @@ async function startPublishing() {
         
     } catch (error) {
         debugLog(`publishエラー: ${error.message}`, 'error');
-        addChatMessage('システム', 'マイクにアクセスできませんでした');
         stopSpeaking();
     }
 }
@@ -452,7 +452,6 @@ async function handleTrackPublished(data) {
     
     try {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-        addChatMessage('システム', '音声配信を開始しました');
         setTimeout(resumeAllAudio, 100);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
@@ -553,7 +552,6 @@ function updateSpeakerList(speakers) {
     speakerCount = speakersArray.length;
     updateSpeakerButton();
     
-    // 登壇者リスト更新（主催者メニュー用）
     currentSpeakers = speakersArray.map(id => {
         const avatar = callbacks.remoteAvatars?.get(id);
         return { id, name: avatar?.userData?.userName || id };
@@ -612,7 +610,12 @@ export function sendReaction(reaction, color) {
 
 export function sendChat(name, message) {
     if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'chat', name, message }));
+        socket.send(JSON.stringify({ 
+            type: 'chat', 
+            name, 
+            message,
+            senderId: myServerConnectionId
+        }));
     }
 }
 
@@ -638,7 +641,6 @@ export function sendAnnounce(message) {
 export function approveSpeak(userId) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'approveSpeak', userId }));
-        // リクエストリストから削除
         speakRequests = speakRequests.filter(r => r.id !== userId);
         if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
     }

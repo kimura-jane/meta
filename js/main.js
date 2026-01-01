@@ -85,6 +85,10 @@ let movingLights = [];
 let ledScreen;
 let lightTime = 0;
 
+let mirrorBall;
+let mirrorBallLights = [];
+let floorLightSpots = [];
+
 let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/IMG_3206.jpeg';
 
 let isOnStage = false;
@@ -435,7 +439,7 @@ function handleServerMessage(data) {
 }
 
 // --------------------------------------------
-// ステージ移動機能（修正版）
+// ステージ移動機能
 // --------------------------------------------
 function moveToStage() {
     if (isOnStage) return;
@@ -445,14 +449,13 @@ function moveToStage() {
         z: myAvatar.position.z
     };
     
-    // ステージ上の位置（観客側を向く位置）
     const stageX = (speakerCount - 1) * 2 - 4;
-    const stageZ = -4; // ステージ前方（LEDスクリーンより手前）
+    const stageZ = -4;
     const stageY = 1.7;
     
     animateToPosition(myAvatar, stageX, stageY, stageZ, () => {
         isOnStage = true;
-        myAvatar.rotation.y = Math.PI; // 観客側を向く
+        myAvatar.rotation.y = Math.PI;
         debugLog('ステージに移動完了', 'success');
     });
 }
@@ -850,8 +853,8 @@ function init() {
     debugLog('Three.js初期化開始');
     
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a0f);
-    scene.fog = new THREE.Fog(0x0a0a0f, 20, 50);
+    scene.background = new THREE.Color(0x050508);
+    scene.fog = new THREE.Fog(0x050508, 15, 40);
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 5, 12);
@@ -871,15 +874,17 @@ function init() {
         document.body.appendChild(renderer.domElement);
     }
 
-    const ambientLight = new THREE.AmbientLight(0x111122, 0.3);
+    const ambientLight = new THREE.AmbientLight(0x111122, 0.2);
     scene.add(ambientLight);
 
     createZeppFloor();
     createZeppStage();
+    createVenueWalls();
     createTruss();
     createMovingLights();
     createBarrier();
     createSideSpeakers();
+    createMirrorBall();
 
     myAvatar = createAvatar(myUserId, myUserName, 0x4fc3f7);
     myAvatar.position.set((Math.random() - 0.5) * 8, 0.5, 5 + Math.random() * 3);
@@ -898,32 +903,230 @@ function init() {
 }
 
 // --------------------------------------------
-// Zepp風フロア
+// Zepp風フロア（ミラーボール光反射付き）
 // --------------------------------------------
 function createZeppFloor() {
-    const floorGeometry = new THREE.PlaneGeometry(40, 30);
+    const floorGeometry = new THREE.PlaneGeometry(30, 25);
     const floorMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x0a0a0a, roughness: 0.2, metalness: 0.8
+        color: 0x0a0a0a, roughness: 0.3, metalness: 0.7
     });
     floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     scene.add(floor);
 
+    // ネオンライン
     [-8, -4, 0, 4, 8].forEach((x, i) => {
-        const lineGeometry = new THREE.PlaneGeometry(0.05, 25);
+        const lineGeometry = new THREE.PlaneGeometry(0.05, 20);
         const lineMaterial = new THREE.MeshBasicMaterial({ 
-            color: i % 2 === 0 ? 0xff00ff : 0x00ffff, transparent: true, opacity: 0.3
+            color: i % 2 === 0 ? 0xff00ff : 0x00ffff, transparent: true, opacity: 0.4
         });
         const line = new THREE.Mesh(lineGeometry, lineMaterial);
         line.rotation.x = -Math.PI / 2;
         line.position.set(x, 0.01, 2);
         scene.add(line);
     });
+
+    // 床の光スポット（ミラーボールからの反射）
+    const spotColors = [0xff0066, 0xff00ff, 0x00ffff, 0xffff00, 0xff6600, 0x00ff66];
+    for (let i = 0; i < 20; i++) {
+        const spotGeo = new THREE.CircleGeometry(0.3 + Math.random() * 0.4, 16);
+        const spotMat = new THREE.MeshBasicMaterial({ 
+            color: spotColors[Math.floor(Math.random() * spotColors.length)],
+            transparent: true,
+            opacity: 0.6
+        });
+        const spot = new THREE.Mesh(spotGeo, spotMat);
+        spot.rotation.x = -Math.PI / 2;
+        spot.position.set(
+            (Math.random() - 0.5) * 20,
+            0.02,
+            (Math.random() - 0.5) * 15 + 3
+        );
+        scene.add(spot);
+        floorLightSpots.push({
+            mesh: spot,
+            baseX: spot.position.x,
+            baseZ: spot.position.z,
+            speed: 0.5 + Math.random() * 1,
+            phase: Math.random() * Math.PI * 2
+        });
+    }
 }
 
 // --------------------------------------------
-// Zepp風ステージ（モザイク修正版）
+// 会場の壁（幾何学模様付き）
+// --------------------------------------------
+function createVenueWalls() {
+    const wallMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x1a1a2e, roughness: 0.8, metalness: 0.2
+    });
+
+    // 後方の壁
+    const backWall = new THREE.Mesh(
+        new THREE.PlaneGeometry(30, 12),
+        wallMaterial
+    );
+    backWall.position.set(0, 6, 15);
+    backWall.rotation.y = Math.PI;
+    scene.add(backWall);
+
+    // 左右の壁
+    [-15, 15].forEach((x, idx) => {
+        const sideWall = new THREE.Mesh(
+            new THREE.PlaneGeometry(25, 12),
+            wallMaterial
+        );
+        sideWall.position.set(x, 6, 2);
+        sideWall.rotation.y = x > 0 ? -Math.PI / 2 : Math.PI / 2;
+        scene.add(sideWall);
+
+        // 幾何学模様のライトパネル
+        createGeometricPanels(x, idx);
+    });
+
+    // 天井
+    const ceiling = new THREE.Mesh(
+        new THREE.PlaneGeometry(30, 25),
+        new THREE.MeshStandardMaterial({ color: 0x0a0a0a })
+    );
+    ceiling.position.set(0, 10, 2);
+    ceiling.rotation.x = Math.PI / 2;
+    scene.add(ceiling);
+}
+
+// --------------------------------------------
+// 幾何学模様のライトパネル
+// --------------------------------------------
+function createGeometricPanels(wallX, wallIdx) {
+    const panelColors = [0x4400ff, 0x6600ff, 0x8800ff, 0x0044ff];
+    const isLeft = wallX < 0;
+    
+    // ダイヤモンド/三角形パターン
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 4; col++) {
+            // 三角形パネル
+            const triGeo = new THREE.BufferGeometry();
+            const size = 1.5;
+            const vertices = new Float32Array([
+                0, size, 0,
+                -size * 0.866, -size * 0.5, 0,
+                size * 0.866, -size * 0.5, 0
+            ]);
+            triGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            triGeo.computeVertexNormals();
+            
+            const triMat = new THREE.MeshBasicMaterial({ 
+                color: panelColors[(row + col) % panelColors.length],
+                transparent: true,
+                opacity: 0.3 + Math.random() * 0.3,
+                side: THREE.DoubleSide
+            });
+            
+            const tri = new THREE.Mesh(triGeo, triMat);
+            tri.position.set(
+                isLeft ? wallX + 0.1 : wallX - 0.1,
+                3 + row * 2.5,
+                -2 + col * 3
+            );
+            tri.rotation.y = isLeft ? Math.PI / 2 : -Math.PI / 2;
+            tri.rotation.z = ((row + col) % 2) * Math.PI;
+            scene.add(tri);
+        }
+    }
+
+    // ネオンフレーム
+    const frameMat = new THREE.MeshBasicMaterial({ 
+        color: 0x00ffff, transparent: true, opacity: 0.5 
+    });
+    
+    [2, 5, 8].forEach(y => {
+        const hLine = new THREE.Mesh(
+            new THREE.BoxGeometry(0.05, 0.05, 12),
+            frameMat
+        );
+        hLine.position.set(isLeft ? wallX + 0.2 : wallX - 0.2, y, 2);
+        scene.add(hLine);
+    });
+}
+
+// --------------------------------------------
+// ミラーボール
+// --------------------------------------------
+function createMirrorBall() {
+    // ミラーボール本体
+    const ballGeo = new THREE.SphereGeometry(0.8, 32, 32);
+    const ballMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        metalness: 1,
+        roughness: 0.1,
+        envMapIntensity: 1
+    });
+    mirrorBall = new THREE.Mesh(ballGeo, ballMat);
+    mirrorBall.position.set(0, 9, 3);
+    scene.add(mirrorBall);
+
+    // ミラーボールの小さな鏡面タイル
+    const tileCount = 200;
+    for (let i = 0; i < tileCount; i++) {
+        const phi = Math.acos(-1 + (2 * i) / tileCount);
+        const theta = Math.sqrt(tileCount * Math.PI) * phi;
+        
+        const tileGeo = new THREE.PlaneGeometry(0.15, 0.15);
+        const tileMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            side: THREE.DoubleSide
+        });
+        const tile = new THREE.Mesh(tileGeo, tileMat);
+        
+        tile.position.setFromSphericalCoords(0.82, phi, theta);
+        tile.lookAt(0, 0, 0);
+        mirrorBall.add(tile);
+    }
+
+    // 吊り下げワイヤー
+    const wire = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.02, 0.02, 1.5, 8),
+        new THREE.MeshBasicMaterial({ color: 0x333333 })
+    );
+    wire.position.set(0, 9.75, 3);
+    scene.add(wire);
+
+    // ミラーボールを照らすスポットライト
+    const spotLight = new THREE.SpotLight(0xffffff, 3, 15, Math.PI / 4, 0.5);
+    spotLight.position.set(0, 10, 3);
+    spotLight.target = mirrorBall;
+    scene.add(spotLight);
+
+    // 回転する光線（ミラーボールからの反射をシミュレート）
+    const lightColors = [0xff0066, 0x00ffff, 0xffff00, 0xff00ff, 0x00ff66, 0xff6600];
+    for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        const light = new THREE.SpotLight(
+            lightColors[i % lightColors.length],
+            0.5,
+            20,
+            Math.PI / 16,
+            0.8
+        );
+        light.position.set(0, 9, 3);
+        
+        const target = new THREE.Object3D();
+        target.position.set(
+            Math.cos(angle) * 10,
+            0,
+            Math.sin(angle) * 10 + 3
+        );
+        scene.add(target);
+        light.target = target;
+        scene.add(light);
+        
+        mirrorBallLights.push({ light, target, baseAngle: angle });
+    }
+}
+
+// --------------------------------------------
+// Zepp風ステージ
 // --------------------------------------------
 function createZeppStage() {
     const stageGeometry = new THREE.BoxGeometry(16, 1.2, 6);
@@ -949,17 +1152,16 @@ function createZeppStage() {
     underLight.position.set(0, 0.02, -3.2);
     scene.add(underLight);
 
-    // LEDスクリーン（サイズ調整・位置をステージ後方に）
+    // LEDスクリーン
     const screenGeometry = new THREE.PlaneGeometry(14, 6);
     const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x330066, side: THREE.DoubleSide });
     ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
     ledScreen.position.set(0, 4, -8.5);
     scene.add(ledScreen);
     
-    // 背景画像を非同期ロード（モザイク修正版）
+    // 背景画像を非同期ロード
     const loader = new THREE.TextureLoader();
     loader.load(stageBackgroundUrl, function(texture) {
-        // モザイク防止のためのテクスチャ設定
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.minFilter = THREE.LinearFilter;
         texture.magFilter = THREE.LinearFilter;
@@ -974,7 +1176,7 @@ function createZeppStage() {
         debugLog('背景画像ロード失敗: ' + err, 'warn');
     });
 
-    // フレーム（LEDスクリーンの後ろ）
+    // フレーム
     const frame = new THREE.Mesh(
         new THREE.BoxGeometry(14.4, 6.4, 0.2),
         new THREE.MeshStandardMaterial({ color: 0x111111 })
@@ -987,7 +1189,6 @@ function changeStageBackground(imageUrl) {
     stageBackgroundUrl = imageUrl;
     const loader = new THREE.TextureLoader();
     loader.load(imageUrl, function(texture) {
-        // モザイク防止のためのテクスチャ設定
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.minFilter = THREE.LinearFilter;
         texture.magFilter = THREE.LinearFilter;
@@ -1313,7 +1514,6 @@ function setupEventListeners() {
         if (!touchStartX || !touchStartY) return;
         
         if (isOnStage) {
-            // ステージ上では左右移動のみ
             const deltaX = (e.touches[0].clientX - touchStartX) * 0.02;
             myAvatar.position.x += deltaX;
             myAvatar.position.x = Math.max(-6, Math.min(6, myAvatar.position.x));
@@ -1322,8 +1522,8 @@ function setupEventListeners() {
             const deltaZ = (e.touches[0].clientY - touchStartY) * 0.01;
             myAvatar.position.x += deltaX;
             myAvatar.position.z += deltaZ;
-            myAvatar.position.x = Math.max(-14, Math.min(14, myAvatar.position.x));
-            myAvatar.position.z = Math.max(-1, Math.min(12, myAvatar.position.z));
+            myAvatar.position.x = Math.max(-12, Math.min(12, myAvatar.position.x));
+            myAvatar.position.z = Math.max(-1, Math.min(10, myAvatar.position.z));
         }
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
@@ -1354,10 +1554,35 @@ function onWindowResize() {
 
 function animateMovingLights() {
     lightTime += 0.02;
+    
+    // ステージ上のムービングライト
     movingLights.forEach((ml) => {
         const swingX = Math.sin(lightTime + ml.phase) * 3;
         const swingZ = Math.cos(lightTime * 0.7 + ml.phase) * 2;
         ml.light.target.position.set(ml.baseX + swingX, 0, 2 + swingZ);
+    });
+
+    // ミラーボール回転
+    if (mirrorBall) {
+        mirrorBall.rotation.y += 0.01;
+    }
+
+    // ミラーボールからの光
+    mirrorBallLights.forEach((ml, i) => {
+        const angle = ml.baseAngle + lightTime * 0.5;
+        ml.target.position.set(
+            Math.cos(angle) * 12,
+            0,
+            Math.sin(angle) * 12 + 3
+        );
+    });
+
+    // 床の光スポット移動
+    floorLightSpots.forEach((spot) => {
+        const offset = Math.sin(lightTime * spot.speed + spot.phase) * 2;
+        spot.mesh.position.x = spot.baseX + offset;
+        spot.mesh.position.z = spot.baseZ + Math.cos(lightTime * spot.speed * 0.7 + spot.phase) * 1.5;
+        spot.mesh.material.opacity = 0.4 + Math.sin(lightTime * 2 + spot.phase) * 0.2;
     });
 }
 
@@ -1367,13 +1592,11 @@ function animate() {
     
     if (myAvatar) {
         if (isOnStage) {
-            // ステージ上：カメラはアバターの後ろから客席を見る
             camera.position.x += (myAvatar.position.x * 0.5 - camera.position.x) * 0.05;
             camera.position.y += (3.5 - camera.position.y) * 0.05;
-            camera.position.z += (-2 - camera.position.z) * 0.05; // アバターより少し手前
-            camera.lookAt(myAvatar.position.x * 0.3, 1.5, 10); // 客席方向を見る
+            camera.position.z += (-2 - camera.position.z) * 0.05;
+            camera.lookAt(myAvatar.position.x * 0.3, 1.5, 10);
         } else {
-            // フロア：通常のカメラ追従
             camera.position.x += (myAvatar.position.x * 0.3 - camera.position.x) * 0.05;
             camera.position.z += (myAvatar.position.z + 8 - camera.position.z) * 0.05;
             camera.position.y += (5 - camera.position.y) * 0.05;

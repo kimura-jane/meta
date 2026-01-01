@@ -3,8 +3,9 @@
 // 主催者パスワード
 const HOST_PASSWORD = 'jomon2026';
 
-// 背景画像データ
+// 背景画像データ（デフォルト追加）
 const STAGE_BACKGROUNDS = [
+    { name: 'デフォルト', file: 'IMG_3206.jpeg' },
     { name: 'IMG_0967', file: 'IMG_0967.png' },
     { name: 'IMG_3273', file: 'IMG_3273.jpeg' },
     { name: 'IMG_3274', file: 'IMG_3274.jpeg' },
@@ -308,12 +309,12 @@ function createSettingsUI() {
                     <span style="font-weight: bold;">✨ 主催者モード有効</span>
                 </div>
                 
-                <!-- 明るさ調整 -->
+                <!-- 明るさ調整（最大200%） -->
                 <div style="margin-bottom: 12px;">
                     <label style="font-size: 12px; color: #aaa;">🔆 部屋の明るさ</label>
                     <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                        <input type="range" id="brightness-slider" min="0" max="100" value="60" style="flex: 1;">
-                        <span id="brightness-value" style="font-size: 12px; width: 40px;">60%</span>
+                        <input type="range" id="brightness-slider" min="0" max="200" value="60" style="flex: 1;">
+                        <span id="brightness-value" style="font-size: 12px; width: 45px;">60%</span>
                     </div>
                 </div>
                 
@@ -585,7 +586,7 @@ function createSettingsUI() {
         showNotification('ログアウトしました', 'info');
     };
     
-    // 明るさ調整
+    // 明るさ調整（0〜200%）
     document.getElementById('brightness-slider').oninput = (e) => {
         const value = e.target.value;
         document.getElementById('brightness-value').textContent = `${value}%`;

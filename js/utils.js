@@ -114,13 +114,13 @@ export function addChatMessage(name, message) {
 }
 
 // --------------------------------------------
-// アバター作成（スポットライト対応版）
+// アバター作成（画像対応版）
 // --------------------------------------------
 export function createAvatar(userId, userName, color) {
     const group = new THREE.Group();
-    group.userData = { odUserId: userId, userName, onStage: false, baseColor: color };
+    group.userData = { odUserId: userId, userName, onStage: false, baseColor: color, hasImage: false };
 
-    // 通常時のマテリアル
+    // 体（カプセル型）
     const bodyMaterial = new THREE.MeshStandardMaterial({ 
         color,
         emissive: 0x000000,
@@ -135,6 +135,7 @@ export function createAvatar(userId, userName, color) {
     body.name = 'avatarBody';
     group.add(body);
 
+    // 頭（球体）
     const headMaterial = new THREE.MeshStandardMaterial({ 
         color,
         emissive: 0x000000,
@@ -149,7 +150,65 @@ export function createAvatar(userId, userName, color) {
     head.name = 'avatarHead';
     group.add(head);
 
+    // 画像用プレーン（初期は非表示）
+    const imagePlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.2, 2),
+        new THREE.MeshBasicMaterial({ 
+            transparent: true, 
+            opacity: 1,
+            side: THREE.DoubleSide
+        })
+    );
+    imagePlane.position.y = 1;
+    imagePlane.name = 'avatarImage';
+    imagePlane.visible = false;
+    group.add(imagePlane);
+
     return group;
+}
+
+// --------------------------------------------
+// アバター画像を設定
+// --------------------------------------------
+export function setAvatarImage(avatar, imageUrl) {
+    const imagePlane = avatar.getObjectByName('avatarImage');
+    const body = avatar.getObjectByName('avatarBody');
+    const head = avatar.getObjectByName('avatarHead');
+    
+    if (!imagePlane) return;
+    
+    const loader = new THREE.TextureLoader();
+    loader.load(
+        imageUrl,
+        (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            
+            // アスペクト比を計算
+            const aspect = texture.image.width / texture.image.height;
+            const height = 2;
+            const width = height * aspect;
+            
+            // ジオメトリを更新
+            imagePlane.geometry.dispose();
+            imagePlane.geometry = new THREE.PlaneGeometry(width, height);
+            
+            // マテリアルを更新
+            imagePlane.material.map = texture;
+            imagePlane.material.needsUpdate = true;
+            
+            // 画像を表示、3Dボディを非表示
+            imagePlane.visible = true;
+            if (body) body.visible = false;
+            if (head) head.visible = false;
+            
+            avatar.userData.hasImage = true;
+            debugLog(`アバター画像設定完了: ${imageUrl}`, 'success');
+        },
+        undefined,
+        (error) => {
+            debugLog(`アバター画像読み込み失敗: ${error}`, 'warn');
+        }
+    );
 }
 
 // --------------------------------------------
@@ -158,14 +217,13 @@ export function createAvatar(userId, userName, color) {
 export function setAvatarSpotlight(avatar, isLit) {
     const body = avatar.getObjectByName('avatarBody');
     const head = avatar.getObjectByName('avatarHead');
+    const imagePlane = avatar.getObjectByName('avatarImage');
     
     if (body && body.material) {
         if (isLit) {
-            // 明るく光らせる
             body.material.emissive.setHex(avatar.userData.baseColor || 0x4fc3f7);
             body.material.emissiveIntensity = 0.4;
         } else {
-            // 通常に戻す
             body.material.emissive.setHex(0x000000);
             body.material.emissiveIntensity = 0;
         }
@@ -178,6 +236,15 @@ export function setAvatarSpotlight(avatar, isLit) {
         } else {
             head.material.emissive.setHex(0x000000);
             head.material.emissiveIntensity = 0;
+        }
+    }
+    
+    // 画像アバターの場合は明るさを調整
+    if (imagePlane && imagePlane.visible && imagePlane.material) {
+        if (isLit) {
+            imagePlane.material.color = new THREE.Color(1.5, 1.5, 1.5);
+        } else {
+            imagePlane.material.color = new THREE.Color(1, 1, 1);
         }
     }
 }

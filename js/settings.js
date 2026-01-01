@@ -1,7 +1,7 @@
 // 設定画面・主催者メニュー
 
-// 主催者パスワード（GitHub Secretsから置換される）
-const HOST_PASSWORD = '__HOSTPASS__';
+// 主催者パスワード
+const HOST_PASSWORD = 'jomon2026';
 
 // 背景画像データ
 const STAGE_BACKGROUNDS = [
@@ -200,14 +200,16 @@ function createSettingsUI() {
         <div style="margin-bottom: 20px;">
             <button id="request-stage-btn-panel" style="
                 width: 100%;
-                padding: 12px;
-                background: linear-gradient(135deg, #ff6600, #ff3366, #ff66ff);
-                border: none;
+                padding: 14px;
+                background: linear-gradient(135deg, #ff0066, #cc0052);
+                border: 2px solid #ff66ff;
                 border-radius: 12px;
                 color: white;
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: bold;
                 cursor: pointer;
+                box-shadow: 0 0 15px rgba(255,0,102,0.5);
+                text-shadow: 0 1px 2px rgba(0,0,0,0.5);
             ">🎤 登壇リクエスト</button>
         </div>
         
@@ -457,6 +459,10 @@ function createSettingsUI() {
             border-color: rgba(255,102,255,0.8);
             transform: scale(1.1);
             box-shadow: 0 0 25px rgba(255,102,255,0.5);
+        }
+        #request-stage-btn-panel:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 25px rgba(255,0,102,0.7);
         }
     `;
     document.head.appendChild(style);

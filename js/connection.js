@@ -31,6 +31,10 @@ const pendingSubscriptions = new Map();
 let speakerCount = 0;
 let audioUnlocked = false;
 
+// 登壇リクエスト・登壇者リスト
+let speakRequests = [];
+let currentSpeakers = [];
+
 // コールバック
 let callbacks = {
     onUserJoin: null,
@@ -41,6 +45,10 @@ let callbacks = {
     onSpeakerJoined: null,
     onSpeakerLeft: null,
     onConnectedChange: null,
+    onSpeakRequestsUpdate: null,
+    onCurrentSpeakersUpdate: null,
+    onAnnounce: null,
+    onBackgroundChange: null,
     remoteAvatars: null
 };
 
@@ -54,7 +62,9 @@ export function getState() {
         isSpeaker,
         speakerCount,
         myServerConnectionId,
-        subscribedTracks
+        subscribedTracks,
+        speakRequests,
+        currentSpeakers
     };
 }
 
@@ -247,7 +257,6 @@ function handleServerMessage(data) {
         case 'userJoin':
             if (data.user.id !== myServerConnectionId && callbacks.onUserJoin) {
                 callbacks.onUserJoin(data.user);
-                addChatMessage('システム', `${data.user.name || '誰か'}が入室しました`);
             }
             break;
             
@@ -255,7 +264,6 @@ function handleServerMessage(data) {
             const leaveUserId = data.odUserId || data.userId;
             if (callbacks.onUserLeave) callbacks.onUserLeave(leaveUserId);
             removeRemoteAudio(leaveUserId);
-            addChatMessage('システム', '誰かが退室しました');
             if (data.speakers) updateSpeakerList(data.speakers);
             break;
             
@@ -273,6 +281,12 @@ function handleServerMessage(data) {
             addChatMessage(data.name, data.message);
             break;
 
+        case 'speakRequest':
+            // 主催者向け：新しい登壇リクエスト
+            speakRequests.push({ id: data.userId, name: data.userName });
+            if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
+            break;
+
         case 'speakApproved':
             mySessionId = data.sessionId;
             isSpeaker = true;
@@ -284,7 +298,7 @@ function handleServerMessage(data) {
             break;
 
         case 'speakDenied':
-            addChatMessage('システム', data.reason);
+            addChatMessage('システム', data.reason || '登壇リクエストが却下されました');
             break;
 
         case 'speakerJoined':
@@ -323,6 +337,22 @@ function handleServerMessage(data) {
             
         case 'subscribeAnswerAck':
             debugLog('Answer確認OK', 'success');
+            break;
+
+        case 'announce':
+            // 全体アナウンス受信
+            if (callbacks.onAnnounce) callbacks.onAnnounce(data.message);
+            break;
+
+        case 'backgroundChange':
+            // 背景変更受信
+            if (callbacks.onBackgroundChange) callbacks.onBackgroundChange(data.url);
+            break;
+
+        case 'kicked':
+            // 強制退場された
+            stopSpeaking();
+            addChatMessage('システム', '主催者により登壇を終了しました');
             break;
             
         case 'error':
@@ -523,6 +553,13 @@ function updateSpeakerList(speakers) {
     speakerCount = speakersArray.length;
     updateSpeakerButton();
     
+    // 登壇者リスト更新（主催者メニュー用）
+    currentSpeakers = speakersArray.map(id => {
+        const avatar = callbacks.remoteAvatars?.get(id);
+        return { id, name: avatar?.userData?.userName || id };
+    });
+    if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
+    
     if (callbacks.remoteAvatars) {
         callbacks.remoteAvatars.forEach((avatar, odUserId) => {
             if (speakersArray.includes(odUserId)) {
@@ -576,5 +613,47 @@ export function sendReaction(reaction, color) {
 export function sendChat(name, message) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'chat', name, message }));
+    }
+}
+
+export function sendNameChange(newName) {
+    currentUserName = newName;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'nameChange', name: newName }));
+    }
+}
+
+export function sendBackgroundChange(url) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'backgroundChange', url }));
+    }
+}
+
+export function sendAnnounce(message) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'announce', message }));
+    }
+}
+
+export function approveSpeak(userId) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'approveSpeak', userId }));
+        // リクエストリストから削除
+        speakRequests = speakRequests.filter(r => r.id !== userId);
+        if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
+    }
+}
+
+export function denySpeak(userId) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'denySpeak', userId }));
+        speakRequests = speakRequests.filter(r => r.id !== userId);
+        if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
+    }
+}
+
+export function kickSpeaker(userId) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'kickSpeaker', userId }));
     }
 }

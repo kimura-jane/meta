@@ -4,6 +4,15 @@
 // iOS Safari 対応版 - 各トラック個別PeerConnection方式
 // ============================================
 
+// エラーを画面に表示
+window.onerror = function(msg, url, line, col, error) {
+    const div = document.createElement('div');
+    div.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:white;padding:10px;z-index:99999;font-size:12px;';
+    div.textContent = `ERROR: ${msg} (line ${line})`;
+    document.body.appendChild(div);
+    return false;
+};
+
 // --------------------------------------------
 // デバッグログ機能
 // --------------------------------------------
@@ -31,9 +40,6 @@ function updateDebugUI() {
     container.scrollTop = container.scrollHeight;
 }
 
-window.onerror = (msg, url, line) => {
-    debugLog(`JS ERROR: ${msg} (line ${line})`, 'error');
-};
 window.onunhandledrejection = (e) => {
     debugLog(`Promise ERROR: ${e.reason}`, 'error');
 };
@@ -75,15 +81,12 @@ let myPenlight;
 let penlightOn = false;
 let penlightColor = '#ff00ff';
 
-// Zepp風ライブハウス用
 let movingLights = [];
 let ledScreen;
 let lightTime = 0;
 
-// ステージ背景画像URL（後から変更可能）
 let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/IMG_3206.jpeg';
 
-// 登壇者のステージ位置管理
 let isOnStage = false;
 let originalPosition = null;
 
@@ -173,9 +176,6 @@ function showAudioUnlockButton() {
     debugLog('音声アンロックボタン表示', 'warn');
 }
 
-// --------------------------------------------
-// 全ての音声を再開
-// --------------------------------------------
 function resumeAllAudio() {
     debugLog('全音声再開処理', 'info');
     
@@ -242,10 +242,6 @@ function createDebugUI() {
     document.body.appendChild(btn);
     
     debugLog('デバッグコンソール初期化', 'success');
-    
-    if (isIOS()) {
-        debugLog('iOS検出: 音声はタップで有効化が必要', 'warn');
-    }
 }
 
 // --------------------------------------------
@@ -332,12 +328,10 @@ function handleServerMessage(data) {
                 setTimeout(() => {
                     tracksArray.forEach(([odUserId, trackName]) => {
                         if (odUserId === myServerConnectionId) {
-                            debugLog(`自分のトラックはスキップ: ${trackName}`);
                             return;
                         }
                         const speakerSessionId = sessionsMap.get(odUserId);
                         if (speakerSessionId) {
-                            debugLog(`既存トラック購読: ${odUserId}`);
                             subscribeToTrack(odUserId, speakerSessionId, trackName);
                         }
                     });
@@ -346,7 +340,6 @@ function handleServerMessage(data) {
             break;
             
         case 'userJoin':
-            debugLog(`参加: ${data.user.id}`);
             if (data.user.id !== myServerConnectionId) {
                 createRemoteAvatar(data.user);
                 addChatMessage('システム', `${data.user.name || '誰か'}が入室しました`);
@@ -356,7 +349,6 @@ function handleServerMessage(data) {
             
         case 'userLeave':
             const leaveUserId = data.odUserId || data.userId;
-            debugLog(`退出: ${leaveUserId}`);
             removeRemoteAvatar(leaveUserId);
             removeRemoteAudio(leaveUserId);
             addChatMessage('システム', '誰かが退室しました');
@@ -381,7 +373,6 @@ function handleServerMessage(data) {
             break;
 
         case 'speakApproved':
-            debugLog(`登壇承認！sessionId: ${data.sessionId}`, 'success');
             mySessionId = data.sessionId;
             isSpeaker = true;
             speakerCount++;
@@ -392,13 +383,11 @@ function handleServerMessage(data) {
             break;
 
         case 'speakDenied':
-            debugLog(`登壇拒否: ${data.reason}`, 'warn');
             addChatMessage('システム', data.reason);
             break;
 
         case 'speakerJoined':
             const joinedUserId = data.odUserId || data.userId;
-            debugLog(`登壇者追加: ${joinedUserId}`);
             if (data.speakers) {
                 updateSpeakerList(data.speakers);
             }
@@ -408,7 +397,6 @@ function handleServerMessage(data) {
 
         case 'speakerLeft':
             const leftUserId = data.odUserId || data.userId;
-            debugLog(`登壇者退出: ${leftUserId}`);
             if (data.speakers) {
                 updateSpeakerList(data.speakers);
             }
@@ -417,24 +405,15 @@ function handleServerMessage(data) {
             break;
 
         case 'trackPublished':
-            debugLog(`トラック公開成功！`, 'success');
             handleTrackPublished(data);
             break;
 
         case 'newTrack':
             const trackUserId = data.odUserId || data.userId;
             const newTrackName = data.trackName;
-            debugLog(`新トラック: ${trackUserId} - ${newTrackName}`);
             
-            if (trackUserId === myServerConnectionId) {
-                debugLog(`自分のトラックなのでスキップ`);
-                return;
-            }
-            
-            if (myPublishedTrackName && newTrackName === myPublishedTrackName) {
-                debugLog(`自分が公開したトラック名なのでスキップ`);
-                return;
-            }
+            if (trackUserId === myServerConnectionId) return;
+            if (myPublishedTrackName && newTrackName === myPublishedTrackName) return;
             
             setTimeout(() => {
                 subscribeToTrack(trackUserId, data.sessionId, newTrackName);
@@ -442,7 +421,6 @@ function handleServerMessage(data) {
             break;
 
         case 'subscribed':
-            debugLog(`購読レスポンス受信: ${data.trackName}`);
             handleSubscribed(data);
             break;
             
@@ -462,8 +440,6 @@ function handleServerMessage(data) {
 function moveToStage() {
     if (isOnStage) return;
     
-    debugLog('ステージに移動開始', 'info');
-    
     originalPosition = {
         x: myAvatar.position.x,
         z: myAvatar.position.z
@@ -476,14 +452,11 @@ function moveToStage() {
     animateToPosition(myAvatar, stageX, stageY, stageZ, () => {
         isOnStage = true;
         myAvatar.rotation.y = Math.PI;
-        debugLog('ステージ移動完了', 'success');
     });
 }
 
 function moveOffStage() {
     if (!isOnStage) return;
-    
-    debugLog('ステージから降りる', 'info');
     
     const targetX = originalPosition ? originalPosition.x : (Math.random() - 0.5) * 8;
     const targetZ = originalPosition ? originalPosition.z : 5 + Math.random() * 3;
@@ -492,7 +465,6 @@ function moveOffStage() {
         isOnStage = false;
         myAvatar.rotation.y = 0;
         originalPosition = null;
-        debugLog('客席に戻りました', 'success');
     });
 }
 
@@ -501,10 +473,7 @@ function moveRemoteToStage(odUserId) {
     if (!avatar) return;
     
     const stageX = (Math.random() - 0.5) * 8;
-    const stageZ = -5;
-    const stageY = 1.7;
-    
-    animateToPosition(avatar, stageX, stageY, stageZ, () => {
+    animateToPosition(avatar, stageX, 1.7, -5, () => {
         avatar.rotation.y = Math.PI;
     });
 }
@@ -521,10 +490,10 @@ function moveRemoteToAudience(odUserId) {
     });
 }
 
-function animateToPosition(object, targetX, targetY, targetZ, onComplete) {
-    const startX = object.position.x;
-    const startY = object.position.y;
-    const startZ = object.position.z;
+function animateToPosition(obj, targetX, targetY, targetZ, onComplete) {
+    const startX = obj.position.x;
+    const startY = obj.position.y;
+    const startZ = obj.position.z;
     const duration = 1000;
     const startTime = Date.now();
     
@@ -533,17 +502,16 @@ function animateToPosition(object, targetX, targetY, targetZ, onComplete) {
         const progress = Math.min(elapsed / duration, 1);
         const eased = 1 - Math.pow(1 - progress, 3);
         
-        object.position.x = startX + (targetX - startX) * eased;
-        object.position.y = startY + (targetY - startY) * eased;
-        object.position.z = startZ + (targetZ - startZ) * eased;
+        obj.position.x = startX + (targetX - startX) * eased;
+        obj.position.y = startY + (targetY - startY) * eased;
+        obj.position.z = startZ + (targetZ - startZ) * eased;
         
         if (progress < 1) {
             requestAnimationFrame(doAnimate);
-        } else {
-            if (onComplete) onComplete();
+        } else if (onComplete) {
+            onComplete();
         }
     }
-    
     doAnimate();
 }
 
@@ -552,12 +520,9 @@ function animateToPosition(object, targetX, targetY, targetZ, onComplete) {
 // --------------------------------------------
 async function requestSpeak() {
     if (isSpeaker) {
-        debugLog('登壇終了');
         stopSpeaking();
         return;
     }
-    
-    debugLog('登壇リクエスト送信');
     socket.send(JSON.stringify({ type: 'requestSpeak' }));
 }
 
@@ -575,7 +540,6 @@ function stopSpeaking() {
     mySessionId = null;
     myPublishedTrackName = null;
     updateSpeakerButton();
-    
     moveOffStage();
     
     socket.send(JSON.stringify({ type: 'stopSpeak' }));
@@ -583,71 +547,34 @@ function stopSpeaking() {
 }
 
 async function startPublishing() {
-    debugLog('=== startPublishing 開始 ===', 'info');
-    
     try {
-        debugLog('Step1: マイク取得中...', 'info');
+        localStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }, 
+            video: false 
+        });
         
-        try {
-            localStream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }, 
-                video: false 
-            });
-            debugLog('Step1: マイク取得成功！', 'success');
-            
-            audioUnlocked = true;
-            const unlockBtn = document.getElementById('audio-unlock-btn');
-            if (unlockBtn) unlockBtn.remove();
-            
-        } catch (micError) {
-            debugLog(`マイク取得失敗: ${micError.message}`, 'error');
-            addChatMessage('システム', 'マイクにアクセスできませんでした');
-            isSpeaker = false;
-            mySessionId = null;
-            updateSpeakerButton();
-            socket.send(JSON.stringify({ type: 'stopSpeak' }));
-            return;
-        }
+        audioUnlocked = true;
+        const unlockBtn = document.getElementById('audio-unlock-btn');
+        if (unlockBtn) unlockBtn.remove();
         
         setTimeout(resumeAllAudio, 100);
         
-        debugLog('Step2: PeerConnection作成中...', 'info');
         peerConnection = new RTCPeerConnection({
             iceServers: getIceServers(),
             bundlePolicy: 'max-bundle'
         });
         
-        peerConnection.oniceconnectionstatechange = () => {
-            debugLog(`ICE状態: ${peerConnection.iceConnectionState}`);
-        };
-        
-        peerConnection.onconnectionstatechange = () => {
-            debugLog(`接続状態: ${peerConnection.connectionState}`);
-        };
-        debugLog('Step2: PeerConnection作成完了', 'success');
-        
-        debugLog('Step3: トラック追加中...', 'info');
         const audioTrack = localStream.getAudioTracks()[0];
-        if (!audioTrack) {
-            throw new Error('CLIENT_ERR_NO_AUDIO_TRACK');
-        }
+        if (!audioTrack) throw new Error('No audio track');
         
-        const transceiver = peerConnection.addTransceiver(audioTrack, { 
-            direction: 'sendonly' 
-        });
-        debugLog('Step3: トラック追加完了', 'success');
+        const transceiver = peerConnection.addTransceiver(audioTrack, { direction: 'sendonly' });
         
-        debugLog('Step4: Offer作成中...', 'info');
         const offer = await peerConnection.createOffer();
-        debugLog('Step4: Offer作成完了', 'success');
-        
-        debugLog('Step5: setLocalDescription中...', 'info');
         await peerConnection.setLocalDescription(offer);
-        debugLog('Step5: setLocalDescription完了', 'success');
         
         let mid = transceiver.mid;
         if (!mid) {
@@ -655,28 +582,16 @@ async function startPublishing() {
             const midMatch = sdp.match(/a=mid:(\S+)/);
             mid = midMatch ? midMatch[1] : "0";
         }
-        debugLog(`Step6: mid="${mid}"`, 'success');
         
         const trackName = `audio-${myServerConnectionId}`;
         myPublishedTrackName = trackName;
         
-        const tracks = [{
-            location: 'local',
-            mid: mid,
-            trackName: trackName
-        }];
-        
-        debugLog('Step7: publishTrack送信中...', 'info');
         socket.send(JSON.stringify({
             type: 'publishTrack',
             sessionId: mySessionId,
-            offer: { 
-                sdp: peerConnection.localDescription.sdp, 
-                type: 'offer' 
-            },
-            tracks: tracks
+            offer: { sdp: peerConnection.localDescription.sdp, type: 'offer' },
+            tracks: [{ location: 'local', mid: mid, trackName: trackName }]
         }));
-        debugLog('Step7: publishTrack送信完了！', 'success');
         
     } catch (error) {
         debugLog(`publishエラー: ${error.message}`, 'error');
@@ -686,54 +601,22 @@ async function startPublishing() {
 }
 
 async function handleTrackPublished(data) {
-    debugLog('=== handleTrackPublished 開始 ===', 'info');
-    
-    if (!peerConnection) {
-        debugLog('エラー: peerConnectionがない', 'error');
-        return;
-    }
-    
-    if (!data.answer) {
-        debugLog('エラー: answerがない', 'error');
-        return;
-    }
+    if (!peerConnection || !data.answer) return;
     
     try {
-        await peerConnection.setRemoteDescription(
-            new RTCSessionDescription(data.answer)
-        );
-        debugLog('setRemoteDescription成功！', 'success');
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
         addChatMessage('システム', '音声配信を開始しました');
-        
         setTimeout(resumeAllAudio, 100);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
     }
 }
 
-// --------------------------------------------
-// トラック購読（リスナー用）
-// --------------------------------------------
 async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
-    if (odUserId === myServerConnectionId) {
-        return;
-    }
-    
-    if (trackName === myPublishedTrackName) {
-        return;
-    }
-    
-    if (subscribedTracks.has(trackName)) {
-        debugLog(`既に購読中: ${trackName}`);
-        return;
-    }
-    
-    if (pendingSubscriptions.has(trackName)) {
-        debugLog(`既に購読リクエスト中: ${trackName}`);
-        return;
-    }
-    
-    debugLog(`=== subscribeToTrack 開始: ${trackName} ===`, 'info');
+    if (odUserId === myServerConnectionId) return;
+    if (trackName === myPublishedTrackName) return;
+    if (subscribedTracks.has(trackName)) return;
+    if (pendingSubscriptions.has(trackName)) return;
     
     pendingSubscriptions.set(trackName, { odUserId, remoteSessionId });
     
@@ -743,162 +626,62 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
         remoteSessionId: remoteSessionId,
         trackName: trackName
     }));
-    debugLog('subscribeTrack送信', 'info');
 }
 
-// --------------------------------------------
-// 購読レスポンス処理
-// --------------------------------------------
 async function handleSubscribed(data) {
-    debugLog('=== handleSubscribed 開始 ===', 'info');
-    
-    if (!data.offer) {
-        debugLog('Offerがない！', 'error');
-        return;
-    }
+    if (!data.offer) return;
     
     const trackName = data.trackName;
     const pendingInfo = pendingSubscriptions.get(trackName);
-    
-    if (!pendingInfo) {
-        debugLog(`対応する購読待ちが見つからない: ${trackName}`, 'error');
-        return;
-    }
+    if (!pendingInfo) return;
     
     try {
-        debugLog(`${trackName}用の新しいPeerConnection作成`, 'info');
-        
         const pc = new RTCPeerConnection({
             iceServers: getIceServers(),
             bundlePolicy: 'max-bundle'
         });
         
         pc.ontrack = (event) => {
-            debugLog(`ontrack発火！trackName=${trackName}, kind=${event.track.kind}`, 'success');
-            
             const audio = new Audio();
             audio.srcObject = event.streams[0] || new MediaStream([event.track]);
             audio.autoplay = true;
             
-            audio.play()
-                .then(() => {
-                    debugLog(`音声再生開始: ${trackName}`, 'success');
-                    audioUnlocked = true;
-                    const unlockBtn = document.getElementById('audio-unlock-btn');
-                    if (unlockBtn) unlockBtn.remove();
-                })
-                .catch(e => {
-                    debugLog(`再生失敗（タップ必要）: ${trackName}: ${e.message}`, 'warn');
-                    if (isIOS()) {
-                        showAudioUnlockButton();
-                    }
-                });
+            audio.play().catch(e => {
+                if (isIOS()) showAudioUnlockButton();
+            });
             
             const trackInfo = subscribedTracks.get(trackName);
             if (trackInfo) {
                 trackInfo.audio = audio;
-                debugLog(`${trackName}に音声を関連付け`, 'success');
-                
                 const avatar = remoteAvatars.get(trackInfo.odUserId);
-                if (avatar) {
-                    addSpeakerIndicator(avatar);
-                }
+                if (avatar) addSpeakerIndicator(avatar);
             }
         };
         
-        pc.oniceconnectionstatechange = () => {
-            debugLog(`[${trackName}] ICE: ${pc.iceConnectionState}`);
-            if (pc.iceConnectionState === 'failed') {
-                debugLog(`[${trackName}] ICE失敗`, 'error');
-            }
-        };
+        let offerSdp = typeof data.offer === 'string' ? data.offer : data.offer.sdp;
         
-        pc.onconnectionstatechange = () => {
-            debugLog(`[${trackName}] 接続: ${pc.connectionState}`);
-        };
-        
-        let offerSdp;
-        if (typeof data.offer === 'string') {
-            offerSdp = data.offer;
-        } else if (data.offer.sdp) {
-            offerSdp = data.offer.sdp;
-        } else {
-            debugLog('Offer SDPが見つからない', 'error');
-            pc.close();
-            return;
-        }
-        
-        debugLog(`Offer SDP長さ: ${offerSdp.length}`, 'info');
-        
-        await pc.setRemoteDescription(
-            new RTCSessionDescription({
-                type: 'offer',
-                sdp: offerSdp
-            })
-        );
-        debugLog('setRemoteDescription成功', 'success');
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
         
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        debugLog('Answer作成完了', 'success');
         
         await new Promise((resolve) => {
-            if (pc.iceGatheringState === 'complete') {
-                resolve();
-                return;
-            }
-            const timeout = setTimeout(() => {
-                debugLog('ICE収集タイムアウト', 'warn');
-                resolve();
-            }, 200);
-            
-            const checkComplete = () => {
-                if (pc.iceGatheringState === 'complete') {
-                    clearTimeout(timeout);
-                    resolve();
-                }
-            };
-            
-            pc.onicegatheringstatechange = checkComplete;
-            pc.onicecandidate = (e) => {
-                if (e.candidate === null) {
-                    clearTimeout(timeout);
-                    resolve();
-                }
-            };
+            if (pc.iceGatheringState === 'complete') { resolve(); return; }
+            const timeout = setTimeout(resolve, 200);
+            pc.onicecandidate = (e) => { if (!e.candidate) { clearTimeout(timeout); resolve(); } };
         });
-        debugLog('ICE収集完了', 'success');
-        
-        const finalSdp = pc.localDescription?.sdp;
-        if (!finalSdp) {
-            debugLog('localDescription.sdpがない', 'error');
-            pc.close();
-            return;
-        }
         
         socket.send(JSON.stringify({
             type: 'subscribeAnswer',
             sessionId: data.sessionId,
-            answer: { 
-                type: 'answer', 
-                sdp: finalSdp 
-            }
+            answer: { type: 'answer', sdp: pc.localDescription.sdp }
         }));
-        debugLog('subscribeAnswer送信完了', 'success');
         
         pendingSubscriptions.delete(trackName);
-        
-        subscribedTracks.set(trackName, { 
-            odUserId: pendingInfo.odUserId, 
-            audio: null,
-            pc: pc,
-            sessionId: data.sessionId
-        });
-        debugLog(`購読登録完了: ${trackName}`, 'success');
+        subscribedTracks.set(trackName, { odUserId: pendingInfo.odUserId, audio: null, pc: pc, sessionId: data.sessionId });
         
     } catch (e) {
         debugLog(`handleSubscribedエラー: ${e.message}`, 'error');
-        console.error(e);
         pendingSubscriptions.delete(trackName);
     }
 }
@@ -906,22 +689,13 @@ async function handleSubscribed(data) {
 function removeRemoteAudio(odUserId) {
     for (const [trackName, obj] of subscribedTracks) {
         if (obj.odUserId === odUserId) {
-            if (obj.audio) {
-                obj.audio.pause();
-                obj.audio.srcObject = null;
-            }
-            if (obj.pc) {
-                try { obj.pc.close(); } catch(e) {}
-            }
+            if (obj.audio) { obj.audio.pause(); obj.audio.srcObject = null; }
+            if (obj.pc) { try { obj.pc.close(); } catch(e) {} }
             subscribedTracks.delete(trackName);
-            debugLog(`音声削除: ${trackName}`, 'info');
         }
     }
-    
     for (const [trackName, obj] of pendingSubscriptions) {
-        if (obj.odUserId === odUserId) {
-            pendingSubscriptions.delete(trackName);
-        }
+        if (obj.odUserId === odUserId) pendingSubscriptions.delete(trackName);
     }
 }
 
@@ -954,7 +728,6 @@ function updateSpeakerButton() {
 
 function addSpeakerIndicator(avatar) {
     if (avatar.getObjectByName('speakerIndicator')) return;
-    
     const indicator = new THREE.Mesh(
         new THREE.RingGeometry(0.4, 0.45, 32),
         new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide })
@@ -967,9 +740,7 @@ function addSpeakerIndicator(avatar) {
 
 function removeSpeakerIndicator(avatar) {
     const indicator = avatar.getObjectByName('speakerIndicator');
-    if (indicator) {
-        avatar.remove(indicator);
-    }
+    if (indicator) avatar.remove(indicator);
 }
 
 function updateMicButton(isSpeaking) {
@@ -985,7 +756,6 @@ function updateMicButton(isSpeaking) {
 // --------------------------------------------
 function createRemoteAvatar(user) {
     if (remoteAvatars.has(user.id)) return;
-    
     const avatar = createAvatar(user.id, user.name, user.color || 0xff6b6b);
     avatar.position.set(user.x || 0, 0.5, user.z || 5);
     scene.add(avatar);
@@ -1043,9 +813,7 @@ function playRemoteReaction(odUserId, reaction, color) {
 function updateUserCount() {
     const count = remoteAvatars.size + (connected ? 1 : 0);
     const el = document.getElementById('user-count');
-    if (el) {
-        el.textContent = `${count}人`;
-    }
+    if (el) el.textContent = `${count}人`;
 }
 
 function sendPosition() {
@@ -1061,21 +829,13 @@ function sendPosition() {
 
 function sendReaction(reaction, color) {
     if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: 'reaction',
-            reaction: reaction,
-            color: color
-        }));
+        socket.send(JSON.stringify({ type: 'reaction', reaction: reaction, color: color }));
     }
 }
 
 function sendChat(message) {
     if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: 'chat',
-            name: myUserName,
-            message: message
-        }));
+        socket.send(JSON.stringify({ type: 'chat', name: myUserName, message: message }));
     }
 }
 
@@ -1094,12 +854,19 @@ function init() {
     camera.position.set(0, 5, 12);
     camera.lookAt(0, 2, 0);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    document.getElementById('canvas-container').appendChild(renderer.domElement);
+    
+    const container = document.getElementById('canvas-container');
+    if (container) {
+        container.appendChild(renderer.domElement);
+        debugLog('canvas-container にレンダラー追加', 'success');
+    } else {
+        debugLog('canvas-container が見つからない！', 'error');
+        document.body.appendChild(renderer.domElement);
+    }
 
     const ambientLight = new THREE.AmbientLight(0x111122, 0.3);
     scene.add(ambientLight);
@@ -1120,10 +887,7 @@ function init() {
     myAvatar.add(myPenlight);
 
     setupEventListeners();
-    
-    debugLog('PartyKit接続開始');
     connectToPartyKit();
-    
     setInterval(sendPosition, 100);
 
     animate();
@@ -1136,22 +900,17 @@ function init() {
 function createZeppFloor() {
     const floorGeometry = new THREE.PlaneGeometry(40, 30);
     const floorMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x0a0a0a,
-        roughness: 0.2,
-        metalness: 0.8
+        color: 0x0a0a0a, roughness: 0.2, metalness: 0.8
     });
     floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     scene.add(floor);
 
-    const linePositions = [-8, -4, 0, 4, 8];
-    linePositions.forEach((x, i) => {
+    [-8, -4, 0, 4, 8].forEach((x, i) => {
         const lineGeometry = new THREE.PlaneGeometry(0.05, 25);
         const lineMaterial = new THREE.MeshBasicMaterial({ 
-            color: i % 2 === 0 ? 0xff00ff : 0x00ffff,
-            transparent: true,
-            opacity: 0.3
+            color: i % 2 === 0 ? 0xff00ff : 0x00ffff, transparent: true, opacity: 0.3
         });
         const line = new THREE.Mesh(lineGeometry, lineMaterial);
         line.rotation.x = -Math.PI / 2;
@@ -1161,14 +920,12 @@ function createZeppFloor() {
 }
 
 // --------------------------------------------
-// Zepp風ステージ（背景画像対応）
+// Zepp風ステージ
 // --------------------------------------------
 function createZeppStage() {
     const stageGeometry = new THREE.BoxGeometry(16, 1.2, 6);
     const stageMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x1a1a1a,
-        roughness: 0.3,
-        metalness: 0.5
+        color: 0x1a1a1a, roughness: 0.3, metalness: 0.5
     });
     stage = new THREE.Mesh(stageGeometry, stageMaterial);
     stage.position.set(0, 0.6, -6);
@@ -1176,114 +933,74 @@ function createZeppStage() {
     stage.receiveShadow = true;
     scene.add(stage);
 
-    const edgeGeometry = new THREE.BoxGeometry(16, 0.1, 0.1);
     const edgeMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff });
-    const stageEdge = new THREE.Mesh(edgeGeometry, edgeMaterial);
+    const stageEdge = new THREE.Mesh(new THREE.BoxGeometry(16, 0.1, 0.1), edgeMaterial);
     stageEdge.position.set(0, 1.25, -3.05);
     scene.add(stageEdge);
 
-    const underLightGeometry = new THREE.PlaneGeometry(14, 0.5);
-    const underLightMaterial = new THREE.MeshBasicMaterial({ 
-        color: 0xff00ff,
-        transparent: true,
-        opacity: 0.5
-    });
-    const underLight = new THREE.Mesh(underLightGeometry, underLightMaterial);
+    const underLight = new THREE.Mesh(
+        new THREE.PlaneGeometry(14, 0.5),
+        new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5 })
+    );
     underLight.rotation.x = -Math.PI / 2;
     underLight.position.set(0, 0.02, -3.2);
     scene.add(underLight);
 
-    // LEDスクリーン（背景画像）- まずフォールバックを作成
+    // LEDスクリーン
     const screenGeometry = new THREE.PlaneGeometry(14, 6);
-    const fallbackMaterial = new THREE.MeshBasicMaterial({ 
-        color: 0x330066,
-        side: THREE.DoubleSide
-    });
-    ledScreen = new THREE.Mesh(screenGeometry, fallbackMaterial);
+    const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x330066, side: THREE.DoubleSide });
+    ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
     ledScreen.position.set(0, 4, -8.9);
     scene.add(ledScreen);
     
-    // 画像を非同期でロード
-    const textureLoader = new THREE.TextureLoader();
-    textureLoader.load(
-        stageBackgroundUrl,
-        (texture) => {
-            debugLog('ステージ背景画像読み込み成功', 'success');
-            ledScreen.material = new THREE.MeshBasicMaterial({ 
-                map: texture,
-                side: THREE.DoubleSide
-            });
-        },
-        undefined,
-        (error) => {
-            debugLog('ステージ背景画像読み込み失敗', 'warn');
-        }
-    );
+    // 背景画像を非同期ロード
+    const loader = new THREE.TextureLoader();
+    loader.load(stageBackgroundUrl, function(texture) {
+        ledScreen.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+        debugLog('背景画像ロード成功', 'success');
+    }, undefined, function(err) {
+        debugLog('背景画像ロード失敗', 'warn');
+    });
 
-    const frameGeometry = new THREE.BoxGeometry(14.4, 6.4, 0.2);
-    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
-    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(14.4, 6.4, 0.2),
+        new THREE.MeshStandardMaterial({ color: 0x111111 })
+    );
     frame.position.set(0, 4, -9);
     scene.add(frame);
 }
 
-// ステージ背景を変更する関数
 function changeStageBackground(imageUrl) {
     stageBackgroundUrl = imageUrl;
-    
-    const textureLoader = new THREE.TextureLoader();
-    textureLoader.load(
-        imageUrl,
-        (texture) => {
-            if (ledScreen) {
-                ledScreen.material = new THREE.MeshBasicMaterial({ 
-                    map: texture,
-                    side: THREE.DoubleSide
-                });
-                debugLog(`ステージ背景変更: ${imageUrl}`, 'success');
-            }
-        },
-        undefined,
-        (error) => {
-            debugLog('背景画像読み込み失敗', 'error');
+    const loader = new THREE.TextureLoader();
+    loader.load(imageUrl, function(texture) {
+        if (ledScreen) {
+            ledScreen.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
         }
-    );
+    });
 }
-
 window.changeStageBackground = changeStageBackground;
 
 // --------------------------------------------
-// トラス（照明骨組み）
+// トラス
 // --------------------------------------------
 function createTruss() {
     const trussMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x222222,
-        roughness: 0.5,
-        metalness: 0.8
+        color: 0x222222, roughness: 0.5, metalness: 0.8
     });
 
-    const mainTrussGeometry = new THREE.BoxGeometry(18, 0.3, 0.3);
-    const mainTruss = new THREE.Mesh(mainTrussGeometry, trussMaterial);
+    const mainTruss = new THREE.Mesh(new THREE.BoxGeometry(18, 0.3, 0.3), trussMaterial);
     mainTruss.position.set(0, 8, -5);
     scene.add(mainTruss);
 
-    const frontTruss = new THREE.Mesh(mainTrussGeometry, trussMaterial);
+    const frontTruss = new THREE.Mesh(new THREE.BoxGeometry(18, 0.3, 0.3), trussMaterial);
     frontTruss.position.set(0, 7, 0);
     scene.add(frontTruss);
 
-    const sideTrussGeometry = new THREE.BoxGeometry(0.3, 8, 0.3);
     [-9, 9].forEach(x => {
-        const sideTruss = new THREE.Mesh(sideTrussGeometry, trussMaterial);
+        const sideTruss = new THREE.Mesh(new THREE.BoxGeometry(0.3, 8, 0.3), trussMaterial);
         sideTruss.position.set(x, 4, -5);
         scene.add(sideTruss);
-    });
-
-    const supportGeometry = new THREE.BoxGeometry(0.15, 3, 0.15);
-    [-8, 8].forEach(x => {
-        const support = new THREE.Mesh(supportGeometry, trussMaterial);
-        support.position.set(x, 6.5, -2.5);
-        support.rotation.z = x > 0 ? -0.3 : 0.3;
-        scene.add(support);
     });
 }
 
@@ -1291,78 +1008,53 @@ function createTruss() {
 // ムービングライト
 // --------------------------------------------
 function createMovingLights() {
-    const lightColors = [0x9900ff, 0xff00ff, 0x00ffff, 0xff00ff, 0x9900ff];
-    const positions = [-6, -3, 0, 3, 6];
-
-    positions.forEach((x, i) => {
-        const bodyGeometry = new THREE.CylinderGeometry(0.2, 0.3, 0.5, 8);
-        const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
-        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    const colors = [0x9900ff, 0xff00ff, 0x00ffff, 0xff00ff, 0x9900ff];
+    [-6, -3, 0, 3, 6].forEach((x, i) => {
+        const body = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.2, 0.3, 0.5, 8),
+            new THREE.MeshStandardMaterial({ color: 0x111111 })
+        );
         body.position.set(x, 7.7, -5);
         scene.add(body);
 
-        const spotLight = new THREE.SpotLight(lightColors[i], 2, 20, Math.PI / 6, 0.5, 1);
+        const spotLight = new THREE.SpotLight(colors[i], 2, 20, Math.PI / 6, 0.5, 1);
         spotLight.position.set(x, 7.5, -5);
-        spotLight.target.position.set(x + (Math.random() - 0.5) * 4, 0, 2);
+        spotLight.target.position.set(x, 0, 2);
         spotLight.castShadow = true;
         scene.add(spotLight);
         scene.add(spotLight.target);
 
-        const coneGeometry = new THREE.ConeGeometry(0.15, 0.4, 8);
-        const coneMaterial = new THREE.MeshBasicMaterial({ 
-            color: lightColors[i],
-            transparent: true,
-            opacity: 0.8
-        });
-        const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+        const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(0.15, 0.4, 8),
+            new THREE.MeshBasicMaterial({ color: colors[i], transparent: true, opacity: 0.8 })
+        );
         cone.position.set(x, 7.3, -5);
         cone.rotation.x = Math.PI;
         scene.add(cone);
 
-        movingLights.push({ 
-            light: spotLight, 
-            cone: cone,
-            baseX: x, 
-            phase: i * 0.5,
-            color: lightColors[i]
-        });
+        movingLights.push({ light: spotLight, baseX: x, phase: i * 0.5 });
     });
 
-    const frontColors = [0x00ffff, 0xff00ff, 0x00ffff];
     [-4, 0, 4].forEach((x, i) => {
-        const spotLight = new THREE.SpotLight(frontColors[i], 1.5, 15, Math.PI / 8, 0.5, 1);
+        const spotLight = new THREE.SpotLight([0x00ffff, 0xff00ff, 0x00ffff][i], 1.5, 15, Math.PI / 8, 0.5, 1);
         spotLight.position.set(x, 6.8, 0);
         spotLight.target.position.set(x, 0, 5);
         scene.add(spotLight);
         scene.add(spotLight.target);
-
-        const bodyGeometry = new THREE.CylinderGeometry(0.15, 0.2, 0.3, 8);
-        const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
-        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        body.position.set(x, 6.85, 0);
-        scene.add(body);
     });
 }
 
 // --------------------------------------------
-// バリケード（柵）
+// バリケード
 // --------------------------------------------
 function createBarrier() {
-    const barrierMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x333333,
-        roughness: 0.5,
-        metalness: 0.7
-    });
-
+    const mat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5, metalness: 0.7 });
     for (let x = -7; x <= 7; x += 2) {
-        const postGeometry = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
-        const post = new THREE.Mesh(postGeometry, barrierMaterial);
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1, 8), mat);
         post.position.set(x, 0.5, -2);
         scene.add(post);
-
         if (x < 7) {
-            const railGeometry = new THREE.CylinderGeometry(0.03, 0.03, 2, 8);
-            const rail = new THREE.Mesh(railGeometry, barrierMaterial);
+            const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2, 8), mat);
             rail.rotation.z = Math.PI / 2;
             rail.position.set(x + 1, 0.8, -2);
             scene.add(rail);
@@ -1374,28 +1066,20 @@ function createBarrier() {
 // サイドスピーカー
 // --------------------------------------------
 function createSideSpeakers() {
-    const speakerMaterial = new THREE.MeshStandardMaterial({ 
-        color: 0x1a1a1a,
-        roughness: 0.3
-    });
-
+    const mat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.3 });
     [-7.5, 7.5].forEach(x => {
-        const speakerGeometry = new THREE.BoxGeometry(1.5, 2.5, 1);
-        const speaker = new THREE.Mesh(speakerGeometry, speakerMaterial);
+        const speaker = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.5, 1), mat);
         speaker.position.set(x, 2.5, -4);
         scene.add(speaker);
 
-        const grillGeometry = new THREE.PlaneGeometry(1.3, 2.3);
-        const grillMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0x0a0a0a,
-            side: THREE.DoubleSide
-        });
-        const grill = new THREE.Mesh(grillGeometry, grillMaterial);
+        const grill = new THREE.Mesh(
+            new THREE.PlaneGeometry(1.3, 2.3),
+            new THREE.MeshBasicMaterial({ color: 0x0a0a0a, side: THREE.DoubleSide })
+        );
         grill.position.set(x, 2.5, -3.49);
         scene.add(grill);
 
-        const subGeometry = new THREE.BoxGeometry(1.8, 1.2, 1.2);
-        const sub = new THREE.Mesh(subGeometry, speakerMaterial);
+        const sub = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 1.2), mat);
         sub.position.set(x, 0.6, -4);
         scene.add(sub);
     });
@@ -1408,16 +1092,18 @@ function createAvatar(odUserId, userName, color) {
     const group = new THREE.Group();
     group.userData = { odUserId, userName };
 
-    const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.35, 1, 8);
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color });
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.35, 1, 8),
+        new THREE.MeshStandardMaterial({ color })
+    );
     body.position.y = 0.5;
     body.castShadow = true;
     group.add(body);
 
-    const headGeometry = new THREE.SphereGeometry(0.25, 8, 8);
-    const headMaterial = new THREE.MeshStandardMaterial({ color });
-    const head = new THREE.Mesh(headGeometry, headMaterial);
+    const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.25, 8, 8),
+        new THREE.MeshStandardMaterial({ color })
+    );
     head.position.y = 1.2;
     head.castShadow = true;
     group.add(head);
@@ -1428,14 +1114,16 @@ function createAvatar(odUserId, userName, color) {
 function createPenlight(color) {
     const group = new THREE.Group();
 
-    const handleGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8);
-    const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
-    const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+    const handle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8),
+        new THREE.MeshStandardMaterial({ color: 0x333333 })
+    );
     group.add(handle);
 
-    const lightGeometry = new THREE.CylinderGeometry(0.05, 0.03, 0.3, 8);
-    const lightMaterial = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
-    const light = new THREE.Mesh(lightGeometry, lightMaterial);
+    const light = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.03, 0.3, 8),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 })
+    );
     light.position.y = 0.25;
     light.name = 'penlightLight';
     group.add(light);
@@ -1463,67 +1151,67 @@ function wavePenlight() {
     if (!penlightOn) return;
     const startRotation = myPenlight.rotation.z;
     let progress = 0;
-    function swingAnimation() {
+    function swing() {
         progress += 0.15;
         if (progress <= Math.PI) {
             myPenlight.rotation.z = startRotation + Math.sin(progress) * 0.3;
-            requestAnimationFrame(swingAnimation);
+            requestAnimationFrame(swing);
         } else {
             myPenlight.rotation.z = startRotation;
         }
     }
-    swingAnimation();
+    swing();
 }
 
 function doJump() {
     const startY = myAvatar.position.y;
     let progress = 0;
-    function jumpAnimation() {
+    function jump() {
         progress += 0.1;
         if (progress <= Math.PI) {
             myAvatar.position.y = startY + Math.sin(progress) * 1;
-            requestAnimationFrame(jumpAnimation);
+            requestAnimationFrame(jump);
         } else {
             myAvatar.position.y = startY;
         }
     }
-    jumpAnimation();
+    jump();
     sendReaction('jump', null);
 }
 
-function doOtagei(motionId) {
+function doOtagei() {
     let progress = 0;
-    function otageiAnimation() {
+    function otagei() {
         progress += 0.12;
         if (progress <= Math.PI * 2) {
             myAvatar.rotation.z = Math.sin(progress * 3) * 0.2;
             if (myPenlight.visible) {
                 myPenlight.rotation.z = Math.PI / 6 + Math.sin(progress * 5) * 0.5;
             }
-            requestAnimationFrame(otageiAnimation);
+            requestAnimationFrame(otagei);
         } else {
             myAvatar.rotation.z = 0;
             myPenlight.rotation.z = Math.PI / 6;
         }
     }
-    otageiAnimation();
+    otagei();
     sendReaction('otagei', penlightColor);
 }
 
 function doClap() {
     const originalScale = myAvatar.scale.x;
     let progress = 0;
-    function clapAnimation() {
+    function clap() {
         progress += 0.2;
         if (progress <= Math.PI) {
             const scale = originalScale + Math.sin(progress) * 0.1;
             myAvatar.scale.set(scale, scale, scale);
-            requestAnimationFrame(clapAnimation);
+            requestAnimationFrame(clap);
         } else {
             myAvatar.scale.set(originalScale, originalScale, originalScale);
         }
     }
-    clapAnimation();
+    clap();
     sendReaction('clap', null);
 }
 
@@ -1533,26 +1221,18 @@ function setupEventListeners() {
     document.querySelectorAll('.reaction-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const type = btn.dataset.type;
-            switch(type) {
-                case 'penlight':
-                    penlightOn = !penlightOn;
-                    myPenlight.visible = penlightOn;
-                    const colorPanel = document.getElementById('penlight-colors');
-                    if (colorPanel) colorPanel.classList.toggle('hidden', !penlightOn);
-                    if (penlightOn) {
-                        wavePenlight();
-                        sendReaction('penlight', penlightColor);
-                    }
-                    break;
-                case 'jump':
-                    doJump();
-                    break;
-                case 'clap':
-                    doClap();
-                    break;
-                case 'otagei':
-                    doOtagei(btn.dataset.motion);
-                    break;
+            if (type === 'penlight') {
+                penlightOn = !penlightOn;
+                myPenlight.visible = penlightOn;
+                const colorPanel = document.getElementById('penlight-colors');
+                if (colorPanel) colorPanel.classList.toggle('hidden', !penlightOn);
+                if (penlightOn) { wavePenlight(); sendReaction('penlight', penlightColor); }
+            } else if (type === 'jump') {
+                doJump();
+            } else if (type === 'clap') {
+                doClap();
+            } else if (type === 'otagei') {
+                doOtagei();
             }
         });
     });
@@ -1582,10 +1262,7 @@ function setupEventListeners() {
 
     const stageBtn = document.getElementById('request-stage-btn');
     if (stageBtn) {
-        stageBtn.addEventListener('click', () => {
-            debugLog('登壇ボタンクリック');
-            requestSpeak();
-        });
+        stageBtn.addEventListener('click', () => requestSpeak());
     }
 
     const micBtn = document.getElementById('mic-toggle-btn');
@@ -1614,17 +1291,14 @@ function setupEventListeners() {
             const deltaX = (e.touches[0].clientX - touchStartX) * 0.01;
             myAvatar.position.x += deltaX;
             myAvatar.position.x = Math.max(-6, Math.min(6, myAvatar.position.x));
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-            return;
+        } else {
+            const deltaX = (e.touches[0].clientX - touchStartX) * 0.01;
+            const deltaZ = (e.touches[0].clientY - touchStartY) * 0.01;
+            myAvatar.position.x += deltaX;
+            myAvatar.position.z += deltaZ;
+            myAvatar.position.x = Math.max(-14, Math.min(14, myAvatar.position.x));
+            myAvatar.position.z = Math.max(-1, Math.min(12, myAvatar.position.z));
         }
-        
-        const deltaX = (e.touches[0].clientX - touchStartX) * 0.01;
-        const deltaZ = (e.touches[0].clientY - touchStartY) * 0.01;
-        myAvatar.position.x += deltaX;
-        myAvatar.position.z += deltaZ;
-        myAvatar.position.x = Math.max(-14, Math.min(14, myAvatar.position.x));
-        myAvatar.position.z = Math.max(-1, Math.min(12, myAvatar.position.z));
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
     });
@@ -1643,9 +1317,7 @@ function addChatMessage(name, message) {
     div.innerHTML = `<span class="name">${name}</span>${message}`;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
-    while (container.children.length > 20) {
-        container.removeChild(container.firstChild);
-    }
+    while (container.children.length > 20) container.removeChild(container.firstChild);
 }
 
 function onWindowResize() {
@@ -1654,42 +1326,28 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// --------------------------------------------
-// ムービングライトアニメーション
-// --------------------------------------------
 function animateMovingLights() {
     lightTime += 0.02;
-    
-    movingLights.forEach((ml, i) => {
+    movingLights.forEach((ml) => {
         const swingX = Math.sin(lightTime + ml.phase) * 3;
         const swingZ = Math.cos(lightTime * 0.7 + ml.phase) * 2;
-        
-        ml.light.target.position.set(
-            ml.baseX + swingX,
-            0,
-            2 + swingZ
-        );
+        ml.light.target.position.set(ml.baseX + swingX, 0, 2 + swingZ);
     });
 }
 
 function animate() {
     requestAnimationFrame(animate);
-    
     animateMovingLights();
     
     if (myAvatar) {
         if (isOnStage) {
-            const targetX = myAvatar.position.x * 0.3;
-            const targetZ = myAvatar.position.z - 6;
-            camera.position.x += (targetX - camera.position.x) * 0.05;
-            camera.position.z += (targetZ - camera.position.z) * 0.05;
+            camera.position.x += (myAvatar.position.x * 0.3 - camera.position.x) * 0.05;
+            camera.position.z += (myAvatar.position.z - 6 - camera.position.z) * 0.05;
             camera.position.y += (4 - camera.position.y) * 0.05;
             camera.lookAt(myAvatar.position.x * 0.5, 1, 8);
         } else {
-            const targetX = myAvatar.position.x * 0.3;
-            const targetZ = myAvatar.position.z + 8;
-            camera.position.x += (targetX - camera.position.x) * 0.05;
-            camera.position.z += (targetZ - camera.position.z) * 0.05;
+            camera.position.x += (myAvatar.position.x * 0.3 - camera.position.x) * 0.05;
+            camera.position.z += (myAvatar.position.z + 8 - camera.position.z) * 0.05;
             camera.position.y += (5 - camera.position.y) * 0.05;
             camera.lookAt(myAvatar.position.x * 0.5, 2, myAvatar.position.z - 5);
         }

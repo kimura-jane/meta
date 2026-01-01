@@ -1,7 +1,7 @@
 // 設定画面・主催者メニュー
 
 // 主催者パスワード（GitHub Secretsから置換される）
-const HOST_PASSWORD = '_HOST_PASSWORDS_';
+const HOST_PASSWORD = '__HOSTPASS__';
 
 // 背景画像データ
 const STAGE_BACKGROUNDS = [

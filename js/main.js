@@ -49,8 +49,8 @@ let otageiBaseY = 0;
 
 // カメラ制御
 let cameraAngleX = 0;
-let cameraAngleY = 0.3;
-let cameraDistance = 8;
+let cameraDistance = 6;
+let cameraHeight = 4;
 
 // ジョイスティック
 let joystickActive = false;
@@ -68,7 +68,7 @@ async function init() {
     scene.fog = new THREE.Fog(0x000011, 20, 80);
 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 3, 10);
+    camera.position.set(0, 4, 10);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -324,8 +324,10 @@ function setupCameraSwipe() {
         const deltaY = touch.clientY - lastY;
 
         cameraAngleX -= deltaX * 0.005;
-        cameraAngleY += deltaY * 0.003;
-        cameraAngleY = Math.max(0.1, Math.min(1.2, cameraAngleY));
+
+        // 上下スワイプでカメラの高さを調整
+        cameraHeight -= deltaY * 0.02;
+        cameraHeight = Math.max(2, Math.min(8, cameraHeight));
 
         lastX = touch.clientX;
         lastY = touch.clientY;
@@ -348,8 +350,9 @@ function setupCameraSwipe() {
         const deltaY = e.clientY - lastY;
 
         cameraAngleX -= deltaX * 0.005;
-        cameraAngleY += deltaY * 0.003;
-        cameraAngleY = Math.max(0.1, Math.min(1.2, cameraAngleY));
+
+        cameraHeight -= deltaY * 0.02;
+        cameraHeight = Math.max(2, Math.min(8, cameraHeight));
 
         lastX = e.clientX;
         lastY = e.clientY;
@@ -421,7 +424,7 @@ function processJoystickMovement() {
     const speed = 0.15;
 
     const moveAngle = cameraAngleX;
-    const forward = -joystickY;
+    const forward = joystickY; // 上に倒すと前進
     const right = joystickX;
 
     const moveX = (Math.sin(moveAngle) * forward + Math.cos(moveAngle) * right) * speed;
@@ -644,9 +647,10 @@ function animate() {
 
     processJoystickMovement();
 
+    // カメラ位置計算（アバターの後ろ斜め上から）
     if (myAvatar) {
         const camX = myAvatar.position.x + Math.sin(cameraAngleX) * cameraDistance;
-        const camY = myAvatar.position.y + cameraAngleY * cameraDistance;
+        const camY = myAvatar.position.y + cameraHeight;
         const camZ = myAvatar.position.z + Math.cos(cameraAngleX) * cameraDistance;
 
         camera.position.set(camX, camY, camZ);

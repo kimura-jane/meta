@@ -704,11 +704,14 @@ function setupActionButtons() {
 // ペンライト位置更新
 function updatePenlightPosition() {
     if (myPenlight && myAvatar) {
-        // アバターの上に配置（よく見える位置）
+        // カメラの向きを考慮して、アバターの前方（カメラ側）に配置
+        const offsetX = -Math.sin(cameraAngleX) * 0.8;
+        const offsetZ = -Math.cos(cameraAngleX) * 0.8;
+        
         myPenlight.position.set(
-            myAvatar.position.x,
-            myAvatar.position.y + 2.5,
-            myAvatar.position.z
+            myAvatar.position.x + offsetX,
+            myAvatar.position.y + 1.5,
+            myAvatar.position.z + offsetZ
         );
     }
 }
@@ -831,9 +834,14 @@ function animate() {
         camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
     }
 
-    // ペンライト揺れアニメーション
+    // ペンライト揺れアニメーション（常に位置も更新）
     if (isPenlightActive && myPenlight && myPenlight.visible) {
-        myPenlight.rotation.z = Math.sin(Date.now() * 0.003) * 0.3;
+        updatePenlightPosition();
+        myPenlight.rotation.z = Math.sin(Date.now() * 0.005) * 0.4;
+        myPenlight.rotation.x = Math.sin(Date.now() * 0.003) * 0.2;
+        
+        // ペンライトをカメラの方に向ける
+        myPenlight.lookAt(camera.position);
     }
 
     renderer.render(scene, camera);

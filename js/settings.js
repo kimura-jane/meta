@@ -94,12 +94,6 @@ export function updateCurrentSpeakers(speakers) {
     const list = document.getElementById('current-speakers-list');
     if (!list) return;
     
-    // 登壇者数の更新
-    const speakerCountEl = document.getElementById('speaker-count');
-    if (speakerCountEl) {
-        speakerCountEl.textContent = `${speakers.length}名`;
-    }
-    
     list.innerHTML = '';
     
     if (speakers.length === 0) {
@@ -133,24 +127,21 @@ export function updateCurrentSpeakers(speakers) {
     });
 }
 
-// 参加者数を更新
+// 参加者数を更新（main.jsから呼ばれる）
 export function updateUserCount(count) {
-    const userCountEl = document.getElementById('user-count-num');
-    if (userCountEl) {
-        userCountEl.textContent = `${count}名`;
-    }
+    // 特に何もしない（HTML側で直接更新されるため）
 }
 
 // 設定UIを作成
 function createSettingsUI() {
-    // 設定ボタン
+    // 設定ボタン（タイトル下に配置）
     const settingsBtn = document.createElement('button');
     settingsBtn.id = 'settings-btn';
     settingsBtn.textContent = '⚙️';
     settingsBtn.style.cssText = `
         position: fixed;
-        top: 58px;
-        left: 16px;
+        top: 68px;
+        left: 18px;
         width: 36px;
         height: 36px;
         border-radius: 50%;
@@ -159,7 +150,7 @@ function createSettingsUI() {
         border: 1px solid rgba(255, 102, 255, 0.5);
         font-size: 16px;
         cursor: pointer;
-        z-index: 1000;
+        z-index: 100;
         backdrop-filter: blur(10px);
         transition: all 0.3s ease;
     `;
@@ -483,7 +474,6 @@ function setupEventListeners() {
         if (newName && newName !== currentUserName) {
             currentUserName = newName;
             if (callbacks.onNameChange) callbacks.onNameChange(newName);
-            showNotification(`名前を「${newName}」に変更しました`);
         }
     });
 
@@ -503,7 +493,6 @@ function setupEventListeners() {
     // カメラリセット
     document.getElementById('reset-camera-btn').addEventListener('click', () => {
         if (callbacks.onResetCamera) callbacks.onResetCamera();
-        showNotification('カメラ視点をリセットしました');
     });
 
     // 主催者ログイン
@@ -533,7 +522,6 @@ function setupEventListeners() {
         const url = document.getElementById('background-url-input').value.trim();
         if (url) {
             if (callbacks.onChangeBackground) callbacks.onChangeBackground(url);
-            showNotification('背景を変更しました');
         }
     });
 
@@ -543,7 +531,6 @@ function setupEventListeners() {
         if (text) {
             if (callbacks.onAnnounce) callbacks.onAnnounce(text);
             document.getElementById('announce-input').value = '';
-            showNotification('アナウンスを送信しました');
         }
     });
 

@@ -78,6 +78,11 @@ let myPenlight;
 let penlightOn = false;
 let penlightColor = '#ff00ff';
 
+// Zepp風ライブハウス用
+let movingLights = [];
+let ledScreen;
+let lightTime = 0;
+
 const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
 const myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
 
@@ -988,32 +993,31 @@ function init() {
     debugLog('Three.js初期化開始');
     
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e);
+    scene.background = new THREE.Color(0x0a0a0f);
+    scene.fog = new THREE.Fog(0x0a0a0f, 20, 50);
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 5, 10);
+    camera.position.set(0, 5, 12);
     camera.lookAt(0, 2, 0);
 
-    renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    // 環境光（暗め）
+    const ambientLight = new THREE.AmbientLight(0x111122, 0.3);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(5, 10, 5);
-    scene.add(directionalLight);
-
-    const stageLight = new THREE.SpotLight(0xff66ff, 1);
-    stageLight.position.set(0, 10, 0);
-    stageLight.angle = Math.PI / 4;
-    stageLight.penumbra = 0.5;
-    scene.add(stageLight);
-
-    createFloor();
-    createStage();
+    // Zepp風のライブハウスを作成
+    createZeppFloor();
+    createZeppStage();
+    createTruss();
+    createMovingLights();
+    createBarrier();
+    createSideSpeakers();
 
     myAvatar = createAvatar(myUserId, myUserName, 0x4fc3f7);
     myAvatar.position.set((Math.random() - 0.5) * 8, 0.5, 5 + Math.random() * 3);
@@ -1034,38 +1038,289 @@ function init() {
     debugLog('初期化完了', 'success');
 }
 
-function createFloor() {
-    const geometry = new THREE.PlaneGeometry(30, 20);
-    const material = new THREE.MeshStandardMaterial({ color: 0x2d2d44, roughness: 0.8 });
-    floor = new THREE.Mesh(geometry, material);
+// --------------------------------------------
+// Zepp風フロア
+// --------------------------------------------
+function createZeppFloor() {
+    // メインフロア（反射する黒い床）
+    const floorGeometry = new THREE.PlaneGeometry(40, 30);
+    const floorMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x0a0a0a,
+        roughness: 0.2,
+        metalness: 0.8
+    });
+    floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
     scene.add(floor);
 
-    const grid = new THREE.GridHelper(30, 30, 0x444466, 0x333355);
-    grid.position.y = 0.01;
-    scene.add(grid);
+    // ネオンライン（フロア装飾）
+    const linePositions = [-8, -4, 0, 4, 8];
+    linePositions.forEach((x, i) => {
+        const lineGeometry = new THREE.PlaneGeometry(0.05, 25);
+        const lineMaterial = new THREE.MeshBasicMaterial({ 
+            color: i % 2 === 0 ? 0xff00ff : 0x00ffff,
+            transparent: true,
+            opacity: 0.3
+        });
+        const line = new THREE.Mesh(lineGeometry, lineMaterial);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(x, 0.01, 2);
+        scene.add(line);
+    });
 }
 
-function createStage() {
-    const stageGeometry = new THREE.BoxGeometry(10, 1, 5);
-    const stageMaterial = new THREE.MeshStandardMaterial({ color: 0x4a4a6a, roughness: 0.5 });
+// --------------------------------------------
+// Zepp風ステージ
+// --------------------------------------------
+function createZeppStage() {
+    // メインステージ（黒）
+    const stageGeometry = new THREE.BoxGeometry(16, 1.2, 6);
+    const stageMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x1a1a1a,
+        roughness: 0.3,
+        metalness: 0.5
+    });
     stage = new THREE.Mesh(stageGeometry, stageMaterial);
-    stage.position.set(0, 0.5, -5);
+    stage.position.set(0, 0.6, -6);
+    stage.castShadow = true;
+    stage.receiveShadow = true;
     scene.add(stage);
 
-    const lineGeometry = new THREE.BoxGeometry(10, 0.05, 0.1);
-    const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xff66ff });
-    const stageLine = new THREE.Mesh(lineGeometry, lineMaterial);
-    stageLine.position.set(0, 1.01, -2.4);
-    scene.add(stageLine);
+    // ステージ前面のネオンライン（ピンク）
+    const edgeGeometry = new THREE.BoxGeometry(16, 0.1, 0.1);
+    const edgeMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+    const stageEdge = new THREE.Mesh(edgeGeometry, edgeMaterial);
+    stageEdge.position.set(0, 1.25, -3.05);
+    scene.add(stageEdge);
 
-    const screenGeometry = new THREE.PlaneGeometry(12, 5);
-    const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x1a1a3e, side: THREE.DoubleSide });
-    const screen = new THREE.Mesh(screenGeometry, screenMaterial);
-    screen.position.set(0, 3.5, -7.4);
-    scene.add(screen);
+    // ステージ下のアンダーライト
+    const underLightGeometry = new THREE.PlaneGeometry(14, 0.5);
+    const underLightMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0xff00ff,
+        transparent: true,
+        opacity: 0.5
+    });
+    const underLight = new THREE.Mesh(underLightGeometry, underLightMaterial);
+    underLight.rotation.x = -Math.PI / 2;
+    underLight.position.set(0, 0.02, -3.2);
+    scene.add(underLight);
+
+    // LEDスクリーン（背景）
+    const screenGeometry = new THREE.PlaneGeometry(14, 6);
+    
+    // グラデーションテクスチャを作成
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+    gradient.addColorStop(0, '#1a0033');
+    gradient.addColorStop(0.5, '#330066');
+    gradient.addColorStop(1, '#1a0033');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 512, 256);
+    
+    // グリッドパターン
+    ctx.strokeStyle = 'rgba(255, 0, 255, 0.1)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 512; i += 32) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, 256);
+        ctx.stroke();
+    }
+    for (let i = 0; i < 256; i += 32) {
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(512, i);
+        ctx.stroke();
+    }
+    
+    const screenTexture = new THREE.CanvasTexture(canvas);
+    const screenMaterial = new THREE.MeshBasicMaterial({ 
+        map: screenTexture,
+        side: THREE.DoubleSide
+    });
+    ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
+    ledScreen.position.set(0, 4, -8.9);
+    scene.add(ledScreen);
+
+    // スクリーンフレーム
+    const frameGeometry = new THREE.BoxGeometry(14.4, 6.4, 0.2);
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    frame.position.set(0, 4, -9);
+    scene.add(frame);
 }
 
+// --------------------------------------------
+// トラス（照明骨組み）
+// --------------------------------------------
+function createTruss() {
+    const trussMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x222222,
+        roughness: 0.5,
+        metalness: 0.8
+    });
+
+    // 横トラス（メイン）
+    const mainTrussGeometry = new THREE.BoxGeometry(18, 0.3, 0.3);
+    const mainTruss = new THREE.Mesh(mainTrussGeometry, trussMaterial);
+    mainTruss.position.set(0, 8, -5);
+    scene.add(mainTruss);
+
+    // 横トラス（フロント）
+    const frontTruss = new THREE.Mesh(mainTrussGeometry, trussMaterial);
+    frontTruss.position.set(0, 7, 0);
+    scene.add(frontTruss);
+
+    // 縦トラス（左右）
+    const sideTrussGeometry = new THREE.BoxGeometry(0.3, 8, 0.3);
+    [-9, 9].forEach(x => {
+        const sideTruss = new THREE.Mesh(sideTrussGeometry, trussMaterial);
+        sideTruss.position.set(x, 4, -5);
+        scene.add(sideTruss);
+    });
+
+    // 斜めサポート
+    const supportGeometry = new THREE.BoxGeometry(0.15, 3, 0.15);
+    [-8, 8].forEach(x => {
+        const support = new THREE.Mesh(supportGeometry, trussMaterial);
+        support.position.set(x, 6.5, -2.5);
+        support.rotation.z = x > 0 ? -0.3 : 0.3;
+        scene.add(support);
+    });
+}
+
+// --------------------------------------------
+// ムービングライト
+// --------------------------------------------
+function createMovingLights() {
+    const lightColors = [0x9900ff, 0xff00ff, 0x00ffff, 0xff00ff, 0x9900ff];
+    const positions = [-6, -3, 0, 3, 6];
+
+    positions.forEach((x, i) => {
+        // ライト本体（円柱）
+        const bodyGeometry = new THREE.CylinderGeometry(0.2, 0.3, 0.5, 8);
+        const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.position.set(x, 7.7, -5);
+        scene.add(body);
+
+        // スポットライト
+        const spotLight = new THREE.SpotLight(lightColors[i], 2, 20, Math.PI / 6, 0.5, 1);
+        spotLight.position.set(x, 7.5, -5);
+        spotLight.target.position.set(x + (Math.random() - 0.5) * 4, 0, 2);
+        spotLight.castShadow = true;
+        scene.add(spotLight);
+        scene.add(spotLight.target);
+
+        // ライトコーン（視覚化）
+        const coneGeometry = new THREE.ConeGeometry(0.15, 0.4, 8);
+        const coneMaterial = new THREE.MeshBasicMaterial({ 
+            color: lightColors[i],
+            transparent: true,
+            opacity: 0.8
+        });
+        const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+        cone.position.set(x, 7.3, -5);
+        cone.rotation.x = Math.PI;
+        scene.add(cone);
+
+        movingLights.push({ 
+            light: spotLight, 
+            cone: cone,
+            baseX: x, 
+            phase: i * 0.5,
+            color: lightColors[i]
+        });
+    });
+
+    // フロントライト
+    const frontColors = [0x00ffff, 0xff00ff, 0x00ffff];
+    [-4, 0, 4].forEach((x, i) => {
+        const spotLight = new THREE.SpotLight(frontColors[i], 1.5, 15, Math.PI / 8, 0.5, 1);
+        spotLight.position.set(x, 6.8, 0);
+        spotLight.target.position.set(x, 0, 5);
+        scene.add(spotLight);
+        scene.add(spotLight.target);
+
+        // ライト本体
+        const bodyGeometry = new THREE.CylinderGeometry(0.15, 0.2, 0.3, 8);
+        const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.position.set(x, 6.85, 0);
+        scene.add(body);
+    });
+}
+
+// --------------------------------------------
+// バリケード（柵）
+// --------------------------------------------
+function createBarrier() {
+    const barrierMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x333333,
+        roughness: 0.5,
+        metalness: 0.7
+    });
+
+    // ステージ前の柵
+    for (let x = -7; x <= 7; x += 2) {
+        // 縦棒
+        const postGeometry = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
+        const post = new THREE.Mesh(postGeometry, barrierMaterial);
+        post.position.set(x, 0.5, -2);
+        scene.add(post);
+
+        // 横棒
+        if (x < 7) {
+            const railGeometry = new THREE.CylinderGeometry(0.03, 0.03, 2, 8);
+            const rail = new THREE.Mesh(railGeometry, barrierMaterial);
+            rail.rotation.z = Math.PI / 2;
+            rail.position.set(x + 1, 0.8, -2);
+            scene.add(rail);
+        }
+    }
+}
+
+// --------------------------------------------
+// サイドスピーカー
+// --------------------------------------------
+function createSideSpeakers() {
+    const speakerMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x1a1a1a,
+        roughness: 0.3
+    });
+
+    [-7.5, 7.5].forEach(x => {
+        // スピーカー本体
+        const speakerGeometry = new THREE.BoxGeometry(1.5, 2.5, 1);
+        const speaker = new THREE.Mesh(speakerGeometry, speakerMaterial);
+        speaker.position.set(x, 2.5, -4);
+        scene.add(speaker);
+
+        // スピーカーグリル
+        const grillGeometry = new THREE.PlaneGeometry(1.3, 2.3);
+        const grillMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x0a0a0a,
+            side: THREE.DoubleSide
+        });
+        const grill = new THREE.Mesh(grillGeometry, grillMaterial);
+        grill.position.set(x, 2.5, -3.49);
+        scene.add(grill);
+
+        // サブウーファー
+        const subGeometry = new THREE.BoxGeometry(1.8, 1.2, 1.2);
+        const sub = new THREE.Mesh(subGeometry, speakerMaterial);
+        sub.position.set(x, 0.6, -4);
+        scene.add(sub);
+    });
+}
+
+// --------------------------------------------
+// アバター作成
+// --------------------------------------------
 function createAvatar(odUserId, userName, color) {
     const group = new THREE.Group();
     group.userData = { odUserId, userName };
@@ -1074,12 +1329,14 @@ function createAvatar(odUserId, userName, color) {
     const bodyMaterial = new THREE.MeshStandardMaterial({ color });
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
     body.position.y = 0.5;
+    body.castShadow = true;
     group.add(body);
 
     const headGeometry = new THREE.SphereGeometry(0.25, 8, 8);
     const headMaterial = new THREE.MeshStandardMaterial({ color });
     const head = new THREE.Mesh(headGeometry, headMaterial);
     head.position.y = 1.2;
+    head.castShadow = true;
     group.add(head);
 
     return group;
@@ -1274,7 +1531,7 @@ function setupEventListeners() {
         myAvatar.position.x += deltaX;
         myAvatar.position.z += deltaZ;
         myAvatar.position.x = Math.max(-14, Math.min(14, myAvatar.position.x));
-        myAvatar.position.z = Math.max(-2, Math.min(9, myAvatar.position.z));
+        myAvatar.position.z = Math.max(-1, Math.min(12, myAvatar.position.z));
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
     });
@@ -1304,8 +1561,31 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+// --------------------------------------------
+// ムービングライトアニメーション
+// --------------------------------------------
+function animateMovingLights() {
+    lightTime += 0.02;
+    
+    movingLights.forEach((ml, i) => {
+        // ライトの動き
+        const swingX = Math.sin(lightTime + ml.phase) * 3;
+        const swingZ = Math.cos(lightTime * 0.7 + ml.phase) * 2;
+        
+        ml.light.target.position.set(
+            ml.baseX + swingX,
+            0,
+            2 + swingZ
+        );
+    });
+}
+
 function animate() {
     requestAnimationFrame(animate);
+    
+    // ムービングライトのアニメーション
+    animateMovingLights();
+    
     if (myAvatar) {
         const targetX = myAvatar.position.x * 0.3;
         const targetZ = myAvatar.position.z + 8;

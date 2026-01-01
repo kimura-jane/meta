@@ -239,12 +239,10 @@ function handleServerMessage(data) {
             if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
             updateSpeakerList(data.speakers || []);
             
-            // 現在の明るさを適用
             if (data.brightness !== undefined && callbacks.onBrightnessChange) {
                 callbacks.onBrightnessChange(data.brightness);
             }
             
-            // 現在の背景を適用
             if (data.backgroundUrl && callbacks.onBackgroundChange) {
                 callbacks.onBackgroundChange(data.backgroundUrl);
             }
@@ -304,8 +302,18 @@ function handleServerMessage(data) {
         case 'speakApproved':
             mySessionId = data.sessionId;
             isSpeaker = true;
+            
+            // 自分を登壇者リストに追加
             speakerCount++;
+            currentSpeakers.push({ id: myServerConnectionId, name: currentUserName });
+            
             updateSpeakerButton();
+            updateSpeakerCountUI();
+            
+            if (callbacks.onCurrentSpeakersUpdate) {
+                callbacks.onCurrentSpeakersUpdate(currentSpeakers);
+            }
+            
             startPublishing();
             if (callbacks.onSpeakApproved) callbacks.onSpeakApproved();
             break;
@@ -379,6 +387,16 @@ function handleServerMessage(data) {
 }
 
 // --------------------------------------------
+// 登壇者数UIを更新
+// --------------------------------------------
+function updateSpeakerCountUI() {
+    const el = document.getElementById('speaker-count');
+    if (el) {
+        el.textContent = `🎤 ${speakerCount}`;
+    }
+}
+
+// --------------------------------------------
 // 音声通話
 // --------------------------------------------
 export function requestSpeak() {
@@ -397,6 +415,16 @@ export function stopSpeaking() {
     if (peerConnection) {
         peerConnection.close();
         peerConnection = null;
+    }
+    
+    // 自分を登壇者リストから削除
+    if (isSpeaker) {
+        speakerCount = Math.max(0, speakerCount - 1);
+        currentSpeakers = currentSpeakers.filter(s => s.id !== myServerConnectionId);
+        updateSpeakerCountUI();
+        if (callbacks.onCurrentSpeakersUpdate) {
+            callbacks.onCurrentSpeakersUpdate(currentSpeakers);
+        }
     }
     
     isSpeaker = false;
@@ -564,13 +592,24 @@ function removeRemoteAudio(odUserId) {
 
 function updateSpeakerList(speakers) {
     const speakersArray = Array.isArray(speakers) ? speakers : [];
+    
+    // 自分が登壇中なら自分も含める
+    if (isSpeaker && !speakersArray.includes(myServerConnectionId)) {
+        speakersArray.push(myServerConnectionId);
+    }
+    
     speakerCount = speakersArray.length;
     updateSpeakerButton();
+    updateSpeakerCountUI();
     
     currentSpeakers = speakersArray.map(id => {
+        if (id === myServerConnectionId) {
+            return { id, name: currentUserName };
+        }
         const avatar = callbacks.remoteAvatars?.get(id);
         return { id, name: avatar?.userData?.userName || id };
     });
+    
     if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
     
     if (callbacks.remoteAvatars) {
@@ -586,15 +625,21 @@ function updateSpeakerList(speakers) {
 
 function updateSpeakerButton() {
     const btn = document.getElementById('request-stage-btn');
-    if (btn) {
+    const btnPanel = document.getElementById('request-stage-btn-panel');
+    
+    const updateBtn = (b) => {
+        if (!b) return;
         if (isSpeaker) {
-            btn.textContent = `🎤 登壇中 (${speakerCount}/5)`;
-            btn.style.background = 'linear-gradient(135deg, #00c853, #69f0ae)';
+            b.textContent = `🎤 登壇中 (${speakerCount}/5)`;
+            b.style.background = 'linear-gradient(135deg, #00c853, #69f0ae)';
         } else {
-            btn.textContent = `🎤 登壇リクエスト (${speakerCount}/5)`;
-            btn.style.background = '';
+            b.textContent = `🎤 登壇リクエスト (${speakerCount}/5)`;
+            b.style.background = '';
         }
-    }
+    };
+    
+    updateBtn(btn);
+    updateBtn(btnPanel);
 }
 
 export function toggleMic() {

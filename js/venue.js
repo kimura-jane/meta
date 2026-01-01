@@ -1,480 +1,508 @@
 // ============================================
-// メタバース空間 - メインスクリプト
-// エントリーポイント
+// 会場装飾（Three.js）
 // ============================================
 
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+import { debugLog } from './utils.js';
 
-import { debugLog, createDebugUI, setupErrorHandlers, addChatMessage, createAvatar, createPenlight } from './utils.js';
-import { connectToPartyKit, setCallbacks, getState, requestSpeak, toggleMic, sendPosition, sendReaction, sendChat } from './connection.js';
-import { initVenue, createAllVenue, animateVenue, changeStageBackground } from './venue.js';
+let THREE;
+let scene;
+let ledScreen;
+let mirrorBall;
+let movingLights = [];
+let mirrorBallLights = [];
+let floorLightSpots = [];
+let lightTime = 0;
 
-// --------------------------------------------
-// 状態
-// --------------------------------------------
-let scene, camera, renderer;
-let myAvatar, myPenlight;
-let penlightOn = false;
-let penlightColor = '#ff00ff';
+let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/IMG_3206.jpeg';
 
-let isOnStage = false;
-let originalPosition = null;
+export function initVenue(threeInstance, sceneInstance) {
+    THREE = threeInstance;
+    scene = sceneInstance;
+}
 
-const remoteAvatars = new Map();
+export function createAllVenue() {
+    createZeppFloor();
+    createZeppStage();
+    createVenueWalls();
+    createTruss();
+    createMovingLights();
+    createBarrier();
+    createSideSpeakers();
+    createMirrorBall();
+}
 
-const myUserId = 'user-' + Math.random().toString(36).substr(2, 9);
-const myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
-
-// --------------------------------------------
-// 初期化
-// --------------------------------------------
-function init() {
-    setupErrorHandlers();
-    createDebugUI();
-    debugLog('Three.js初期化開始');
+export function animateVenue() {
+    lightTime += 0.02;
     
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x050508);
-    scene.fog = new THREE.Fog(0x050508, 15, 40);
-
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 5, 12);
-    camera.lookAt(0, 2, 0);
-
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    
-    const container = document.getElementById('canvas-container');
-    if (container) {
-        container.appendChild(renderer.domElement);
-        debugLog('canvas-container にレンダラー追加', 'success');
-    } else {
-        debugLog('canvas-container が見つからない！', 'error');
-        document.body.appendChild(renderer.domElement);
-    }
-
-    const ambientLight = new THREE.AmbientLight(0x222233, 0.4);
-    scene.add(ambientLight);
-
-    // 会場作成
-    initVenue(THREE, scene);
-    createAllVenue();
-
-    // 自分のアバター
-    myAvatar = createAvatar(THREE, myUserId, myUserName, 0x4fc3f7);
-    myAvatar.position.set((Math.random() - 0.5) * 8, 0.5, 5 + Math.random() * 3);
-    scene.add(myAvatar);
-
-    myPenlight = createPenlight(THREE, penlightColor);
-    myPenlight.visible = false;
-    myAvatar.add(myPenlight);
-
-    // コールバック設定
-    setCallbacks({
-        onUserJoin: handleUserJoin,
-        onUserLeave: handleUserLeave,
-        onPosition: handlePosition,
-        onReaction: handleReaction,
-        onSpeakApproved: handleSpeakApproved,
-        onSpeakerJoined: handleSpeakerJoined,
-        onSpeakerLeft: handleSpeakerLeft,
-        onConnectedChange: handleConnectedChange,
-        THREE: THREE,
-        remoteAvatars: remoteAvatars
+    // ステージ上のムービングライト
+    movingLights.forEach((ml) => {
+        const swingX = Math.sin(lightTime + ml.phase) * 3;
+        const swingZ = Math.cos(lightTime * 0.7 + ml.phase) * 2;
+        ml.light.target.position.set(ml.baseX + swingX, 0, 2 + swingZ);
     });
 
-    setupEventListeners();
-    connectToPartyKit(myUserName);
-    setInterval(() => {
-        if (myAvatar) {
-            sendPosition(myAvatar.position.x, myAvatar.position.y, myAvatar.position.z);
-        }
-    }, 100);
+    // ミラーボール回転
+    if (mirrorBall) {
+        mirrorBall.rotation.y += 0.01;
+    }
 
-    animate();
-    debugLog('初期化完了', 'success');
+    // ミラーボールからの光
+    mirrorBallLights.forEach((ml) => {
+        const angle = ml.baseAngle + lightTime * 0.5;
+        ml.target.position.set(
+            Math.cos(angle) * 12,
+            0,
+            Math.sin(angle) * 12 + 3
+        );
+    });
 
-    // グローバルに公開
-    window.changeStageBackground = changeStageBackground;
+    // 床の光スポット移動
+    floorLightSpots.forEach((spot) => {
+        const offset = Math.sin(lightTime * spot.speed + spot.phase) * 2;
+        spot.mesh.position.x = spot.baseX + offset;
+        spot.mesh.position.z = spot.baseZ + Math.cos(lightTime * spot.speed * 0.7 + spot.phase) * 1.5;
+        spot.mesh.material.opacity = 0.4 + Math.sin(lightTime * 2 + spot.phase) * 0.2;
+    });
 }
 
 // --------------------------------------------
-// コールバックハンドラー
+// Zepp風フロア
 // --------------------------------------------
-function handleUserJoin(user) {
-    if (remoteAvatars.has(user.id)) return;
-    const avatar = createAvatar(THREE, user.id, user.name, user.color || 0xff6b6b);
-    avatar.position.set(user.x || 0, 0.5, user.z || 5);
-    scene.add(avatar);
-    remoteAvatars.set(user.id, avatar);
-    updateUserCount();
-}
+function createZeppFloor() {
+    const floorGeometry = new THREE.PlaneGeometry(30, 25);
+    const floorMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x0a0a0a, roughness: 0.3, metalness: 0.7
+    });
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
 
-function handleUserLeave(userId) {
-    const avatar = remoteAvatars.get(userId);
-    if (avatar) {
-        scene.remove(avatar);
-        remoteAvatars.delete(userId);
+    // ネオンライン
+    [-8, -4, 0, 4, 8].forEach((x, i) => {
+        const lineGeometry = new THREE.PlaneGeometry(0.05, 20);
+        const lineMaterial = new THREE.MeshBasicMaterial({ 
+            color: i % 2 === 0 ? 0xff00ff : 0x00ffff, transparent: true, opacity: 0.4
+        });
+        const line = new THREE.Mesh(lineGeometry, lineMaterial);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(x, 0.01, 2);
+        scene.add(line);
+    });
+
+    // 床の光スポット
+    const spotColors = [0xff0066, 0xff00ff, 0x00ffff, 0xffff00, 0xff6600, 0x00ff66];
+    for (let i = 0; i < 20; i++) {
+        const spotGeo = new THREE.CircleGeometry(0.3 + Math.random() * 0.4, 16);
+        const spotMat = new THREE.MeshBasicMaterial({ 
+            color: spotColors[Math.floor(Math.random() * spotColors.length)],
+            transparent: true,
+            opacity: 0.6
+        });
+        const spot = new THREE.Mesh(spotGeo, spotMat);
+        spot.rotation.x = -Math.PI / 2;
+        spot.position.set(
+            (Math.random() - 0.5) * 20,
+            0.02,
+            (Math.random() - 0.5) * 15 + 3
+        );
+        scene.add(spot);
+        floorLightSpots.push({
+            mesh: spot,
+            baseX: spot.position.x,
+            baseZ: spot.position.z,
+            speed: 0.5 + Math.random() * 1,
+            phase: Math.random() * Math.PI * 2
+        });
     }
-    updateUserCount();
 }
 
-function handlePosition(userId, x, y, z) {
-    const avatar = remoteAvatars.get(userId);
-    if (avatar) {
-        avatar.position.x += (x - avatar.position.x) * 0.3;
-        avatar.position.z += (z - avatar.position.z) * 0.3;
-    }
+// --------------------------------------------
+// 会場の壁
+// --------------------------------------------
+function createVenueWalls() {
+    const wallMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x2a2a3e, roughness: 0.7, metalness: 0.3
+    });
+
+    // 後方の壁
+    const backWall = new THREE.Mesh(
+        new THREE.PlaneGeometry(30, 12),
+        wallMaterial
+    );
+    backWall.position.set(0, 6, 15);
+    backWall.rotation.y = Math.PI;
+    scene.add(backWall);
+
+    // 後方壁を照らすライト
+    const backLight = new THREE.SpotLight(0x4444ff, 2, 20, Math.PI / 3, 0.5);
+    backLight.position.set(0, 10, 10);
+    backLight.target.position.set(0, 5, 15);
+    scene.add(backLight);
+    scene.add(backLight.target);
+
+    // 左右の壁
+    [-14, 14].forEach((x, idx) => {
+        const sideWall = new THREE.Mesh(
+            new THREE.PlaneGeometry(25, 12),
+            wallMaterial.clone()
+        );
+        sideWall.position.set(x, 6, 2);
+        sideWall.rotation.y = x > 0 ? -Math.PI / 2 : Math.PI / 2;
+        scene.add(sideWall);
+
+        // 壁を照らすウォッシュライト
+        const wallLight = new THREE.SpotLight(
+            x < 0 ? 0x6600ff : 0x0066ff, 
+            3, 
+            25, 
+            Math.PI / 2.5, 
+            0.5
+        );
+        wallLight.position.set(x * 0.5, 9, 2);
+        wallLight.target.position.set(x, 4, 2);
+        scene.add(wallLight);
+        scene.add(wallLight.target);
+
+        createGeometricPanels(x, idx);
+    });
+
+    // 天井
+    const ceiling = new THREE.Mesh(
+        new THREE.PlaneGeometry(30, 25),
+        new THREE.MeshStandardMaterial({ color: 0x151520 })
+    );
+    ceiling.position.set(0, 10, 2);
+    ceiling.rotation.x = Math.PI / 2;
+    scene.add(ceiling);
 }
 
-function handleReaction(userId, reaction, color) {
-    const avatar = remoteAvatars.get(userId);
-    if (!avatar) return;
+// --------------------------------------------
+// 幾何学模様パネル
+// --------------------------------------------
+function createGeometricPanels(wallX, wallIdx) {
+    const panelColors = [0x6600ff, 0x8800ff, 0xaa00ff, 0x4400ff];
+    const isLeft = wallX < 0;
     
-    if (reaction === 'jump') {
-        let progress = 0;
-        function jumpAnim() {
-            progress += 0.1;
-            if (progress <= Math.PI) {
-                avatar.position.y = 0.5 + Math.sin(progress) * 1;
-                requestAnimationFrame(jumpAnim);
-            } else {
-                avatar.position.y = 0.5;
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 5; col++) {
+            const triGeo = new THREE.BufferGeometry();
+            const size = 1.8;
+            const vertices = new Float32Array([
+                0, size, 0,
+                -size * 0.866, -size * 0.5, 0,
+                size * 0.866, -size * 0.5, 0
+            ]);
+            triGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            triGeo.computeVertexNormals();
+            
+            const triMat = new THREE.MeshBasicMaterial({ 
+                color: panelColors[(row + col) % panelColors.length],
+                transparent: true,
+                opacity: 0.6 + Math.random() * 0.3,
+                side: THREE.DoubleSide
+            });
+            
+            const tri = new THREE.Mesh(triGeo, triMat);
+            tri.position.set(
+                isLeft ? wallX + 0.2 : wallX - 0.2,
+                2.5 + row * 2.8,
+                -4 + col * 3.5
+            );
+            tri.rotation.y = isLeft ? Math.PI / 2 : -Math.PI / 2;
+            tri.rotation.z = ((row + col) % 2) * Math.PI;
+            scene.add(tri);
+
+            if ((row + col) % 3 === 0) {
+                const pointLight = new THREE.PointLight(
+                    panelColors[(row + col) % panelColors.length],
+                    0.5,
+                    5
+                );
+                pointLight.position.set(
+                    isLeft ? wallX + 1 : wallX - 1,
+                    2.5 + row * 2.8,
+                    -4 + col * 3.5
+                );
+                scene.add(pointLight);
             }
         }
-        jumpAnim();
-    } else if (reaction === 'clap') {
-        let progress = 0;
-        function clapAnim() {
-            progress += 0.2;
-            if (progress <= Math.PI) {
-                const scale = 1 + Math.sin(progress) * 0.1;
-                avatar.scale.set(scale, scale, scale);
-                requestAnimationFrame(clapAnim);
-            } else {
-                avatar.scale.set(1, 1, 1);
-            }
-        }
-        clapAnim();
     }
-}
 
-function handleSpeakApproved() {
-    moveToStage();
-}
+    // ネオンフレーム
+    const frameMat = new THREE.MeshBasicMaterial({ 
+        color: 0x00ffff, transparent: true, opacity: 0.8 
+    });
+    
+    [2, 5, 8].forEach(y => {
+        const hLine = new THREE.Mesh(
+            new THREE.BoxGeometry(0.08, 0.08, 15),
+            frameMat
+        );
+        hLine.position.set(isLeft ? wallX + 0.3 : wallX - 0.3, y, 2);
+        scene.add(hLine);
+    });
 
-function handleSpeakerJoined(userId) {
-    moveRemoteToStage(userId);
-}
-
-function handleSpeakerLeft(userId) {
-    const state = getState();
-    if (userId === state.myServerConnectionId) {
-        moveOffStage();
-    } else {
-        moveRemoteToAudience(userId);
-    }
-}
-
-function handleConnectedChange(connected) {
-    updateUserCount();
-}
-
-function updateUserCount() {
-    const state = getState();
-    const count = remoteAvatars.size + (state.connected ? 1 : 0);
-    const el = document.getElementById('user-count');
-    if (el) el.textContent = `${count}人`;
+    [-4, 0, 4, 8].forEach(z => {
+        const vLine = new THREE.Mesh(
+            new THREE.BoxGeometry(0.08, 8, 0.08),
+            new THREE.MeshBasicMaterial({ 
+                color: 0xff00ff, transparent: true, opacity: 0.6 
+            })
+        );
+        vLine.position.set(isLeft ? wallX + 0.3 : wallX - 0.3, 5, z);
+        scene.add(vLine);
+    });
 }
 
 // --------------------------------------------
-// ステージ移動
+// ミラーボール
 // --------------------------------------------
-function moveToStage() {
-    if (isOnStage) return;
-    
-    originalPosition = {
-        x: myAvatar.position.x,
-        z: myAvatar.position.z
-    };
-    
-    const state = getState();
-    const stageX = (state.speakerCount - 1) * 2 - 4;
-    const stageZ = -4;
-    const stageY = 1.7;
-    
-    animateToPosition(myAvatar, stageX, stageY, stageZ, () => {
-        isOnStage = true;
-        myAvatar.rotation.y = Math.PI;
-        debugLog('ステージに移動完了', 'success');
+function createMirrorBall() {
+    const ballGeo = new THREE.SphereGeometry(0.8, 32, 32);
+    const ballMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        metalness: 1,
+        roughness: 0.1
     });
-}
+    mirrorBall = new THREE.Mesh(ballGeo, ballMat);
+    mirrorBall.position.set(0, 9, 3);
+    scene.add(mirrorBall);
 
-function moveOffStage() {
-    if (!isOnStage) return;
-    
-    const targetX = originalPosition ? originalPosition.x : (Math.random() - 0.5) * 8;
-    const targetZ = originalPosition ? originalPosition.z : 5 + Math.random() * 3;
-    
-    animateToPosition(myAvatar, targetX, 0.5, targetZ, () => {
-        isOnStage = false;
-        myAvatar.rotation.y = 0;
-        originalPosition = null;
-        debugLog('フロアに戻りました', 'info');
-    });
-}
-
-function moveRemoteToStage(userId) {
-    const avatar = remoteAvatars.get(userId);
-    if (!avatar) return;
-    
-    const stageX = (Math.random() - 0.5) * 8;
-    animateToPosition(avatar, stageX, 1.7, -4, () => {
-        avatar.rotation.y = Math.PI;
-    });
-}
-
-function moveRemoteToAudience(userId) {
-    const avatar = remoteAvatars.get(userId);
-    if (!avatar) return;
-    
-    const targetX = (Math.random() - 0.5) * 8;
-    const targetZ = 5 + Math.random() * 3;
-    
-    animateToPosition(avatar, targetX, 0.5, targetZ, () => {
-        avatar.rotation.y = 0;
-    });
-}
-
-function animateToPosition(obj, targetX, targetY, targetZ, onComplete) {
-    const startX = obj.position.x;
-    const startY = obj.position.y;
-    const startZ = obj.position.z;
-    const duration = 1000;
-    const startTime = Date.now();
-    
-    function doAnimate() {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3);
+    const tileCount = 200;
+    for (let i = 0; i < tileCount; i++) {
+        const phi = Math.acos(-1 + (2 * i) / tileCount);
+        const theta = Math.sqrt(tileCount * Math.PI) * phi;
         
-        obj.position.x = startX + (targetX - startX) * eased;
-        obj.position.y = startY + (targetY - startY) * eased;
-        obj.position.z = startZ + (targetZ - startZ) * eased;
+        const tileGeo = new THREE.PlaneGeometry(0.15, 0.15);
+        const tileMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            side: THREE.DoubleSide
+        });
+        const tile = new THREE.Mesh(tileGeo, tileMat);
         
-        if (progress < 1) {
-            requestAnimationFrame(doAnimate);
-        } else if (onComplete) {
-            onComplete();
-        }
-    }
-    doAnimate();
-}
-
-// --------------------------------------------
-// リアクション
-// --------------------------------------------
-function setPenlightColor(color) {
-    penlightColor = color;
-    const light = myPenlight.getObjectByName('penlightLight');
-    if (light) light.material.color.set(color);
-    const pointLight = myPenlight.getObjectByName('penlightPointLight');
-    if (pointLight) pointLight.color.set(color);
-}
-
-function wavePenlight() {
-    if (!penlightOn) return;
-    const startRotation = myPenlight.rotation.z;
-    let progress = 0;
-    function swing() {
-        progress += 0.15;
-        if (progress <= Math.PI) {
-            myPenlight.rotation.z = startRotation + Math.sin(progress) * 0.3;
-            requestAnimationFrame(swing);
-        } else {
-            myPenlight.rotation.z = startRotation;
-        }
-    }
-    swing();
-}
-
-function doJump() {
-    const startY = myAvatar.position.y;
-    let progress = 0;
-    function jump() {
-        progress += 0.1;
-        if (progress <= Math.PI) {
-            myAvatar.position.y = startY + Math.sin(progress) * 1;
-            requestAnimationFrame(jump);
-        } else {
-            myAvatar.position.y = startY;
-        }
-    }
-    jump();
-    sendReaction('jump', null);
-}
-
-function doOtagei() {
-    let progress = 0;
-    function otagei() {
-        progress += 0.12;
-        if (progress <= Math.PI * 2) {
-            myAvatar.rotation.z = Math.sin(progress * 3) * 0.2;
-            if (myPenlight.visible) {
-                myPenlight.rotation.z = Math.PI / 6 + Math.sin(progress * 5) * 0.5;
-            }
-            requestAnimationFrame(otagei);
-        } else {
-            myAvatar.rotation.z = 0;
-            myPenlight.rotation.z = Math.PI / 6;
-        }
-    }
-    otagei();
-    sendReaction('otagei', penlightColor);
-}
-
-function doClap() {
-    const originalScale = myAvatar.scale.x;
-    let progress = 0;
-    function clap() {
-        progress += 0.2;
-        if (progress <= Math.PI) {
-            const scale = originalScale + Math.sin(progress) * 0.1;
-            myAvatar.scale.set(scale, scale, scale);
-            requestAnimationFrame(clap);
-        } else {
-            myAvatar.scale.set(originalScale, originalScale, originalScale);
-        }
-    }
-    clap();
-    sendReaction('clap', null);
-}
-
-// --------------------------------------------
-// イベントリスナー
-// --------------------------------------------
-function setupEventListeners() {
-    window.addEventListener('resize', onWindowResize);
-
-    document.querySelectorAll('.reaction-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const type = btn.dataset.type;
-            if (type === 'penlight') {
-                penlightOn = !penlightOn;
-                myPenlight.visible = penlightOn;
-                const colorPanel = document.getElementById('penlight-colors');
-                if (colorPanel) colorPanel.classList.toggle('hidden', !penlightOn);
-                if (penlightOn) { wavePenlight(); sendReaction('penlight', penlightColor); }
-            } else if (type === 'jump') {
-                doJump();
-            } else if (type === 'clap') {
-                doClap();
-            } else if (type === 'otagei') {
-                doOtagei();
-            }
-        });
-    });
-
-    document.querySelectorAll('.color-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-            btn.classList.add('selected');
-            setPenlightColor(btn.dataset.color);
-            wavePenlight();
-        });
-    });
-
-    const chatForm = document.getElementById('chat-form');
-    if (chatForm) {
-        chatForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const input = document.getElementById('chat-input');
-            const message = input.value.trim();
-            if (message) {
-                addChatMessage(myUserName, message);
-                sendChat(myUserName, message);
-                input.value = '';
-            }
-        });
+        tile.position.setFromSphericalCoords(0.82, phi, theta);
+        tile.lookAt(0, 0, 0);
+        mirrorBall.add(tile);
     }
 
-    const stageBtn = document.getElementById('request-stage-btn');
-    if (stageBtn) {
-        stageBtn.addEventListener('click', () => requestSpeak());
-    }
+    const wire = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.02, 0.02, 1.5, 8),
+        new THREE.MeshBasicMaterial({ color: 0x333333 })
+    );
+    wire.position.set(0, 9.75, 3);
+    scene.add(wire);
 
-    const micBtn = document.getElementById('mic-toggle-btn');
-    if (micBtn) {
-        micBtn.addEventListener('click', () => {
-            const isOn = toggleMic();
-            micBtn.textContent = isOn ? '🎙️ 配信中' : '🎙️ マイク OFF';
-            micBtn.classList.toggle('speaking', isOn);
-        });
-    }
+    const spotLight = new THREE.SpotLight(0xffffff, 3, 15, Math.PI / 4, 0.5);
+    spotLight.position.set(0, 10, 3);
+    spotLight.target = mirrorBall;
+    scene.add(spotLight);
 
-    let touchStartX, touchStartY;
-    renderer.domElement.addEventListener('touchstart', (e) => {
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-    });
-
-    renderer.domElement.addEventListener('touchmove', (e) => {
-        if (!touchStartX || !touchStartY) return;
+    const lightColors = [0xff0066, 0x00ffff, 0xffff00, 0xff00ff, 0x00ff66, 0xff6600];
+    for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        const light = new THREE.SpotLight(
+            lightColors[i % lightColors.length],
+            0.5,
+            20,
+            Math.PI / 16,
+            0.8
+        );
+        light.position.set(0, 9, 3);
         
-        if (isOnStage) {
-            const deltaX = (e.touches[0].clientX - touchStartX) * 0.02;
-            myAvatar.position.x += deltaX;
-            myAvatar.position.x = Math.max(-6, Math.min(6, myAvatar.position.x));
-        } else {
-            const deltaX = (e.touches[0].clientX - touchStartX) * 0.01;
-            const deltaZ = (e.touches[0].clientY - touchStartY) * 0.01;
-            myAvatar.position.x += deltaX;
-            myAvatar.position.z += deltaZ;
-            myAvatar.position.x = Math.max(-12, Math.min(12, myAvatar.position.x));
-            myAvatar.position.z = Math.max(-1, Math.min(10, myAvatar.position.z));
-        }
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-    });
-
-    renderer.domElement.addEventListener('touchend', () => {
-        touchStartX = null;
-        touchStartY = null;
-    });
-}
-
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+        const target = new THREE.Object3D();
+        target.position.set(
+            Math.cos(angle) * 10,
+            0,
+            Math.sin(angle) * 10 + 3
+        );
+        scene.add(target);
+        light.target = target;
+        scene.add(light);
+        
+        mirrorBallLights.push({ light, target, baseAngle: angle });
+    }
 }
 
 // --------------------------------------------
-// アニメーションループ
+// Zepp風ステージ
 // --------------------------------------------
-function animate() {
-    requestAnimationFrame(animate);
-    animateVenue();
+function createZeppStage() {
+    const stageGeometry = new THREE.BoxGeometry(16, 1.2, 6);
+    const stageMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x1a1a1a, roughness: 0.3, metalness: 0.5
+    });
+    const stage = new THREE.Mesh(stageGeometry, stageMaterial);
+    stage.position.set(0, 0.6, -6);
+    stage.castShadow = true;
+    stage.receiveShadow = true;
+    scene.add(stage);
+
+    const edgeMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+    const stageEdge = new THREE.Mesh(new THREE.BoxGeometry(16, 0.1, 0.1), edgeMaterial);
+    stageEdge.position.set(0, 1.25, -3.05);
+    scene.add(stageEdge);
+
+    const underLight = new THREE.Mesh(
+        new THREE.PlaneGeometry(14, 0.5),
+        new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5 })
+    );
+    underLight.rotation.x = -Math.PI / 2;
+    underLight.position.set(0, 0.02, -3.2);
+    scene.add(underLight);
+
+    // LEDスクリーン
+    const screenGeometry = new THREE.PlaneGeometry(14, 6);
+    const screenMaterial = new THREE.MeshBasicMaterial({ color: 0x330066, side: THREE.DoubleSide });
+    ledScreen = new THREE.Mesh(screenGeometry, screenMaterial);
+    ledScreen.position.set(0, 4, -8.5);
+    scene.add(ledScreen);
     
-    if (myAvatar) {
-        if (isOnStage) {
-            camera.position.x += (myAvatar.position.x * 0.5 - camera.position.x) * 0.05;
-            camera.position.y += (3.5 - camera.position.y) * 0.05;
-            camera.position.z += (-2 - camera.position.z) * 0.05;
-            camera.lookAt(myAvatar.position.x * 0.3, 1.5, 10);
-        } else {
-            camera.position.x += (myAvatar.position.x * 0.3 - camera.position.x) * 0.05;
-            camera.position.z += (myAvatar.position.z + 8 - camera.position.z) * 0.05;
-            camera.position.y += (5 - camera.position.y) * 0.05;
-            camera.lookAt(myAvatar.position.x * 0.5, 2, myAvatar.position.z - 5);
+    const loader = new THREE.TextureLoader();
+    loader.load(stageBackgroundUrl, function(texture) {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        
+        ledScreen.material.dispose();
+        ledScreen.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+        debugLog('背景画像ロード成功', 'success');
+    }, undefined, function(err) {
+        debugLog('背景画像ロード失敗: ' + err, 'warn');
+    });
+
+    const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(14.4, 6.4, 0.2),
+        new THREE.MeshStandardMaterial({ color: 0x111111 })
+    );
+    frame.position.set(0, 4, -8.6);
+    scene.add(frame);
+}
+
+export function changeStageBackground(imageUrl) {
+    stageBackgroundUrl = imageUrl;
+    const loader = new THREE.TextureLoader();
+    loader.load(imageUrl, function(texture) {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        
+        if (ledScreen) {
+            ledScreen.material.dispose();
+            ledScreen.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+            debugLog('背景変更成功', 'success');
         }
-    }
-    renderer.render(scene, camera);
+    }, undefined, function(err) {
+        debugLog('背景変更失敗: ' + err, 'warn');
+    });
 }
 
 // --------------------------------------------
-// 起動
+// トラス
 // --------------------------------------------
-init();
+function createTruss() {
+    const trussMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x222222, roughness: 0.5, metalness: 0.8
+    });
+
+    const mainTruss = new THREE.Mesh(new THREE.BoxGeometry(18, 0.3, 0.3), trussMaterial);
+    mainTruss.position.set(0, 8, -5);
+    scene.add(mainTruss);
+
+    const frontTruss = new THREE.Mesh(new THREE.BoxGeometry(18, 0.3, 0.3), trussMaterial);
+    frontTruss.position.set(0, 7, 0);
+    scene.add(frontTruss);
+
+    [-9, 9].forEach(x => {
+        const sideTruss = new THREE.Mesh(new THREE.BoxGeometry(0.3, 8, 0.3), trussMaterial);
+        sideTruss.position.set(x, 4, -5);
+        scene.add(sideTruss);
+    });
+}
+
+// --------------------------------------------
+// ムービングライト
+// --------------------------------------------
+function createMovingLights() {
+    const colors = [0x9900ff, 0xff00ff, 0x00ffff, 0xff00ff, 0x9900ff];
+    [-6, -3, 0, 3, 6].forEach((x, i) => {
+        const body = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.2, 0.3, 0.5, 8),
+            new THREE.MeshStandardMaterial({ color: 0x111111 })
+        );
+        body.position.set(x, 7.7, -5);
+        scene.add(body);
+
+        const spotLight = new THREE.SpotLight(colors[i], 2, 20, Math.PI / 6, 0.5, 1);
+        spotLight.position.set(x, 7.5, -5);
+        spotLight.target.position.set(x, 0, 2);
+        spotLight.castShadow = true;
+        scene.add(spotLight);
+        scene.add(spotLight.target);
+
+        const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(0.15, 0.4, 8),
+            new THREE.MeshBasicMaterial({ color: colors[i], transparent: true, opacity: 0.8 })
+        );
+        cone.position.set(x, 7.3, -5);
+        cone.rotation.x = Math.PI;
+        scene.add(cone);
+
+        movingLights.push({ light: spotLight, baseX: x, phase: i * 0.5 });
+    });
+
+    [-4, 0, 4].forEach((x, i) => {
+        const spotLight = new THREE.SpotLight([0x00ffff, 0xff00ff, 0x00ffff][i], 1.5, 15, Math.PI / 8, 0.5, 1);
+        spotLight.position.set(x, 6.8, 0);
+        spotLight.target.position.set(x, 0, 5);
+        scene.add(spotLight);
+        scene.add(spotLight.target);
+    });
+}
+
+// --------------------------------------------
+// バリケード
+// --------------------------------------------
+function createBarrier() {
+    const mat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5, metalness: 0.7 });
+    for (let x = -7; x <= 7; x += 2) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1, 8), mat);
+        post.position.set(x, 0.5, -2);
+        scene.add(post);
+        if (x < 7) {
+            const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2, 8), mat);
+            rail.rotation.z = Math.PI / 2;
+            rail.position.set(x + 1, 0.8, -2);
+            scene.add(rail);
+        }
+    }
+}
+
+// --------------------------------------------
+// サイドスピーカー
+// --------------------------------------------
+function createSideSpeakers() {
+    const mat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.3 });
+    [-7.5, 7.5].forEach(x => {
+        const speaker = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.5, 1), mat);
+        speaker.position.set(x, 2.5, -4);
+        scene.add(speaker);
+
+        const grill = new THREE.Mesh(
+            new THREE.PlaneGeometry(1.3, 2.3),
+            new THREE.MeshBasicMaterial({ color: 0x0a0a0a, side: THREE.DoubleSide })
+        );
+        grill.position.set(x, 2.5, -3.49);
+        scene.add(grill);
+
+        const sub = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 1.2), mat);
+        sub.position.set(x, 0.6, -4);
+        scene.add(sub);
+    });
+}

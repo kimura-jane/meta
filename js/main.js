@@ -92,6 +92,7 @@ async function init() {
     myPenlight = createPenlight(0xff00ff);
     myPenlight.visible = false;
     scene.add(myPenlight);
+    debugLog('Penlight created and added to scene', 'success');
 
     // 設定初期化
     initSettings(myUserName, {
@@ -251,7 +252,7 @@ function setupJoystick() {
     const joystickStick = document.getElementById('joystick-stick');
     
     if (!joystickBase || !joystickStick) {
-        debugLog('Joystick elements not found');
+        debugLog('Joystick elements not found', 'error');
         return;
     }
     
@@ -288,6 +289,7 @@ function setupJoystick() {
 
     joystickBase.addEventListener('touchstart', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         joystickActive = true;
         const touch = e.touches[0];
         handleJoystickMove(touch.clientX, touch.clientY);
@@ -295,15 +297,24 @@ function setupJoystick() {
 
     joystickBase.addEventListener('touchmove', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         if (!joystickActive) return;
         const touch = e.touches[0];
         handleJoystickMove(touch.clientX, touch.clientY);
     });
 
-    joystickBase.addEventListener('touchend', resetJoystick);
-    joystickBase.addEventListener('touchcancel', resetJoystick);
+    joystickBase.addEventListener('touchend', (e) => {
+        e.stopPropagation();
+        resetJoystick();
+    });
+    
+    joystickBase.addEventListener('touchcancel', (e) => {
+        e.stopPropagation();
+        resetJoystick();
+    });
 
     joystickBase.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
         joystickActive = true;
         handleJoystickMove(e.clientX, e.clientY);
     });
@@ -314,6 +325,8 @@ function setupJoystick() {
     });
 
     document.addEventListener('mouseup', resetJoystick);
+    
+    debugLog('Joystick setup complete', 'success');
 }
 
 // カメラスワイプセットアップ
@@ -378,6 +391,8 @@ function setupCameraSwipe() {
     canvas.addEventListener('mouseleave', () => {
         isDragging = false;
     });
+    
+    debugLog('Camera swipe setup complete', 'success');
 }
 
 // ステージへ移動
@@ -484,7 +499,7 @@ function setupChatUI() {
     const input = document.getElementById('chat-input');
 
     if (!form || !input) {
-        debugLog('Chat elements not found');
+        debugLog('Chat elements not found', 'error');
         return;
     }
 
@@ -497,6 +512,8 @@ function setupChatUI() {
             input.value = '';
         }
     });
+    
+    debugLog('Chat UI setup complete', 'success');
 }
 
 // アクションボタンセットアップ
@@ -506,98 +523,191 @@ function setupActionButtons() {
     const penlightColors = document.getElementById('penlight-colors');
 
     if (!penlightBtn || !otageiBtn || !penlightColors) {
-        debugLog('Action button elements not found');
+        debugLog('Action button elements not found', 'error');
         return;
     }
 
-    // ペンライトボタンクリック
-    penlightBtn.addEventListener('click', () => {
-        // 長押し中は無視
-        if (penlightLongPressTimer) return;
+    debugLog('Action buttons setup started', 'info');
 
+    // ペンライトON/OFF
+    function togglePenlight() {
+        debugLog('Penlight toggle called', 'info');
+        
         isPenlightActive = !isPenlightActive;
         myPenlight.visible = isPenlightActive;
         penlightBtn.classList.toggle('active', isPenlightActive);
+        
+        debugLog(`Penlight active: ${isPenlightActive}, visible: ${myPenlight.visible}`, 'info');
         
         // ボタンの色を変更
         if (isPenlightActive) {
             penlightBtn.style.background = penlightColor;
             penlightBtn.style.boxShadow = `0 0 15px ${penlightColor}`;
+            updatePenlightPosition();
+            sendReaction('penlight', penlightColor);
+            debugLog(`Penlight position: ${myPenlight.position.x.toFixed(2)}, ${myPenlight.position.y.toFixed(2)}, ${myPenlight.position.z.toFixed(2)}`, 'info');
         } else {
             penlightBtn.style.background = '';
             penlightBtn.style.boxShadow = '';
         }
+    }
 
-        if (isPenlightActive) {
-            updatePenlightPosition();
-            sendReaction('penlight', penlightColor);
+    // 長押し関連
+    let longPressTriggered = false;
+
+    // クリックイベント（PC用）
+    penlightBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // 長押し後やタッチデバイスでは無視
+        if (longPressTriggered) {
+            longPressTriggered = false;
+            return;
         }
     });
 
-    // 長押しで色選択パネル表示
-    penlightBtn.addEventListener('mousedown', startPenlightLongPress);
-    penlightBtn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        startPenlightLongPress(e);
-    });
-    penlightBtn.addEventListener('mouseup', cancelPenlightLongPress);
-    penlightBtn.addEventListener('touchend', cancelPenlightLongPress);
-    penlightBtn.addEventListener('mouseleave', cancelPenlightLongPress);
-
-    function startPenlightLongPress(e) {
+    // マウスイベント（PC用）
+    penlightBtn.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        longPressTriggered = false;
         penlightLongPressTimer = setTimeout(() => {
+            longPressTriggered = true;
             penlightColors.classList.remove('hidden');
-            penlightLongPressTimer = null;
+            debugLog('Penlight color panel opened (mouse)', 'info');
         }, 500);
-    }
+    });
 
-    function cancelPenlightLongPress() {
+    penlightBtn.addEventListener('mouseup', (e) => {
+        e.stopPropagation();
         if (penlightLongPressTimer) {
             clearTimeout(penlightLongPressTimer);
             penlightLongPressTimer = null;
         }
-    }
+        if (!longPressTriggered) {
+            togglePenlight();
+        }
+        longPressTriggered = false;
+    });
+
+    penlightBtn.addEventListener('mouseleave', () => {
+        if (penlightLongPressTimer) {
+            clearTimeout(penlightLongPressTimer);
+            penlightLongPressTimer = null;
+        }
+    });
+
+    // タッチイベント（モバイル用）
+    penlightBtn.addEventListener('touchstart', (e) => {
+        e.stopPropagation();
+        longPressTriggered = false;
+        penlightLongPressTimer = setTimeout(() => {
+            longPressTriggered = true;
+            penlightColors.classList.remove('hidden');
+            debugLog('Penlight color panel opened (touch)', 'info');
+        }, 500);
+    }, { passive: true });
+
+    penlightBtn.addEventListener('touchend', (e) => {
+        e.stopPropagation();
+        if (penlightLongPressTimer) {
+            clearTimeout(penlightLongPressTimer);
+            penlightLongPressTimer = null;
+        }
+        if (!longPressTriggered) {
+            togglePenlight();
+        }
+        longPressTriggered = false;
+    });
+
+    penlightBtn.addEventListener('touchcancel', () => {
+        if (penlightLongPressTimer) {
+            clearTimeout(penlightLongPressTimer);
+            penlightLongPressTimer = null;
+        }
+        longPressTriggered = false;
+    });
 
     // 色ボタン
     document.querySelectorAll('.color-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
             penlightColor = btn.dataset.color;
             document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
             
-            // ペンライト色更新
             updatePenlightColor();
             
-            // ボタンの色も更新（アクティブな場合）
             if (isPenlightActive) {
                 penlightBtn.style.background = penlightColor;
                 penlightBtn.style.boxShadow = `0 0 15px ${penlightColor}`;
             }
             
             penlightColors.classList.add('hidden');
+            debugLog(`Penlight color changed to ${penlightColor}`, 'info');
+        });
+        
+        // タッチでも反応
+        btn.addEventListener('touchend', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            penlightColor = btn.dataset.color;
+            document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            
+            updatePenlightColor();
+            
+            if (isPenlightActive) {
+                penlightBtn.style.background = penlightColor;
+                penlightBtn.style.boxShadow = `0 0 15px ${penlightColor}`;
+            }
+            
+            penlightColors.classList.add('hidden');
+            debugLog(`Penlight color changed to ${penlightColor} (touch)`, 'info');
         });
     });
 
     // オタ芸ボタン
-    otageiBtn.addEventListener('click', () => {
+    otageiBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         isOtageiActive = !isOtageiActive;
         otageiBtn.classList.toggle('active', isOtageiActive);
 
         if (isOtageiActive) {
             startOtageiAnimation();
             sendReaction('otagei', null);
+            debugLog('Otagei started', 'info');
         } else {
             stopOtageiAnimation();
+            debugLog('Otagei stopped', 'info');
         }
     });
+    
+    // タッチでも反応
+    otageiBtn.addEventListener('touchend', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        isOtageiActive = !isOtageiActive;
+        otageiBtn.classList.toggle('active', isOtageiActive);
+
+        if (isOtageiActive) {
+            startOtageiAnimation();
+            sendReaction('otagei', null);
+            debugLog('Otagei started (touch)', 'info');
+        } else {
+            stopOtageiAnimation();
+            debugLog('Otagei stopped (touch)', 'info');
+        }
+    });
+
+    debugLog('Action buttons setup complete', 'success');
 }
 
 // ペンライト位置更新
 function updatePenlightPosition() {
     if (myPenlight && myAvatar) {
+        // アバターの上に配置（よく見える位置）
         myPenlight.position.set(
-            myAvatar.position.x + 0.5,
-            myAvatar.position.y + 2,
+            myAvatar.position.x,
+            myAvatar.position.y + 2.5,
             myAvatar.position.z
         );
     }
@@ -606,20 +716,24 @@ function updatePenlightPosition() {
 // ペンライト色更新
 function updatePenlightColor() {
     if (myPenlight) {
-        // 子オブジェクトを直接走査して更新
+        const colorValue = new THREE.Color(penlightColor);
+        
         myPenlight.traverse((child) => {
             if (child.isMesh && child.material) {
-                if (child.material.color) {
-                    child.material.color.setStyle(penlightColor);
-                }
-                if (child.material.emissive) {
-                    child.material.emissive.setStyle(penlightColor);
+                // 持ち手以外の色を更新
+                if (child.name !== 'penlightHandle') {
+                    child.material.color.copy(colorValue);
+                    if (child.material.emissive) {
+                        child.material.emissive.copy(colorValue);
+                    }
                 }
             }
             if (child.isPointLight) {
-                child.color.setStyle(penlightColor);
+                child.color.copy(colorValue);
             }
         });
+        
+        debugLog(`Penlight color updated to ${penlightColor}`, 'info');
     }
 }
 
@@ -664,7 +778,7 @@ function setupSpeakerControls() {
     const leaveBtn = document.getElementById('leave-stage-btn');
 
     if (!micBtn || !leaveBtn) {
-        debugLog('Speaker control elements not found');
+        debugLog('Speaker control elements not found', 'warn');
         return;
     }
 
@@ -681,6 +795,8 @@ function setupSpeakerControls() {
         showSpeakerControls(false);
         showNotification('降壇しました', 'info');
     });
+    
+    debugLog('Speaker controls setup complete', 'success');
 }
 
 // スピーカーコントロール表示/非表示
@@ -715,7 +831,8 @@ function animate() {
         camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
     }
 
-    if (isPenlightActive && myPenlight) {
+    // ペンライト揺れアニメーション
+    if (isPenlightActive && myPenlight && myPenlight.visible) {
         myPenlight.rotation.z = Math.sin(Date.now() * 0.003) * 0.3;
     }
 

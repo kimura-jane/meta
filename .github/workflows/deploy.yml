@@ -21,14 +21,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Replace secrets in settings.js
+      
+      - name: Replace secrets
         run: |
-          sed -i "s/__HOST_PASSWORDS__/${{ secrets.HOST_PASSWORDS }}/g" js/settings.js
-
+          sed -i "s/_HOST_PASSWORDS_/${{ secrets.HOST_PASSWORDS }}/g" js/settings.js
+      
       - name: Setup Pages
         uses: actions/configure-pages@v4
-
+      
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

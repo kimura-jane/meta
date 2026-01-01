@@ -60,7 +60,7 @@ function createSettingsUI() {
     settingsBtn.textContent = '⚙️';
     settingsBtn.style.cssText = `
         position: fixed;
-        top: 10px;
+        top: 60px;
         right: 10px;
         width: 44px;
         height: 44px;

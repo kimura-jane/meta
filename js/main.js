@@ -262,18 +262,18 @@ function setupConnection() {
     connectToPartyKit(myUserName);
 }
 
-// ステージに移動
+// ステージに移動（ステージはZ=-6〜-3、高さY=1.2）
 function moveToStage() {
     const targetX = (Math.random() - 0.5) * 10;
-    const targetZ = 3;
-    animateMove(myAvatar, targetX, 0, targetZ);
+    const targetZ = -5;
+    animateMove(myAvatar, targetX, 1.2, targetZ);
     setAvatarSpotlight(myAvatar, true);
 }
 
 // 観客席に戻る
 function moveToAudience() {
     const targetX = (Math.random() - 0.5) * 10;
-    const targetZ = 12 + Math.random() * 5;
+    const targetZ = 5 + Math.random() * 5;
     animateMove(myAvatar, targetX, 0, targetZ);
     setAvatarSpotlight(myAvatar, false);
 }
@@ -297,6 +297,9 @@ function animateMove(avatar, targetX, targetY, targetZ) {
         
         if (progress < 1) {
             requestAnimationFrame(update);
+        } else {
+            // 移動完了後に位置を送信
+            sendPosition(avatar.position.x, avatar.position.y, avatar.position.z);
         }
     }
     update();
@@ -492,10 +495,11 @@ function toggleOtagei() {
 // オタ芸アニメーション開始
 function startOtageiAnimation() {
     if (otageiInterval) clearInterval(otageiInterval);
+    const baseY = myAvatar.position.y;
     otageiInterval = setInterval(() => {
         const time = Date.now() * 0.01;
         myAvatar.rotation.y = Math.sin(time) * 0.3;
-        myAvatar.position.y = Math.abs(Math.sin(time * 2)) * 0.3;
+        myAvatar.position.y = baseY + Math.abs(Math.sin(time * 2)) * 0.3;
     }, 16);
 }
 
@@ -506,7 +510,12 @@ function stopOtageiAnimation() {
         otageiInterval = null;
     }
     myAvatar.rotation.y = 0;
-    myAvatar.position.y = 0;
+    // ステージ上なら高さを維持
+    if (isOnStage) {
+        myAvatar.position.y = 1.2;
+    } else {
+        myAvatar.position.y = 0;
+    }
 }
 
 // タッチコントロール
@@ -561,6 +570,7 @@ function animate() {
     
     animateVenue();
     
+    // カメラ追従
     const targetX = myAvatar.position.x * 0.3;
     const targetZ = myAvatar.position.z + 10;
     camera.position.x += (targetX - camera.position.x) * 0.05;

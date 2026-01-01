@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>メタバース空間</title>
+  <title>縄文式生住居</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,10 +12,10 @@
 
   <!-- UI オーバーレイ -->
   <div id="ui-overlay">
-    <!-- 上部：ルーム情報 -->
+    <!-- 上部：タイトルと人数 -->
     <div id="room-info">
-      <span id="room-name">ルーム: メインステージ</span>
-      <span id="user-count">0人</span>
+      <div id="room-title">縄文式生住居</div>
+      <div id="user-count">0人</div>
     </div>
 
     <!-- ステージ参加ボタン -->
@@ -73,15 +73,5 @@
   
   <!-- アプリケーション（モジュール） -->
   <script type="module" src="js/main.js"></script>
-
-  <!-- 人数表示の位置調整 -->
-  <style>
-    #room-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-right: 60px; /* 設定ボタン分のスペース確保 */
-    }
-  </style>
 </body>
 </html>

@@ -83,12 +83,15 @@ async function init() {
     createAllVenue();
 
     // 自分のアバター作成
-    myAvatar = createAvatar(scene, myUserId);
+    const avatarColor = Math.random() * 0xffffff;
+    myAvatar = createAvatar(myUserId, myUserName, avatarColor);
     myAvatar.position.set((Math.random() - 0.5) * 10, 0, 5 + Math.random() * 5);
+    scene.add(myAvatar);
 
     // ペンライト作成
-    myPenlight = createPenlight(scene);
+    myPenlight = createPenlight(0xff00ff);
     myPenlight.visible = false;
+    scene.add(myPenlight);
 
     // 設定初期化
     initSettings(myUserName, {
@@ -162,8 +165,10 @@ function setupConnection() {
         onUserJoin: (userId, userName) => {
             debugLog(`User joined: ${userId} (${userName})`);
             if (!remoteAvatars.has(userId)) {
-                const avatar = createAvatar(scene, userId);
+                const avatarColor = Math.random() * 0xffffff;
+                const avatar = createAvatar(userId, userName, avatarColor);
                 avatar.position.set((Math.random() - 0.5) * 10, 0, 5 + Math.random() * 5);
+                scene.add(avatar);
                 remoteAvatars.set(userId, { avatar, userName });
             }
             updateUserCount();
@@ -324,8 +329,6 @@ function setupCameraSwipe() {
         const deltaY = touch.clientY - lastY;
 
         cameraAngleX -= deltaX * 0.005;
-
-        // 上下スワイプでカメラの高さを調整
         cameraHeight -= deltaY * 0.02;
         cameraHeight = Math.max(2, Math.min(8, cameraHeight));
 
@@ -350,7 +353,6 @@ function setupCameraSwipe() {
         const deltaY = e.clientY - lastY;
 
         cameraAngleX -= deltaX * 0.005;
-
         cameraHeight -= deltaY * 0.02;
         cameraHeight = Math.max(2, Math.min(8, cameraHeight));
 
@@ -424,7 +426,7 @@ function processJoystickMovement() {
     const speed = 0.15;
 
     const moveAngle = cameraAngleX;
-    const forward = joystickY; // 上に倒すと前進
+    const forward = joystickY;
     const right = joystickX;
 
     const moveX = (Math.sin(moveAngle) * forward + Math.cos(moveAngle) * right) * speed;
@@ -439,7 +441,7 @@ function processJoystickMovement() {
         let newZ = myAvatar.position.z + moveZ;
 
         newX = Math.max(-15, Math.min(15, newX));
-        newZ = Math.max(2, Math.min(15, newZ));
+        newZ = Math.max(-2, Math.min(15, newZ));
 
         myAvatar.position.x = newX;
         myAvatar.position.z = newZ;
@@ -558,13 +560,13 @@ function updatePenlightPosition() {
 // ペンライト色更新
 function updatePenlightColor() {
     if (myPenlight) {
-        const light = myPenlight.children.find(c => c.isPointLight);
-        if (light) {
-            light.color.setStyle(penlightColor);
+        const lightMesh = myPenlight.getObjectByName('penlightLight');
+        if (lightMesh) {
+            lightMesh.material.color.setStyle(penlightColor);
         }
-        const mesh = myPenlight.children.find(c => c.isMesh);
-        if (mesh) {
-            mesh.material.emissive.setStyle(penlightColor);
+        const pointLight = myPenlight.getObjectByName('penlightPointLight');
+        if (pointLight) {
+            pointLight.color.setStyle(penlightColor);
         }
     }
 }
@@ -647,7 +649,6 @@ function animate() {
 
     processJoystickMovement();
 
-    // カメラ位置計算（アバターの後ろ斜め上から）
     if (myAvatar) {
         const camX = myAvatar.position.x + Math.sin(cameraAngleX) * cameraDistance;
         const camY = myAvatar.position.y + cameraHeight;

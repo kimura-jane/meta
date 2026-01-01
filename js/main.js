@@ -920,7 +920,7 @@ function createZeppFloor() {
 }
 
 // --------------------------------------------
-// Zepp風ステージ
+// Zepp風ステージ（モザイク修正版）
 // --------------------------------------------
 function createZeppStage() {
     const stageGeometry = new THREE.BoxGeometry(16, 1.2, 6);
@@ -953,9 +953,15 @@ function createZeppStage() {
     ledScreen.position.set(0, 4, -8.9);
     scene.add(ledScreen);
     
-    // 背景画像を非同期ロード
+    // 背景画像を非同期ロード（テクスチャ設定追加でモザイク修正）
     const loader = new THREE.TextureLoader();
     loader.load(stageBackgroundUrl, function(texture) {
+        // モザイク防止のためのテクスチャ設定
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        
         ledScreen.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
         debugLog('背景画像ロード成功', 'success');
     }, undefined, function(err) {
@@ -974,6 +980,12 @@ function changeStageBackground(imageUrl) {
     stageBackgroundUrl = imageUrl;
     const loader = new THREE.TextureLoader();
     loader.load(imageUrl, function(texture) {
+        // モザイク防止のためのテクスチャ設定
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        
         if (ledScreen) {
             ledScreen.material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
         }

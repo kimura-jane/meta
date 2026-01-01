@@ -12,7 +12,7 @@ let currentUserName = '';
 let showNames = true;
 let showNotifications = true;
 
-// 主催者パスワード（本番では環境変数やサーバー側で管理推奨）
+// 主催者パスワード
 const HOST_PASSWORDS = ['host2024', 'admin123', 'organizer'];
 
 // コールバック
@@ -44,6 +44,10 @@ export function getSettings() {
         showNotifications,
         currentUserName
     };
+}
+
+export function isHostUser() {
+    return isHost;
 }
 
 // --------------------------------------------
@@ -175,11 +179,10 @@ function createSettingsUI() {
             <p id="host-login-error" style="color:#ff6b6b;font-size:11px;margin-top:5px;display:none;">パスワードが違います</p>
         </div>
         
-        <!-- 主催者メニュー（認証後に表示） -->
+        <!-- 主催者メニュー -->
         <div class="settings-section" id="host-menu-section" style="display:none;">
             <h3 style="color:#66ffff;font-size:14px;margin:25px 0 10px;">👑 主催者メニュー</h3>
             
-            <!-- 登壇リクエスト -->
             <div style="margin-bottom:15px;">
                 <label style="color:#aaa;font-size:12px;display:block;margin-bottom:8px;">登壇リクエスト</label>
                 <div id="speak-requests-list" style="
@@ -193,7 +196,6 @@ function createSettingsUI() {
                 ">リクエストはありません</div>
             </div>
             
-            <!-- 登壇者管理 -->
             <div style="margin-bottom:15px;">
                 <label style="color:#aaa;font-size:12px;display:block;margin-bottom:8px;">現在の登壇者</label>
                 <div id="current-speakers-list" style="
@@ -207,7 +209,6 @@ function createSettingsUI() {
                 ">登壇者はいません</div>
             </div>
             
-            <!-- 背景変更 -->
             <div style="margin-bottom:15px;">
                 <label style="color:#aaa;font-size:12px;display:block;margin-bottom:5px;">背景画像URL</label>
                 <input type="text" id="background-url" placeholder="https://..." style="
@@ -232,7 +233,6 @@ function createSettingsUI() {
                 ">🖼️ 背景を変更</button>
             </div>
             
-            <!-- アナウンス -->
             <div style="margin-bottom:15px;">
                 <label style="color:#aaa;font-size:12px;display:block;margin-bottom:5px;">全体アナウンス</label>
                 <textarea id="announce-text" placeholder="メッセージを入力..." style="
@@ -275,7 +275,6 @@ function createSettingsUI() {
     `;
     document.body.appendChild(panel);
 
-    // イベントリスナー設定
     setupSettingsListeners();
 }
 
@@ -283,10 +282,8 @@ function createSettingsUI() {
 // イベントリスナー
 // --------------------------------------------
 function setupSettingsListeners() {
-    // 閉じるボタン
     document.getElementById('close-settings').onclick = () => toggleSettingsPanel(false);
 
-    // 名前変更
     document.getElementById('setting-name').value = currentUserName;
     document.getElementById('save-name-btn').onclick = () => {
         const newName = document.getElementById('setting-name').value.trim();
@@ -297,24 +294,20 @@ function setupSettingsListeners() {
         }
     };
 
-    // 名前表示ON/OFF
     document.getElementById('setting-show-names').onchange = (e) => {
         showNames = e.target.checked;
         if (callbacks.onShowNamesChange) callbacks.onShowNamesChange(showNames);
     };
 
-    // 通知ON/OFF
     document.getElementById('setting-notifications').onchange = (e) => {
         showNotifications = e.target.checked;
     };
 
-    // カメラリセット
     document.getElementById('reset-camera-btn').onclick = () => {
         if (callbacks.onResetCamera) callbacks.onResetCamera();
         debugLog('カメラ視点をリセット', 'info');
     };
 
-    // 主催者ログイン
     document.getElementById('host-login-btn').onclick = () => {
         const password = document.getElementById('host-password').value;
         if (HOST_PASSWORDS.includes(password)) {
@@ -329,7 +322,6 @@ function setupSettingsListeners() {
         }
     };
 
-    // 主催者ログアウト
     document.getElementById('host-logout-btn').onclick = () => {
         isHost = false;
         document.getElementById('host-login-section').style.display = 'block';
@@ -337,7 +329,6 @@ function setupSettingsListeners() {
         debugLog('主催者からログアウト', 'info');
     };
 
-    // 背景変更
     document.getElementById('change-bg-btn').onclick = () => {
         const url = document.getElementById('background-url').value.trim();
         if (url && callbacks.onChangeBackground) {
@@ -346,7 +337,6 @@ function setupSettingsListeners() {
         }
     };
 
-    // アナウンス送信
     document.getElementById('send-announce-btn').onclick = () => {
         const text = document.getElementById('announce-text').value.trim();
         if (text && callbacks.onAnnounce) {
@@ -406,7 +396,6 @@ export function updateSpeakRequests(requests) {
         </div>
     `).join('');
 
-    // グローバル関数として登録
     window.approveSpeak = (id) => {
         if (callbacks.onApproveSpeak) callbacks.onApproveSpeak(id);
     };

@@ -46,7 +46,7 @@ body {
     left: 16px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     z-index: 100;
 }
 
@@ -60,7 +60,6 @@ body {
     border-radius: 10px;
     border: 1px solid rgba(255,102,255,0.5);
     backdrop-filter: blur(10px);
-    background-clip: padding-box;
     color: #fff;
     text-shadow: 
         0 0 10px rgba(255,102,255,0.8),
@@ -89,54 +88,71 @@ body {
     50% { opacity: 0.7; }
 }
 
+/* 参加者・登壇者 */
 #room-stats {
     display: flex;
-    gap: 16px;
-    font-size: 13px;
-    padding-left: 4px;
+    gap: 12px;
 }
 
-#room-stats span {
-    color: rgba(255,255,255,0.8);
-}
-
-#user-count {
-    color: #66ffff;
-    font-weight: 700;
-}
-
-#speaker-count {
-    color: #ff66ff;
-    font-weight: 700;
-}
-
-/* 設定ボタン（右上） */
-#settings-area {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    z-index: 100;
-}
-
-#settings-btn {
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    background: rgba(0,0,0,0.7);
-    border: 2px solid rgba(255,255,255,0.3);
-    color: #fff;
-    font-size: 24px;
-    cursor: pointer;
-    transition: all 0.3s ease;
+.stat-item {
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: rgba(0,0,0,0.8);
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.2);
+    backdrop-filter: blur(10px);
 }
 
-#settings-btn:hover {
-    border-color: rgba(255,102,255,0.6);
-    transform: scale(1.1);
-    box-shadow: 0 0 15px rgba(255,102,255,0.4);
+.stat-label {
+    font-size: 13px;
+    color: rgba(255,255,255,0.7);
+}
+
+.stat-value {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.stat-item:first-child .stat-value {
+    color: #66ffff;
+}
+
+.stat-item:last-child .stat-value {
+    color: #ff66ff;
+}
+
+.stat-unit {
+    font-size: 12px;
+    color: rgba(255,255,255,0.6);
+}
+
+/* 設定ボタン（settings.jsで生成） */
+.settings-toggle-btn {
+    position: fixed !important;
+    top: 16px !important;
+    right: 16px !important;
+    width: 56px !important;
+    height: 56px !important;
+    border-radius: 50% !important;
+    background: rgba(0,0,0,0.8) !important;
+    border: 2px solid rgba(255,102,255,0.5) !important;
+    color: #fff !important;
+    font-size: 28px !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    z-index: 1000 !important;
+    box-shadow: 0 0 15px rgba(255,102,255,0.3) !important;
+}
+
+.settings-toggle-btn:hover {
+    border-color: rgba(255,102,255,0.8) !important;
+    transform: scale(1.1) !important;
+    box-shadow: 0 0 25px rgba(255,102,255,0.5) !important;
 }
 
 /* チャットエリア（左下） */

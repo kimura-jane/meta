@@ -49,6 +49,7 @@ let callbacks = {
     onCurrentSpeakersUpdate: null,
     onAnnounce: null,
     onBackgroundChange: null,
+    onBrightnessChange: null,
     onChat: null,
     remoteAvatars: null
 };
@@ -110,13 +111,13 @@ function showAudioUnlockButton() {
         transform: translate(-50%, -50%);
         padding: 20px 40px;
         font-size: 18px;
-        background: #ff6b6b;
+        background: linear-gradient(135deg, #ff66ff, #9966ff);
         color: white;
         border: none;
-        border-radius: 10px;
+        border-radius: 20px;
         z-index: 20000;
         cursor: pointer;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        box-shadow: 0 4px 30px rgba(255, 102, 255, 0.5);
     `;
     
     btn.onclick = async () => {
@@ -238,6 +239,16 @@ function handleServerMessage(data) {
             if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
             updateSpeakerList(data.speakers || []);
             
+            // 現在の明るさを適用
+            if (data.brightness !== undefined && callbacks.onBrightnessChange) {
+                callbacks.onBrightnessChange(data.brightness);
+            }
+            
+            // 現在の背景を適用
+            if (data.backgroundUrl && callbacks.onBackgroundChange) {
+                callbacks.onBackgroundChange(data.backgroundUrl);
+            }
+            
             if (data.tracks && data.sessions) {
                 const tracksArray = Array.isArray(data.tracks) ? data.tracks : [];
                 const sessionsArray = Array.isArray(data.sessions) ? data.sessions : [];
@@ -348,6 +359,10 @@ function handleServerMessage(data) {
 
         case 'backgroundChange':
             if (callbacks.onBackgroundChange) callbacks.onBackgroundChange(data.url);
+            break;
+
+        case 'brightnessChange':
+            if (callbacks.onBrightnessChange) callbacks.onBrightnessChange(data.value);
             break;
 
         case 'kicked':
@@ -574,7 +589,7 @@ function updateSpeakerButton() {
     if (btn) {
         if (isSpeaker) {
             btn.textContent = `🎤 登壇中 (${speakerCount}/5)`;
-            btn.style.background = '#51cf66';
+            btn.style.background = 'linear-gradient(135deg, #00c853, #69f0ae)';
         } else {
             btn.textContent = `🎤 登壇リクエスト (${speakerCount}/5)`;
             btn.style.background = '';
@@ -629,6 +644,12 @@ export function sendNameChange(newName) {
 export function sendBackgroundChange(url) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'backgroundChange', url }));
+    }
+}
+
+export function sendBrightness(value) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'brightnessChange', value }));
     }
 }
 

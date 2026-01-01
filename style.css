@@ -49,7 +49,7 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  padding: 16px 20px;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -58,38 +58,54 @@ body {
 
 #room-title {
   font-family: 'Orbitron', 'Zen Kaku Gothic New', sans-serif;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
-  color: #fff;
-  text-shadow: 
-    0 0 10px rgba(255, 102, 255, 0.8),
-    0 0 20px rgba(255, 102, 255, 0.5),
-    0 0 40px rgba(255, 102, 255, 0.3);
   letter-spacing: 2px;
   background: linear-gradient(135deg, #ff66ff, #66ffff);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  text-shadow: none;
+  filter: drop-shadow(0 0 10px rgba(255, 102, 255, 0.5));
 }
 
-#user-count {
+#room-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+#user-count, #speaker-count-display {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: linear-gradient(135deg, rgba(102, 255, 255, 0.2), rgba(255, 102, 255, 0.2));
+  gap: 4px;
+  background: linear-gradient(135deg, rgba(102, 255, 255, 0.15), rgba(255, 102, 255, 0.15));
   padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #66ffff;
-  border: 1px solid rgba(102, 255, 255, 0.3);
+  border-radius: 18px;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(10px);
-  width: fit-content;
+  font-weight: 500;
 }
 
-#user-count::before {
-  content: '👥';
-  font-size: 14px;
+#speaker-count-display {
+  color: #ffaaff;
+}
+
+.stat-divider {
+  color: rgba(255, 255, 255, 0.3);
+  font-weight: 300;
+}
+
+#user-count-num {
+  font-weight: 700;
+  color: #66ffff;
+}
+
+#speaker-count {
+  font-weight: 700;
+  color: #ff66ff;
 }
 
 /* チャットエリア */
@@ -306,7 +322,7 @@ body {
 /* ステージコントロール */
 #stage-controls {
   position: absolute;
-  top: 70px;
+  top: 16px;
   right: 16px;
   z-index: 10;
 }

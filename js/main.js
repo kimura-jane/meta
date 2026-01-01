@@ -3,7 +3,7 @@
 // エントリーポイント
 // ============================================
 
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+const THREE = window.THREE;
 
 import { debugLog, createDebugUI, setupErrorHandlers, addChatMessage, createAvatar, createPenlight } from './utils.js';
 import { connectToPartyKit, setCallbacks, getState, requestSpeak, toggleMic, sendPosition, sendReaction, sendChat } from './connection.js';
@@ -59,15 +59,15 @@ function init() {
     scene.add(ambientLight);
 
     // 会場作成
-    initVenue(THREE, scene);
+    initVenue(scene);
     createAllVenue();
 
     // 自分のアバター
-    myAvatar = createAvatar(THREE, myUserId, myUserName, 0x4fc3f7);
+    myAvatar = createAvatar(myUserId, myUserName, 0x4fc3f7);
     myAvatar.position.set((Math.random() - 0.5) * 8, 0.5, 5 + Math.random() * 3);
     scene.add(myAvatar);
 
-    myPenlight = createPenlight(THREE, penlightColor);
+    myPenlight = createPenlight(penlightColor);
     myPenlight.visible = false;
     myAvatar.add(myPenlight);
 
@@ -81,7 +81,6 @@ function init() {
         onSpeakerJoined: handleSpeakerJoined,
         onSpeakerLeft: handleSpeakerLeft,
         onConnectedChange: handleConnectedChange,
-        THREE: THREE,
         remoteAvatars: remoteAvatars
     });
 
@@ -105,7 +104,7 @@ function init() {
 // --------------------------------------------
 function handleUserJoin(user) {
     if (remoteAvatars.has(user.id)) return;
-    const avatar = createAvatar(THREE, user.id, user.name, user.color || 0xff6b6b);
+    const avatar = createAvatar(user.id, user.name, user.color || 0xff6b6b);
     avatar.position.set(user.x || 0, 0.5, user.z || 5);
     scene.add(avatar);
     remoteAvatars.set(user.id, avatar);

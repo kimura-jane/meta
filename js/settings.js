@@ -136,19 +136,23 @@ function createSettingsUI() {
     settingsBtn.innerHTML = '⚙️';
     settingsBtn.style.cssText = `
         position: fixed;
-        top: 60px;
+        top: 16px;
         right: 16px;
-        width: 40px;
-        height: 40px;
+        width: 56px;
+        height: 56px;
         border-radius: 50%;
-        background: linear-gradient(135deg, rgba(0,0,0,0.8), rgba(30,0,50,0.8));
+        background: rgba(0,0,0,0.8);
         color: white;
-        border: 1px solid rgba(255, 102, 255, 0.5);
-        font-size: 18px;
+        border: 2px solid rgba(255, 102, 255, 0.5);
+        font-size: 28px;
         cursor: pointer;
-        z-index: 100;
+        z-index: 1000;
         backdrop-filter: blur(10px);
         transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 15px rgba(255,102,255,0.3);
     `;
     document.body.appendChild(settingsBtn);
     
@@ -179,7 +183,7 @@ function createSettingsUI() {
         width: 320px;
         height: 100%;
         background: linear-gradient(180deg, rgba(20,0,40,0.98), rgba(0,0,0,0.98));
-        z-index: 1000;
+        z-index: 1001;
         padding: 20px;
         overflow-y: auto;
         transition: right 0.3s ease;
@@ -204,7 +208,7 @@ function createSettingsUI() {
                 font-size: 14px;
                 font-weight: bold;
                 cursor: pointer;
-            ">🎤 登壇リクエスト (0/5)</button>
+            ">🎤 登壇リクエスト</button>
         </div>
         
         <!-- アバター選択 -->
@@ -449,6 +453,11 @@ function createSettingsUI() {
             border-color: #ff66ff;
             box-shadow: 0 0 10px rgba(255,102,255,0.5);
         }
+        #settings-btn:hover {
+            border-color: rgba(255,102,255,0.8);
+            transform: scale(1.1);
+            box-shadow: 0 0 25px rgba(255,102,255,0.5);
+        }
     `;
     document.head.appendChild(style);
     
@@ -467,7 +476,6 @@ function createSettingsUI() {
             if (callbacks.onAvatarChange) {
                 callbacks.onAvatarChange(name);
             }
-            showNotification(`アバターを変更しました`, 'success');
         };
         avatarSelection.appendChild(img);
     });
@@ -483,7 +491,7 @@ function createSettingsUI() {
             document.querySelectorAll('.bg-option').forEach(el => el.classList.remove('selected'));
             img.classList.add('selected');
             if (callbacks.onChangeBackground) {
-                callbacks.onChangeBackground(`${STAGE_BASE_URL}${bg.file}`);
+                callbacks.onChangeBackground(bg.file);
             }
         };
         bgSelection.appendChild(img);
@@ -588,7 +596,6 @@ function createSettingsUI() {
                 callbacks.onAnnounce(message);
             }
             document.getElementById('announce-input').value = '';
-            showNotification('アナウンスを送信しました', 'success');
         }
     };
 }

@@ -17,7 +17,7 @@ export default class Server implements Party.Server {
   speakers: Set<string> = new Set();
   tracks: Map<string, string> = new Map();
   sessions: Map<string, string> = new Map();
-  // 各ユーザーの購読用セッションを別途管理
+  // 各トラックごとの購読セッションを管理: `${userId}-${trackName}` -> sessionId
   subscriberSessions: Map<string, string> = new Map();
 
   constructor(readonly room: Party.Room) {}
@@ -246,48 +246,38 @@ export default class Server implements Party.Server {
     const { remoteSessionId, trackName } = data;
     console.log(`[handleSubscribeTrack] User ${sender.id} subscribing to ${trackName}, remoteSessionId: ${remoteSessionId}`);
     
-    // 購読用セッションは別途管理（配信用と分ける）
-    let subscriberSessionId = this.subscriberSessions.get(sender.id);
-    let isNewSession = false;
+    // 各トラックごとに新しいセッションを作成（キー: `${userId}-${trackName}`）
+    const subscriptionKey = `${sender.id}-${trackName}`;
     
-    if (!subscriberSessionId) {
-      const result = await this.createSession();
-      if (result.success && result.sessionId) {
-        subscriberSessionId = result.sessionId;
-        this.subscriberSessions.set(sender.id, subscriberSessionId);
-        isNewSession = true;
-        console.log(`[handleSubscribeTrack] Created NEW subscriber session: ${subscriberSessionId}`);
-      } else {
-        sender.send(JSON.stringify({
-          type: "error",
-          code: "SRV_ERR_SESSION_CREATE_FAILED",
-        }));
-        return;
-      }
-    } else {
-      console.log(`[handleSubscribeTrack] Reusing existing subscriber session: ${subscriberSessionId}`);
+    // 常に新しいセッションを作成（各トラックごとに独立したPeerConnectionを使うため）
+    const result = await this.createSession();
+    if (!result.success || !result.sessionId) {
+      sender.send(JSON.stringify({
+        type: "error",
+        code: "SRV_ERR_SESSION_CREATE_FAILED",
+      }));
+      return;
     }
     
-    const result = await this.subscribeTrack(subscriberSessionId, remoteSessionId, trackName);
+    const subscriberSessionId = result.sessionId;
+    this.subscriberSessions.set(subscriptionKey, subscriberSessionId);
+    console.log(`[handleSubscribeTrack] Created NEW subscriber session for ${trackName}: ${subscriberSessionId}`);
     
-    console.log(`[handleSubscribeTrack] subscribeTrack result - success: ${result.success}, hasOffer: ${!!result.offer}`);
+    const subscribeResult = await this.subscribeTrack(subscriberSessionId, remoteSessionId, trackName);
     
-    if (result.success) {
-      // offerがある場合もない場合も成功として扱う
-      // Cloudflare Callsは同じセッションへの追加トラックでもofferを返す
-      if (result.offer) {
+    console.log(`[handleSubscribeTrack] subscribeTrack result - success: ${subscribeResult.success}, hasOffer: ${!!subscribeResult.offer}`);
+    
+    if (subscribeResult.success) {
+      if (subscribeResult.offer) {
         sender.send(JSON.stringify({
           type: "subscribed",
-          offer: result.offer,
+          offer: subscribeResult.offer,
           sessionId: subscriberSessionId,
           trackName,
-          tracks: result.tracks,
-          requiresImmediateRenegotiation: true,
-          isNewSession: isNewSession,
+          tracks: subscribeResult.tracks,
         }));
         console.log(`[handleSubscribeTrack] Success with offer`);
       } else {
-        // offerがない場合はエラー
         sender.send(JSON.stringify({
           type: "error",
           code: "SRV_ERR_NO_OFFER_IN_RESPONSE",
@@ -297,9 +287,9 @@ export default class Server implements Party.Server {
     } else {
       sender.send(JSON.stringify({
         type: "error",
-        code: result.error || "SRV_ERR_SUBSCRIBE_FAILED",
+        code: subscribeResult.error || "SRV_ERR_SUBSCRIBE_FAILED",
       }));
-      console.log(`[handleSubscribeTrack] Failed: ${result.error}`);
+      console.log(`[handleSubscribeTrack] Failed: ${subscribeResult.error}`);
     }
   }
 
@@ -340,7 +330,13 @@ export default class Server implements Party.Server {
       this.speakers.delete(conn.id);
       this.tracks.delete(conn.id);
       this.sessions.delete(conn.id);
-      this.subscriberSessions.delete(conn.id);
+      
+      // このユーザーの全ての購読セッションを削除
+      for (const [key, _] of this.subscriberSessions) {
+        if (key.startsWith(`${conn.id}-`)) {
+          this.subscriberSessions.delete(key);
+        }
+      }
       
       delete this.users[conn.id];
       
@@ -488,7 +484,6 @@ export default class Server implements Party.Server {
       
       const json = JSON.parse(responseText);
       
-      // sessionDescriptionがofferとして返される
       const offer = json.sessionDescription;
       
       console.log(`[subscribeTrack] Parsed - hasSessionDescription: ${!!json.sessionDescription}, type: ${json.sessionDescription?.type}`);

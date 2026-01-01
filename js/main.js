@@ -3,7 +3,7 @@
 import { initVenue, createAllVenue, animateVenue, changeStageBackground, setRoomBrightness } from './venue.js';
 import { 
     connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange,
-    sendBackgroundChange, sendBrightness, requestSpeak, toggleMic, setCallbacks 
+    sendBackgroundChange, sendBrightness, requestSpeak, toggleMic, setCallbacks, getState
 } from './connection.js';
 import { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers } from './settings.js';
 import { createAvatar, setAvatarImage, setAvatarSpotlight, createPenlight, debugLog } from './utils.js';
@@ -45,6 +45,7 @@ let penlightColor = '#ff00ff';
 let penlightInterval = null;
 let otageiInterval = null;
 let penlightLongPressTimer = null;
+let lastSentMessage = null; // 二重投稿防止用
 
 // 初期化
 function init() {
@@ -184,15 +185,13 @@ function setupConnection() {
             const avatar = remoteAvatars.get(userId);
             if (avatar) {
                 // リアクション処理
-                if (reaction === 'penlight') {
-                    // ペンライト表示
-                }
             }
         },
         onChat: (name, message, senderId) => {
-            if (senderId !== myUserId) {
-                addChatMessage(name, message);
-            }
+            // 自分が送ったメッセージかどうかチェック
+            const state = getState();
+            if (senderId === state.myServerConnectionId) return;
+            addChatMessage(name, message);
         },
         onBackgroundChange: (url) => {
             changeStageBackground(url);
@@ -249,7 +248,6 @@ function addChatMessage(name, message) {
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
     
-    // 古いメッセージを削除
     while (messages.children.length > 50) {
         messages.removeChild(messages.firstChild);
     }
@@ -261,21 +259,48 @@ function setupActionButtons() {
     const otageiBtn = document.getElementById('otagei-btn');
     const penlightColors = document.getElementById('penlight-colors');
     
-    // ペンライト - タップでON/OFF
-    penlightBtn.addEventListener('click', () => {
-        if (penlightLongPressTimer) return;
+    // ペンライト - クリック/タップでON/OFF
+    penlightBtn.addEventListener('click', (e) => {
+        // 長押しで色パネルが開いた場合はトグルしない
+        if (!penlightColors.classList.contains('hidden')) {
+            return;
+        }
         togglePenlight();
     });
     
     // ペンライト - 長押しで色選択
-    penlightBtn.addEventListener('mousedown', startPenlightLongPress);
+    let pressTimer = null;
+    let isLongPress = false;
+    
+    const startPress = (e) => {
+        isLongPress = false;
+        pressTimer = setTimeout(() => {
+            isLongPress = true;
+            penlightColors.classList.remove('hidden');
+        }, 500);
+    };
+    
+    const endPress = (e) => {
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+        }
+    };
+    
+    penlightBtn.addEventListener('mousedown', startPress);
     penlightBtn.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        startPenlightLongPress(e);
+        startPress(e);
     });
-    penlightBtn.addEventListener('mouseup', cancelPenlightLongPress);
-    penlightBtn.addEventListener('mouseleave', cancelPenlightLongPress);
-    penlightBtn.addEventListener('touchend', cancelPenlightLongPress);
+    penlightBtn.addEventListener('mouseup', endPress);
+    penlightBtn.addEventListener('mouseleave', endPress);
+    penlightBtn.addEventListener('touchend', (e) => {
+        endPress(e);
+        // 長押しじゃなければトグル
+        if (!isLongPress && penlightColors.classList.contains('hidden')) {
+            togglePenlight();
+        }
+    });
     
     // 色選択
     document.querySelectorAll('.color-btn').forEach(btn => {
@@ -292,24 +317,15 @@ function setupActionButtons() {
         });
     });
     
+    // 画面タップで色パネルを閉じる
+    document.addEventListener('click', (e) => {
+        if (!penlightBtn.contains(e.target) && !penlightColors.contains(e.target)) {
+            penlightColors.classList.add('hidden');
+        }
+    });
+    
     // オタ芸
     otageiBtn.addEventListener('click', toggleOtagei);
-}
-
-// ペンライト長押し開始
-function startPenlightLongPress(e) {
-    penlightLongPressTimer = setTimeout(() => {
-        document.getElementById('penlight-colors').classList.remove('hidden');
-        penlightLongPressTimer = null;
-    }, 500);
-}
-
-// ペンライト長押しキャンセル
-function cancelPenlightLongPress() {
-    if (penlightLongPressTimer) {
-        clearTimeout(penlightLongPressTimer);
-        penlightLongPressTimer = null;
-    }
 }
 
 // ペンライトON/OFF
@@ -436,7 +452,6 @@ function animate() {
     
     animateVenue();
     
-    // カメラ追従
     const targetX = myAvatar.position.x * 0.3;
     const targetZ = myAvatar.position.z + 10;
     camera.position.x += (targetX - camera.position.x) * 0.05;

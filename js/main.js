@@ -57,9 +57,13 @@ let joystickActive = false;
 let joystickX = 0;
 let joystickY = 0;
 
+// タッチデバイス判定
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
 // 初期化
 async function init() {
     debugLog('Initializing...');
+    debugLog(`Touch device: ${isTouchDevice}`, 'info');
     createDebugUI();
 
     // Three.js セットアップ
@@ -550,80 +554,93 @@ function setupActionButtons() {
 
     // 長押し関連
     let longPressTriggered = false;
+    let lastToggleTime = 0;
 
-    // クリックイベント（PC用）
-    penlightBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (longPressTriggered) {
-            longPressTriggered = false;
+    // 重複実行を防ぐ
+    function safeTogglePenlight() {
+        const now = Date.now();
+        if (now - lastToggleTime < 300) {
+            debugLog('Toggle ignored (too fast)', 'warn');
             return;
         }
-    });
+        lastToggleTime = now;
+        togglePenlight();
+    }
 
-    // マウスイベント（PC用）
-    penlightBtn.addEventListener('mousedown', (e) => {
-        e.stopPropagation();
-        longPressTriggered = false;
-        penlightLongPressTimer = setTimeout(() => {
-            longPressTriggered = true;
-            penlightColors.classList.remove('hidden');
-            debugLog('Penlight color panel opened (mouse)', 'info');
-        }, 500);
-    });
+    // タッチデバイスの場合
+    if (isTouchDevice) {
+        debugLog('Setting up touch events for penlight', 'info');
+        
+        penlightBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            longPressTriggered = false;
+            penlightLongPressTimer = setTimeout(() => {
+                longPressTriggered = true;
+                penlightColors.classList.remove('hidden');
+                debugLog('Penlight color panel opened (touch)', 'info');
+            }, 500);
+        });
 
-    penlightBtn.addEventListener('mouseup', (e) => {
-        e.stopPropagation();
-        if (penlightLongPressTimer) {
-            clearTimeout(penlightLongPressTimer);
-            penlightLongPressTimer = null;
-        }
-        if (!longPressTriggered) {
-            togglePenlight();
-        }
-        longPressTriggered = false;
-    });
+        penlightBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (penlightLongPressTimer) {
+                clearTimeout(penlightLongPressTimer);
+                penlightLongPressTimer = null;
+            }
+            if (!longPressTriggered) {
+                safeTogglePenlight();
+            }
+            longPressTriggered = false;
+        });
 
-    penlightBtn.addEventListener('mouseleave', () => {
-        if (penlightLongPressTimer) {
-            clearTimeout(penlightLongPressTimer);
-            penlightLongPressTimer = null;
-        }
-    });
+        penlightBtn.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            if (penlightLongPressTimer) {
+                clearTimeout(penlightLongPressTimer);
+                penlightLongPressTimer = null;
+            }
+            longPressTriggered = false;
+        });
+    } else {
+        // PC（マウス）の場合
+        debugLog('Setting up mouse events for penlight', 'info');
+        
+        penlightBtn.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            longPressTriggered = false;
+            penlightLongPressTimer = setTimeout(() => {
+                longPressTriggered = true;
+                penlightColors.classList.remove('hidden');
+                debugLog('Penlight color panel opened (mouse)', 'info');
+            }, 500);
+        });
 
-    // タッチイベント（モバイル用）
-    penlightBtn.addEventListener('touchstart', (e) => {
-        e.stopPropagation();
-        longPressTriggered = false;
-        penlightLongPressTimer = setTimeout(() => {
-            longPressTriggered = true;
-            penlightColors.classList.remove('hidden');
-            debugLog('Penlight color panel opened (touch)', 'info');
-        }, 500);
-    }, { passive: true });
+        penlightBtn.addEventListener('mouseup', (e) => {
+            e.stopPropagation();
+            if (penlightLongPressTimer) {
+                clearTimeout(penlightLongPressTimer);
+                penlightLongPressTimer = null;
+            }
+            if (!longPressTriggered) {
+                safeTogglePenlight();
+            }
+            longPressTriggered = false;
+        });
 
-    penlightBtn.addEventListener('touchend', (e) => {
-        e.stopPropagation();
-        if (penlightLongPressTimer) {
-            clearTimeout(penlightLongPressTimer);
-            penlightLongPressTimer = null;
-        }
-        if (!longPressTriggered) {
-            togglePenlight();
-        }
-        longPressTriggered = false;
-    });
+        penlightBtn.addEventListener('mouseleave', () => {
+            if (penlightLongPressTimer) {
+                clearTimeout(penlightLongPressTimer);
+                penlightLongPressTimer = null;
+            }
+        });
+    }
 
-    penlightBtn.addEventListener('touchcancel', () => {
-        if (penlightLongPressTimer) {
-            clearTimeout(penlightLongPressTimer);
-            penlightLongPressTimer = null;
-        }
-        longPressTriggered = false;
-    });
-
-    // 色ボタン
+    // 色ボタン（タッチ・マウス共通）
     document.querySelectorAll('.color-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        function selectColor(e) {
+            e.preventDefault();
             e.stopPropagation();
             penlightColor = btn.dataset.color;
             document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
@@ -638,30 +655,26 @@ function setupActionButtons() {
             
             penlightColors.classList.add('hidden');
             debugLog(`Penlight color changed to ${penlightColor}`, 'info');
-        });
+        }
         
-        btn.addEventListener('touchend', (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            penlightColor = btn.dataset.color;
-            document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-            btn.classList.add('selected');
-            
-            updatePenlightColor();
-            
-            if (isPenlightActive) {
-                penlightBtn.style.background = penlightColor;
-                penlightBtn.style.boxShadow = `0 0 15px ${penlightColor}`;
-            }
-            
-            penlightColors.classList.add('hidden');
-            debugLog(`Penlight color changed to ${penlightColor} (touch)`, 'info');
-        });
+        if (isTouchDevice) {
+            btn.addEventListener('touchend', selectColor);
+        } else {
+            btn.addEventListener('click', selectColor);
+        }
     });
 
     // オタ芸ボタン
-    otageiBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
+    let otageiLastToggleTime = 0;
+    
+    function safeToggleOtagei() {
+        const now = Date.now();
+        if (now - otageiLastToggleTime < 300) {
+            debugLog('Otagei toggle ignored (too fast)', 'warn');
+            return;
+        }
+        otageiLastToggleTime = now;
+        
         isOtageiActive = !isOtageiActive;
         otageiBtn.classList.toggle('active', isOtageiActive);
 
@@ -673,23 +686,20 @@ function setupActionButtons() {
             stopOtageiAnimation();
             debugLog('Otagei stopped', 'info');
         }
-    });
-    
-    otageiBtn.addEventListener('touchend', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        isOtageiActive = !isOtageiActive;
-        otageiBtn.classList.toggle('active', isOtageiActive);
+    }
 
-        if (isOtageiActive) {
-            startOtageiAnimation();
-            sendReaction('otagei', null);
-            debugLog('Otagei started (touch)', 'info');
-        } else {
-            stopOtageiAnimation();
-            debugLog('Otagei stopped (touch)', 'info');
-        }
-    });
+    if (isTouchDevice) {
+        otageiBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            safeToggleOtagei();
+        });
+    } else {
+        otageiBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            safeToggleOtagei();
+        });
+    }
 
     debugLog('Action buttons setup complete', 'success');
 }

@@ -1,7 +1,7 @@
 // 設定画面・主催者メニュー
 
 // 主催者パスワード（GitHub Secretsから置換される）
-const HOST_PASSWORDS = '_HOST_PASSWORDS_'.split(',').filter(p => p.trim());
+const HOST_PASSWORD = '_HOST_PASSWORDS_';
 
 // 背景画像データ
 const STAGE_BACKGROUNDS = [
@@ -94,10 +94,10 @@ function updateSpeakRequests(requests) {
     
     list.innerHTML = requests.map(req => `
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 4px;">
-            <span>${req.userName}</span>
+            <span>${req.name}</span>
             <div>
-                <button onclick="window.approveSpeak('${req.oderId}')" style="background: #4CAF50; border: none; color: white; padding: 4px 8px; border-radius: 4px; margin-right: 4px; cursor: pointer;">承認</button>
-                <button onclick="window.denySpeak('${req.userId}')" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">却下</button>
+                <button onclick="window.approveSpeak('${req.id}')" style="background: #4CAF50; border: none; color: white; padding: 4px 8px; border-radius: 4px; margin-right: 4px; cursor: pointer;">承認</button>
+                <button onclick="window.denySpeak('${req.id}')" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">却下</button>
             </div>
         </div>
     `).join('');
@@ -115,13 +115,13 @@ function updateCurrentSpeakers(speakers) {
     
     list.innerHTML = speakers.map(speaker => `
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 4px;">
-            <span>🎤 ${speaker.userName}</span>
-            <button onclick="window.kickSpeaker('${speaker.userId}')" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">退場</button>
+            <span>🎤 ${speaker.name}</span>
+            <button onclick="window.kickSpeaker('${speaker.id}')" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">退場</button>
         </div>
     `).join('');
 }
 
-// ユーザー数更新（UI側で直接更新するため空実装）
+// ユーザー数更新
 function updateUserCount(count) {
     // main.jsで直接DOMを更新
 }
@@ -522,7 +522,6 @@ function createSettingsUI() {
             if (callbacks.onNameChange) {
                 callbacks.onNameChange(newName);
             }
-            showNotification('名前を変更しました', 'success');
         }
     };
     
@@ -549,11 +548,9 @@ function createSettingsUI() {
     
     // 主催者ログイン
     document.getElementById('host-login-btn').onclick = () => {
-        const password = document.getElementById('host-password-input').value;
-        console.log('入力されたパスワード:', password);
-        console.log('登録されたパスワード:', HOST_PASSWORDS);
+        const password = document.getElementById('host-password-input').value.trim();
         
-        if (HOST_PASSWORDS.includes(password)) {
+        if (password === HOST_PASSWORD) {
             isHost = true;
             document.getElementById('host-login-area').style.display = 'none';
             document.getElementById('host-menu-area').style.display = 'block';

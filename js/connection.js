@@ -28,6 +28,7 @@ let myPublishedTrackName = null;
 
 const subscribedTracks = new Map();
 const pendingSubscriptions = new Map();
+const pendingAudioElements = [];
 
 let speakerCount = 0;
 let audioUnlocked = false;
@@ -99,11 +100,54 @@ function getIceServers() {
 // --------------------------------------------
 // 音声アンロック（iOS Safari用）
 // --------------------------------------------
+function setupAudioUnlock() {
+    if (audioUnlocked) return;
+    
+    const unlockAudio = async () => {
+        if (audioUnlocked) return;
+        
+        debugLog('音声アンロック試行...', 'info');
+        
+        // 保留中の音声を再生
+        for (const audio of pendingAudioElements) {
+            try {
+                await audio.play();
+                debugLog('保留音声再生成功', 'success');
+            } catch (e) {
+                debugLog(`保留音声再生失敗: ${e.message}`, 'warn');
+            }
+        }
+        
+        // 購読済みの音声を再生
+        for (const [trackName, obj] of subscribedTracks) {
+            if (obj.audio) {
+                try {
+                    await obj.audio.play();
+                    debugLog(`音声再生成功: ${trackName}`, 'success');
+                } catch (e) {
+                    debugLog(`音声再生失敗: ${trackName}: ${e.message}`, 'warn');
+                }
+            }
+        }
+        
+        audioUnlocked = true;
+        debugLog('音声アンロック完了', 'success');
+        
+        // ボタンを削除
+        const btn = document.getElementById('audio-unlock-btn');
+        if (btn) btn.remove();
+    };
+    
+    // 画面タップで音声をアンロック
+    document.addEventListener('touchstart', unlockAudio, { once: false });
+    document.addEventListener('click', unlockAudio, { once: false });
+}
+
 function showAudioUnlockButton() {
     if (audioUnlocked) return;
     
     const existing = document.getElementById('audio-unlock-btn');
-    if (existing) existing.remove();
+    if (existing) return;
     
     const btn = document.createElement('button');
     btn.id = 'audio-unlock-btn';
@@ -126,6 +170,15 @@ function showAudioUnlockButton() {
     
     btn.onclick = async () => {
         debugLog('音声アンロック開始', 'info');
+        
+        for (const audio of pendingAudioElements) {
+            try {
+                await audio.play();
+                debugLog('保留音声再生成功', 'success');
+            } catch (e) {
+                debugLog(`保留音声再生失敗: ${e.message}`, 'warn');
+            }
+        }
         
         for (const [trackName, obj] of subscribedTracks) {
             if (obj.audio) {
@@ -150,22 +203,20 @@ function showAudioUnlockButton() {
 function resumeAllAudio() {
     debugLog('全音声再開処理', 'info');
     
-    let hasAudio = false;
+    let hasFailedAudio = false;
+    
     subscribedTracks.forEach((obj, trackName) => {
         if (obj.audio) {
-            hasAudio = true;
             obj.audio.play()
                 .then(() => debugLog(`音声再開: ${trackName}`, 'success'))
                 .catch(e => {
                     debugLog(`音声再開失敗: ${trackName}: ${e.message}`, 'warn');
-                    if (isIOS() && !audioUnlocked) {
-                        showAudioUnlockButton();
-                    }
+                    hasFailedAudio = true;
                 });
         }
     });
     
-    if (hasAudio && isIOS() && !audioUnlocked) {
+    if (hasFailedAudio && !audioUnlocked) {
         showAudioUnlockButton();
     }
 }
@@ -177,6 +228,9 @@ export function connectToPartyKit(userName) {
     currentUserName = userName;
     const wsUrl = `wss://${PARTYKIT_HOST}/party/${ROOM_ID}?name=${encodeURIComponent(userName)}`;
     debugLog(`接続開始: ${PARTYKIT_HOST}`);
+    
+    // 音声アンロック設定
+    setupAudioUnlock();
     
     try {
         socket = new WebSocket(wsUrl);
@@ -237,19 +291,16 @@ function handleServerMessage(data) {
             // 既存ユーザーを追加
             Object.entries(data.users).forEach(([odUserId, user]) => {
                 if (odUserId !== myServerConnectionId) {
-                    // ユーザー参加コールバック
                     if (callbacks.onUserJoin) {
                         callbacks.onUserJoin(odUserId, user.name || user.userName || 'ゲスト');
                     }
                     
-                    // 既存ユーザーの位置を同期
                     if (callbacks.onPosition && user.x !== undefined && user.z !== undefined) {
                         setTimeout(() => {
                             callbacks.onPosition(odUserId, user.x, user.y ?? 0, user.z);
                         }, 100);
                     }
                     
-                    // 既存ユーザーのアバター画像を同期
                     if (callbacks.onAvatarChange && user.avatarUrl) {
                         setTimeout(() => {
                             callbacks.onAvatarChange(odUserId, user.avatarUrl);
@@ -350,7 +401,6 @@ function handleServerMessage(data) {
             mySessionId = data.sessionId;
             isSpeaker = true;
             
-            // 自分を登壇者リストに追加
             if (!currentSpeakers.find(s => s.id === myServerConnectionId)) {
                 currentSpeakers.push({ id: myServerConnectionId, name: currentUserName });
             }
@@ -401,6 +451,11 @@ function handleServerMessage(data) {
             
             if (trackUserId === myServerConnectionId) return;
             if (myPublishedTrackName && newTrackName === myPublishedTrackName) return;
+            
+            // 自動購読前に音声アンロックボタンを表示
+            if (!audioUnlocked) {
+                showAudioUnlockButton();
+            }
             
             setTimeout(() => {
                 subscribeToTrack(trackUserId, data.sessionId, newTrackName);
@@ -456,7 +511,6 @@ function updateSpeakerCountUI() {
 function updateSpeakerList(speakers) {
     const speakersArray = Array.isArray(speakers) ? speakers : [];
     
-    // 自分が登壇中なら自分も含める
     if (isSpeaker && !speakersArray.includes(myServerConnectionId)) {
         speakersArray.push(myServerConnectionId);
     }
@@ -469,17 +523,14 @@ function updateSpeakerList(speakers) {
         if (id === myServerConnectionId) {
             return { id, name: currentUserName };
         }
-        // remoteAvatars の構造は { avatar, userName }
         const userData = callbacks.remoteAvatars?.get(id);
         return { id, name: userData?.userName || id };
     });
     
     if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
     
-    // スピーカーインジケーター更新
     if (callbacks.remoteAvatars) {
         callbacks.remoteAvatars.forEach((userData, odUserId) => {
-            // userData.avatar が Three.js オブジェクト
             if (userData && userData.avatar) {
                 if (speakersArray.includes(odUserId)) {
                     addSpeakerIndicator(userData.avatar);
@@ -512,7 +563,6 @@ export function stopSpeaking() {
         peerConnection = null;
     }
     
-    // 自分を登壇者リストから削除
     if (isSpeaker) {
         currentSpeakers = currentSpeakers.filter(s => s.id !== myServerConnectionId);
         speakerCount = Math.max(0, currentSpeakers.length);
@@ -550,6 +600,7 @@ async function startPublishing() {
         
         debugLog('マイク取得成功', 'success');
         
+        // マイク許可 = ユーザー操作があった = 音声アンロック
         audioUnlocked = true;
         const unlockBtn = document.getElementById('audio-unlock-btn');
         if (unlockBtn) unlockBtn.remove();
@@ -647,17 +698,28 @@ async function handleSubscribed(data) {
             audio.autoplay = true;
             audio.volume = 1.0;
             
+            // 保留リストに追加
+            pendingAudioElements.push(audio);
+            
+            // 再生試行
             audio.play()
-                .then(() => debugLog(`音声再生開始: ${trackName}`, 'success'))
+                .then(() => {
+                    debugLog(`音声再生開始: ${trackName}`, 'success');
+                    // 成功したら保留リストから削除
+                    const idx = pendingAudioElements.indexOf(audio);
+                    if (idx !== -1) pendingAudioElements.splice(idx, 1);
+                })
                 .catch((e) => {
                     debugLog(`音声再生失敗: ${e.message}`, 'warn');
-                    if (isIOS()) showAudioUnlockButton();
+                    // 失敗したらアンロックボタン表示
+                    if (!audioUnlocked) {
+                        showAudioUnlockButton();
+                    }
                 });
             
             const trackInfo = subscribedTracks.get(trackName);
             if (trackInfo) {
                 trackInfo.audio = audio;
-                // remoteAvatars の構造は { avatar, userName }
                 if (callbacks.remoteAvatars) {
                     const userData = callbacks.remoteAvatars.get(trackInfo.odUserId);
                     if (userData && userData.avatar) {

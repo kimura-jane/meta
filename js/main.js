@@ -2,7 +2,7 @@
 
 import { initVenue, createAllVenue, animateVenue, changeStageBackground, setRoomBrightness } from './venue.js';
 import { connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange, sendAvatarChange, sendBackgroundChange, sendBrightness, sendAnnounce, requestSpeak, stopSpeaking, toggleMic, approveSpeak, denySpeak, kickSpeaker, setCallbacks, getState, getMyConnectionId } from './connection.js';
-import { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers, isHostUser } from './settings.js';
+import { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers } from './settings.js';
 import { createAvatar, setAvatarImage, setAvatarSpotlight, createPenlight, addChatMessage, debugLog, createDebugUI } from './utils.js';
 
 // Three.js
@@ -342,7 +342,6 @@ function setupConnection() {
 
 // アナウンス表示
 function showAnnouncement(message) {
-    // 既存のアナウンスを削除
     const existing = document.getElementById('announcement-overlay');
     if (existing) existing.remove();
 
@@ -370,7 +369,6 @@ function showAnnouncement(message) {
         </div>
     `;
 
-    // アニメーション用CSS追加
     if (!document.getElementById('announcement-styles')) {
         const style = document.createElement('style');
         style.id = 'announcement-styles';
@@ -389,13 +387,11 @@ function showAnnouncement(message) {
 
     document.body.appendChild(overlay);
 
-    // 5秒後に消える
     setTimeout(() => {
         overlay.style.animation = 'slideUp 0.3s ease-in forwards';
         setTimeout(() => overlay.remove(), 300);
     }, 5000);
 
-    // チャットにも追加
     addChatMessage('📢 アナウンス', message);
 }
 
@@ -1008,7 +1004,6 @@ function showSpeakerControls(show) {
         controls.classList.toggle('hidden', !show);
     }
     
-    // マイクボタンをリセット
     if (show) {
         const micBtn = document.getElementById('mic-toggle-btn');
         if (micBtn) {

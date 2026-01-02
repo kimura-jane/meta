@@ -1,7 +1,7 @@
 // main.js - Metaverse空間のメインスクリプト
 
 import { initVenue, createAllVenue, animateVenue, changeStageBackground, setRoomBrightness } from './venue.js';
-import { connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange, sendBackgroundChange, sendBrightness, sendAnnounce, requestSpeak, stopSpeaking, toggleMic, approveSpeak, denySpeak, kickSpeaker, setCallbacks, getState } from './connection.js';
+import { connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange, sendAvatarChange, sendBackgroundChange, sendBrightness, sendAnnounce, requestSpeak, stopSpeaking, toggleMic, approveSpeak, denySpeak, kickSpeaker, setCallbacks, getState } from './connection.js';
 import { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers } from './settings.js';
 import { createAvatar, setAvatarImage, setAvatarSpotlight, createPenlight, addChatMessage, debugLog, createDebugUI } from './utils.js';
 
@@ -114,6 +114,7 @@ async function init() {
             const imageUrl = `${CHARA_BASE_URL}${avatarName}.${ext}`;
             setAvatarImage(myAvatar, imageUrl);
             myAvatarImage = avatarName;
+            sendAvatarChange(imageUrl);
             showNotification(`アバターを変更しました`, 'success');
         },
         onBackgroundChange: (imageUrl) => {
@@ -184,13 +185,14 @@ function setupConnection() {
                 avatar.position.set((Math.random() - 0.5) * 10, 0, 5 + Math.random() * 5);
                 scene.add(avatar);
                 remoteAvatars.set(userId, { avatar, userName });
+                debugLog(`Remote avatar created for ${userId}`, 'success');
             }
             updateUserCount();
         },
         onUserLeave: (userId) => {
             debugLog(`User left: ${userId}`);
             const userData = remoteAvatars.get(userId);
-            if (userData) {
+            if (userData && userData.avatar) {
                 scene.remove(userData.avatar);
                 remoteAvatars.delete(userId);
             }
@@ -198,8 +200,22 @@ function setupConnection() {
         },
         onPosition: (userId, x, y, z) => {
             const userData = remoteAvatars.get(userId);
-            if (userData) {
+            if (userData && userData.avatar) {
                 userData.avatar.position.set(x, y, z);
+            }
+        },
+        onAvatarChange: (userId, imageUrl) => {
+            debugLog(`Avatar change received: ${userId} -> ${imageUrl}`);
+            const userData = remoteAvatars.get(userId);
+            if (userData && userData.avatar) {
+                setAvatarImage(userData.avatar, imageUrl);
+            }
+        },
+        onNameChange: (userId, newName) => {
+            debugLog(`Name change received: ${userId} -> ${newName}`);
+            const userData = remoteAvatars.get(userId);
+            if (userData) {
+                userData.userName = newName;
             }
         },
         onReaction: (userId, reactionType, color) => {
@@ -221,14 +237,14 @@ function setupConnection() {
         onSpeakerJoined: (userId, userName) => {
             debugLog(`Speaker joined: ${userId}`);
             const userData = remoteAvatars.get(userId);
-            if (userData) {
+            if (userData && userData.avatar) {
                 setAvatarSpotlight(userData.avatar, true);
             }
         },
         onSpeakerLeft: (userId) => {
             debugLog(`Speaker left: ${userId}`);
             const userData = remoteAvatars.get(userId);
-            if (userData) {
+            if (userData && userData.avatar) {
                 setAvatarSpotlight(userData.avatar, false);
             }
         },

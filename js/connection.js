@@ -108,7 +108,6 @@ function setupAudioUnlock() {
         
         debugLog('音声アンロック試行...', 'info');
         
-        // 保留中の音声を再生
         for (const audio of pendingAudioElements) {
             try {
                 await audio.play();
@@ -118,7 +117,6 @@ function setupAudioUnlock() {
             }
         }
         
-        // 購読済みの音声を再生
         for (const [trackName, obj] of subscribedTracks) {
             if (obj.audio) {
                 try {
@@ -133,12 +131,10 @@ function setupAudioUnlock() {
         audioUnlocked = true;
         debugLog('音声アンロック完了', 'success');
         
-        // ボタンを削除
         const btn = document.getElementById('audio-unlock-btn');
         if (btn) btn.remove();
     };
     
-    // 画面タップで音声をアンロック
     document.addEventListener('touchstart', unlockAudio, { once: false });
     document.addEventListener('click', unlockAudio, { once: false });
 }
@@ -229,7 +225,6 @@ export function connectToPartyKit(userName) {
     const wsUrl = `wss://${PARTYKIT_HOST}/party/${ROOM_ID}?name=${encodeURIComponent(userName)}`;
     debugLog(`接続開始: ${PARTYKIT_HOST}`);
     
-    // 音声アンロック設定
     setupAudioUnlock();
     
     try {
@@ -265,6 +260,7 @@ export function connectToPartyKit(userName) {
         subscribedTracks.forEach((obj) => {
             if (obj.pc) { try { obj.pc.close(); } catch(e) {} }
             if (obj.audio) { obj.audio.pause(); obj.audio.srcObject = null; }
+            if (obj.audioContext) { try { obj.audioContext.close(); } catch(e) {} }
         });
         subscribedTracks.clear();
         pendingSubscriptions.clear();
@@ -288,7 +284,6 @@ function handleServerMessage(data) {
                 debugLog('TURN認証情報取得', 'success');
             }
             
-            // 既存ユーザーを追加
             Object.entries(data.users).forEach(([odUserId, user]) => {
                 if (odUserId !== myServerConnectionId) {
                     if (callbacks.onUserJoin) {
@@ -333,7 +328,7 @@ function handleServerMessage(data) {
                             subscribeToTrack(odUserId, speakerSessionId, trackName);
                         }
                     });
-                }, 1000);
+                }, 500);
             }
             break;
             
@@ -452,14 +447,13 @@ function handleServerMessage(data) {
             if (trackUserId === myServerConnectionId) return;
             if (myPublishedTrackName && newTrackName === myPublishedTrackName) return;
             
-            // 自動購読前に音声アンロックボタンを表示
             if (!audioUnlocked) {
                 showAudioUnlockButton();
             }
             
             setTimeout(() => {
                 subscribeToTrack(trackUserId, data.sessionId, newTrackName);
-            }, 500);
+            }, 300);
             break;
 
         case 'subscribed':
@@ -587,35 +581,45 @@ export function stopSpeaking() {
 
 async function startPublishing() {
     try {
-        debugLog('マイク取得開始...', 'info');
+        debugLog('マイク取得開始（低遅延モード）...', 'info');
         
+        // 低遅延設定でマイク取得
         localStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
+                echoCancellation: true,      // ハウリング防止のため有効
+                noiseSuppression: false,     // 遅延削減
+                autoGainControl: false,      // 遅延削減
+                latency: 0.01,               // 最小遅延（10ms目標）
+                sampleRate: 48000,           // 高サンプルレート
+                channelCount: 1              // モノラル（処理軽減）
             }, 
             video: false 
         });
         
-        debugLog('マイク取得成功', 'success');
+        debugLog('マイク取得成功（低遅延）', 'success');
         
-        // マイク許可 = ユーザー操作があった = 音声アンロック
         audioUnlocked = true;
         const unlockBtn = document.getElementById('audio-unlock-btn');
         if (unlockBtn) unlockBtn.remove();
         
-        setTimeout(resumeAllAudio, 100);
+        setTimeout(resumeAllAudio, 50);
         
         peerConnection = new RTCPeerConnection({
             iceServers: getIceServers(),
-            bundlePolicy: 'max-bundle'
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
         });
         
         const audioTrack = localStream.getAudioTracks()[0];
         if (!audioTrack) throw new Error('No audio track');
         
-        const transceiver = peerConnection.addTransceiver(audioTrack, { direction: 'sendonly' });
+        const transceiver = peerConnection.addTransceiver(audioTrack, { 
+            direction: 'sendonly',
+            sendEncodings: [{
+                maxBitrate: 128000,  // 128kbps
+                priority: 'high'
+            }]
+        });
         
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
@@ -651,7 +655,7 @@ async function handleTrackPublished(data) {
     try {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
         debugLog('トラック公開完了', 'success');
-        setTimeout(resumeAllAudio, 100);
+        setTimeout(resumeAllAudio, 50);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
     }
@@ -682,45 +686,86 @@ async function handleSubscribed(data) {
     const pendingInfo = pendingSubscriptions.get(trackName);
     if (!pendingInfo) return;
     
-    debugLog(`購読処理: ${trackName}`, 'info');
+    debugLog(`購読処理（低遅延モード）: ${trackName}`, 'info');
     
     try {
         const pc = new RTCPeerConnection({
             iceServers: getIceServers(),
-            bundlePolicy: 'max-bundle'
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
         });
+        
+        let audioContext = null;
         
         pc.ontrack = (event) => {
             debugLog(`音声トラック受信: ${trackName}`, 'success');
             
-            const audio = new Audio();
-            audio.srcObject = event.streams[0] || new MediaStream([event.track]);
-            audio.autoplay = true;
-            audio.volume = 1.0;
+            const stream = event.streams[0] || new MediaStream([event.track]);
             
-            // 保留リストに追加
-            pendingAudioElements.push(audio);
-            
-            // 再生試行
-            audio.play()
-                .then(() => {
-                    debugLog(`音声再生開始: ${trackName}`, 'success');
-                    // 成功したら保留リストから削除
-                    const idx = pendingAudioElements.indexOf(audio);
-                    if (idx !== -1) pendingAudioElements.splice(idx, 1);
-                })
-                .catch((e) => {
-                    debugLog(`音声再生失敗: ${e.message}`, 'warn');
-                    // 失敗したらアンロックボタン表示
-                    if (!audioUnlocked) {
-                        showAudioUnlockButton();
-                    }
+            // AudioContext を使用した低遅延再生
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    latencyHint: 'interactive',  // 低遅延モード
+                    sampleRate: 48000
                 });
+                
+                const source = audioContext.createMediaStreamSource(stream);
+                
+                // ゲインノードで音量調整可能に
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = 1.0;
+                
+                source.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                // AudioContext が suspended の場合は resume
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume().then(() => {
+                        debugLog(`AudioContext再開: ${trackName}`, 'success');
+                    });
+                }
+                
+                debugLog(`低遅延AudioContext有効: ${trackName} (レイテンシ: ${(audioContext.baseLatency * 1000).toFixed(1)}ms)`, 'success');
+                
+                const trackInfo = subscribedTracks.get(trackName);
+                if (trackInfo) {
+                    trackInfo.audioContext = audioContext;
+                    trackInfo.gainNode = gainNode;
+                }
+                
+            } catch (e) {
+                debugLog(`AudioContext作成失敗、通常再生にフォールバック: ${e.message}`, 'warn');
+                
+                // フォールバック: 通常のAudio要素
+                const audio = new Audio();
+                audio.srcObject = stream;
+                audio.autoplay = true;
+                audio.volume = 1.0;
+                
+                pendingAudioElements.push(audio);
+                
+                audio.play()
+                    .then(() => {
+                        debugLog(`音声再生開始: ${trackName}`, 'success');
+                        const idx = pendingAudioElements.indexOf(audio);
+                        if (idx !== -1) pendingAudioElements.splice(idx, 1);
+                    })
+                    .catch((err) => {
+                        debugLog(`音声再生失敗: ${err.message}`, 'warn');
+                        if (!audioUnlocked) {
+                            showAudioUnlockButton();
+                        }
+                    });
+                
+                const trackInfo = subscribedTracks.get(trackName);
+                if (trackInfo) {
+                    trackInfo.audio = audio;
+                }
+            }
             
-            const trackInfo = subscribedTracks.get(trackName);
-            if (trackInfo) {
-                trackInfo.audio = audio;
-                if (callbacks.remoteAvatars) {
+            if (callbacks.remoteAvatars) {
+                const trackInfo = subscribedTracks.get(trackName);
+                if (trackInfo) {
                     const userData = callbacks.remoteAvatars.get(trackInfo.odUserId);
                     if (userData && userData.avatar) {
                         addSpeakerIndicator(userData.avatar);
@@ -736,9 +781,10 @@ async function handleSubscribed(data) {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         
+        // ICE gathering を素早く完了
         await new Promise((resolve) => {
             if (pc.iceGatheringState === 'complete') { resolve(); return; }
-            const timeout = setTimeout(resolve, 200);
+            const timeout = setTimeout(resolve, 100);  // 100msで打ち切り
             pc.onicecandidate = (e) => { if (!e.candidate) { clearTimeout(timeout); resolve(); } };
         });
         
@@ -749,7 +795,14 @@ async function handleSubscribed(data) {
         }));
         
         pendingSubscriptions.delete(trackName);
-        subscribedTracks.set(trackName, { odUserId: pendingInfo.odUserId, audio: null, pc: pc, sessionId: data.sessionId });
+        subscribedTracks.set(trackName, { 
+            odUserId: pendingInfo.odUserId, 
+            audio: null, 
+            audioContext: null,
+            gainNode: null,
+            pc: pc, 
+            sessionId: data.sessionId 
+        });
         
         debugLog(`購読完了: ${trackName}`, 'success');
         
@@ -764,6 +817,7 @@ function removeRemoteAudio(odUserId) {
         if (obj.odUserId === odUserId) {
             debugLog(`音声削除: ${trackName}`, 'info');
             if (obj.audio) { obj.audio.pause(); obj.audio.srcObject = null; }
+            if (obj.audioContext) { try { obj.audioContext.close(); } catch(e) {} }
             if (obj.pc) { try { obj.pc.close(); } catch(e) {} }
             subscribedTracks.delete(trackName);
         }

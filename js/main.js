@@ -60,6 +60,9 @@ let joystickY = 0;
 // タッチデバイス判定
 const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
+// ペンライトアニメーション用
+let penlightTime = 0;
+
 // 初期化
 async function init() {
     debugLog('Initializing...');
@@ -704,16 +707,16 @@ function setupActionButtons() {
     debugLog('Action buttons setup complete', 'success');
 }
 
-// ペンライト位置更新
+// ペンライト位置更新（ベース位置）
 function updatePenlightPosition() {
     if (myPenlight && myAvatar) {
         // カメラの向きを考慮して、アバターの前方（カメラから見える側）に配置
-        const offsetX = -Math.sin(cameraAngleX) * 1.0;
-        const offsetZ = -Math.cos(cameraAngleX) * 1.0;
+        const offsetX = -Math.sin(cameraAngleX) * 0.5;
+        const offsetZ = -Math.cos(cameraAngleX) * 0.5;
         
         myPenlight.position.set(
             myAvatar.position.x + offsetX,
-            myAvatar.position.y + 2.0,
+            myAvatar.position.y + 1.6,
             myAvatar.position.z + offsetZ
         );
     }
@@ -725,7 +728,7 @@ function updatePenlightColor() {
         const colorValue = new THREE.Color(penlightColor);
         
         myPenlight.traverse((child) => {
-            if (child.isMesh && child.material) {
+            if (child.isMesh && child.material && child.name !== 'penlightHandle') {
                 child.material.color.copy(colorValue);
             }
             if (child.isPointLight) {
@@ -826,18 +829,45 @@ function animate() {
         camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
     }
 
-    // ペンライト揺れアニメーション
+    // ペンライト振りアニメーション（山なりに左右に振る）
     if (isPenlightActive && myPenlight && myPenlight.visible) {
-        // 位置を更新（カメラの動きに追従）
+        penlightTime += 0.06;
+        
+        // ベース位置を更新（カメラの動きに追従）
         updatePenlightPosition();
         
-        // 上下に揺れる
-        const swing = Math.sin(Date.now() * 0.005) * 0.2;
-        myPenlight.position.y += swing;
+        // 山なりに左右に振る（円弧を描く動き）
+        const swingPhase = Math.sin(penlightTime * 2.5);
         
-        // スケールでパルス効果
-        const pulse = 1 + Math.sin(Date.now() * 0.008) * 0.15;
-        myPenlight.scale.set(pulse, pulse, pulse);
+        // 左右の位置（横移動）- カメラの向きに対して横に振る
+        const sideOffset = swingPhase * 0.5;
+        myPenlight.position.x += Math.cos(cameraAngleX) * sideOffset;
+        myPenlight.position.z += -Math.sin(cameraAngleX) * sideOffset;
+        
+        // 上下の位置（山なりの弧）- 左右の端で低く、中央で高く
+        const arcHeight = (1 - Math.abs(swingPhase)) * 0.35;
+        myPenlight.position.y += arcHeight;
+        
+        // 傾き（振る方向に傾く）
+        myPenlight.rotation.z = swingPhase * 0.6;
+        
+        // 少し手前に傾ける（持ってる感じ）
+        myPenlight.rotation.x = -0.4;
+        
+        // カメラの方を向くようにY軸回転
+        myPenlight.rotation.y = cameraAngleX + Math.PI;
+        
+        // グロー部分のパルス
+        const glow = myPenlight.getObjectByName('penlightGlow');
+        const outerGlow = myPenlight.getObjectByName('penlightOuterGlow');
+        if (glow) {
+            const pulse = 1 + Math.sin(penlightTime * 6) * 0.25;
+            glow.scale.set(pulse, pulse, pulse);
+        }
+        if (outerGlow) {
+            const pulse = 1 + Math.sin(penlightTime * 6 + 0.5) * 0.2;
+            outerGlow.scale.set(pulse, pulse, pulse);
+        }
     }
 
     renderer.render(scene, camera);

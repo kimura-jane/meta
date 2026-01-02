@@ -3,70 +3,699 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>竪穴式生住居</title>
-    <link rel="stylesheet" href="style.css">
+    <title>タテアナ式生住居</title>
+    
+    <!-- OGP -->
+    <meta property="og:title" content="タテアナ式生住居">
+    <meta property="og:description" content="メタバース空間でライブ体験">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://kimura-jane.github.io/meta/">
+    <meta property="og:image" content="https://raw.githubusercontent.com/kimura-jane/meta/main/ogp_meta_1200x630.jpg">
+    <meta property="og:site_name" content="タテアナ式生住居">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="タテアナ式生住居">
+    <meta name="twitter:description" content="メタバース空間でライブ体験">
+    <meta name="twitter:image" content="https://raw.githubusercontent.com/kimura-jane/meta/main/ogp_meta_1200x630.jpg">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            touch-action: none;
+            background: #000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        canvas {
+            display: block;
+        }
+        
+        /* ルーム情報 */
+        #room-info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        
+        #room-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        #user-count, #speaker-count {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+        
+        /* 登壇者コントロール */
+        #speaker-controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 8px;
+            z-index: 100;
+        }
+        
+        #speaker-controls button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        #mic-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        #mic-btn.muted {
+            background: #f44336;
+        }
+        
+        #leave-stage-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+        
+        #settings-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            font-size: 16px;
+        }
+        
+        /* チャットコンテナ */
+        #chat-container {
+            position: fixed;
+            bottom: 80px;
+            left: 10px;
+            width: 280px;
+            max-height: 200px;
+            z-index: 100;
+        }
+        
+        #chat-messages {
+            max-height: 150px;
+            overflow-y: auto;
+            margin-bottom: 8px;
+            scrollbar-width: none;
+        }
+        
+        #chat-messages::-webkit-scrollbar {
+            display: none;
+        }
+        
+        .chat-message {
+            background: rgba(0,0,0,0.6);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 8px;
+            margin-bottom: 4px;
+            font-size: 12px;
+            backdrop-filter: blur(5px);
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .chat-message .username {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        
+        #chat-input-container {
+            display: flex;
+            gap: 5px;
+        }
+        
+        #chat-input {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.9);
+            font-size: 14px;
+            outline: none;
+        }
+        
+        #chat-send {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 20px;
+            background: #007AFF;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        
+        /* ジョイスティック */
+        #joystick-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+        }
+        
+        #joystick {
+            width: 100px;
+            height: 100px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(5px);
+        }
+        
+        #joystick-knob {
+            width: 40px;
+            height: 40px;
+            background: rgba(255,255,255,0.8);
+            border-radius: 50%;
+            transition: transform 0.1s;
+        }
+        
+        /* アクションボタン */
+        #action-buttons {
+            position: fixed;
+            bottom: 140px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 100;
+        }
+        
+        .action-btn {
+            width: 50px;
+            height: 50px;
+            border: none;
+            border-radius: 50%;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #penlight-btn {
+            background: rgba(255,255,255,0.3);
+            color: white;
+            border: 3px solid transparent;
+        }
+        
+        #penlight-btn.active {
+            border-color: currentColor;
+            box-shadow: 0 0 15px currentColor;
+        }
+        
+        #otagei-btn {
+            background: rgba(255,200,0,0.3);
+            color: white;
+        }
+        
+        #otagei-btn.active {
+            background: rgba(255,200,0,0.8);
+            box-shadow: 0 0 15px rgba(255,200,0,0.8);
+        }
+        
+        /* ペンライト色選択 */
+        #penlight-colors {
+            position: fixed;
+            bottom: 200px;
+            right: 80px;
+            background: rgba(0,0,0,0.8);
+            padding: 10px;
+            border-radius: 10px;
+            display: flex;
+            gap: 8px;
+            z-index: 101;
+            backdrop-filter: blur(10px);
+        }
+        
+        #penlight-colors.hidden {
+            display: none;
+        }
+        
+        .color-btn {
+            width: 30px;
+            height: 30px;
+            border: 2px solid transparent;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .color-btn.selected {
+            border-color: white;
+            transform: scale(1.2);
+        }
+        
+        /* 設定パネル */
+        #settings-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20,20,30,0.95);
+            padding: 20px;
+            border-radius: 15px;
+            z-index: 200;
+            min-width: 300px;
+            max-width: 90vw;
+            max-height: 80vh;
+            overflow-y: auto;
+            backdrop-filter: blur(20px);
+            color: white;
+        }
+        
+        #settings-panel.hidden {
+            display: none;
+        }
+        
+        #settings-panel h3 {
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .settings-section {
+            margin-bottom: 20px;
+        }
+        
+        .settings-section h4 {
+            margin-bottom: 10px;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .avatar-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        
+        .avatar-option {
+            width: 60px;
+            height: 60px;
+            border: 2px solid transparent;
+            border-radius: 10px;
+            cursor: pointer;
+            overflow: hidden;
+            transition: all 0.2s;
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .avatar-option:hover {
+            border-color: rgba(255,255,255,0.5);
+        }
+        
+        .avatar-option.selected {
+            border-color: #007AFF;
+            box-shadow: 0 0 10px rgba(0,122,255,0.5);
+        }
+        
+        .avatar-option img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .background-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        
+        .background-option {
+            height: 60px;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            overflow: hidden;
+            transition: all 0.2s;
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .background-option:hover {
+            border-color: rgba(255,255,255,0.5);
+        }
+        
+        .background-option.selected {
+            border-color: #007AFF;
+        }
+        
+        .background-option img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .slider-container input[type="range"] {
+            flex: 1;
+        }
+        
+        .slider-container .value {
+            width: 80px;
+            text-align: right;
+            font-size: 14px;
+            font-family: monospace;
+        }
+        
+        #close-settings {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            background: #007AFF;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        
+        #reset-camera {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        
+        /* 登壇リクエストパネル */
+        #speak-request-panel {
+            position: fixed;
+            bottom: 80px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            color: white;
+        }
+        
+        #speak-request-panel.hidden {
+            display: none;
+        }
+        
+        #speak-request-panel button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        #request-speak-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        #cancel-request-btn {
+            background: #f44336;
+            color: white;
+        }
+        
+        /* ホストパネル */
+        #host-panel {
+            position: fixed;
+            top: 60px;
+            right: 10px;
+            background: rgba(0,0,0,0.9);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 150;
+            backdrop-filter: blur(10px);
+            color: white;
+            max-width: 250px;
+        }
+        
+        #host-panel.hidden {
+            display: none;
+        }
+        
+        #host-panel h4 {
+            margin-bottom: 10px;
+        }
+        
+        .request-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 5px;
+            margin-bottom: 5px;
+        }
+        
+        .request-item button {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .approve-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .reject-btn {
+            background: #f44336;
+            color: white;
+        }
+        
+        /* デバッグコンソール */
+        #debug-console {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            width: 350px;
+            max-height: 200px;
+            background: rgba(0,0,0,0.9);
+            color: #0f0;
+            font-family: monospace;
+            font-size: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+        
+        #debug-console.visible {
+            display: block;
+        }
+        
+        #debug-toggle {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            padding: 5px 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 10px;
+            cursor: pointer;
+            z-index: 999;
+        }
+        
+        .debug-error { color: #f66; }
+        .debug-warn { color: #ff0; }
+        .debug-info { color: #0f0; }
+        
+        /* オーバーレイ */
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 199;
+        }
+        
+        #overlay.hidden {
+            display: none;
+        }
+        
+        /* アナウンス */
+        #announcement {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 10px;
+            font-size: 18px;
+            z-index: 300;
+            text-align: center;
+            animation: announceIn 0.5s ease;
+        }
+        
+        #announcement.hidden {
+            display: none;
+        }
+        
+        @keyframes announceIn {
+            from { 
+                opacity: 0; 
+                transform: translate(-50%, -50%) scale(0.8); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translate(-50%, -50%) scale(1); 
+            }
+        }
+    </style>
 </head>
 <body>
     <div id="canvas-container"></div>
     
-    <div id="ui-overlay">
-        <!-- 左上: ルーム情報 -->
-        <div id="room-info">
-            <div id="room-title">竪穴式生住居</div>
-            <div id="room-stats">
-                <div class="stat-item">
-                    <span class="stat-label">参加者</span>
-                    <span class="stat-value" id="user-count">0</span>
-                    <span class="stat-unit">人</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">登壇者</span>
-                    <span class="stat-value" id="speaker-count">0</span>
-                    <span class="stat-unit">人</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- 右上: スピーカーコントロール -->
-        <div id="speaker-controls" class="hidden">
-            <button id="mic-toggle-btn">🎙️ マイク ON</button>
-            <button id="leave-stage-btn">降壇する</button>
-        </div>
-
-        <!-- 左下: チャットエリア -->
-        <div id="chat-container">
-            <div id="chat-messages"></div>
-            <form id="chat-form">
-                <input type="text" id="chat-input" placeholder="メッセージを入力..." autocomplete="off">
-                <button type="submit" id="chat-submit">送信</button>
-            </form>
-        </div>
-
-        <!-- 右下: ジョイスティック＆アクションボタン -->
-        <div id="right-controls">
-            <div id="joystick-container">
-                <div id="joystick-base">
-                    <div id="joystick-stick"></div>
-                </div>
-            </div>
-            <div id="action-buttons">
-                <button id="penlight-btn" type="button">🔦</button>
-                <button id="otagei-btn" type="button">🙌</button>
-            </div>
-        </div>
-
-        <!-- ペンライト色選択 -->
-        <div id="penlight-colors" class="hidden">
-            <button class="color-btn" type="button" data-color="#ff0000" style="background:#ff0000"></button>
-            <button class="color-btn" type="button" data-color="#ff00ff" style="background:#ff00ff"></button>
-            <button class="color-btn" type="button" data-color="#00ffff" style="background:#00ffff"></button>
-            <button class="color-btn" type="button" data-color="#00ff00" style="background:#00ff00"></button>
-            <button class="color-btn" type="button" data-color="#ffff00" style="background:#ffff00"></button>
-            <button class="color-btn" type="button" data-color="#ffffff" style="background:#ffffff"></button>
+    <!-- ルーム情報 -->
+    <div id="room-info">
+        <div id="room-title">タテアナ式生住居</div>
+        <div id="user-count">👥 0 人</div>
+        <div id="speaker-count">🎤 0 人</div>
+    </div>
+    
+    <!-- 登壇者コントロール -->
+    <div id="speaker-controls">
+        <button id="mic-btn" class="hidden">🎤</button>
+        <button id="leave-stage-btn" class="hidden">退出</button>
+        <button id="settings-btn">⚙️</button>
+    </div>
+    
+    <!-- チャット -->
+    <div id="chat-container">
+        <div id="chat-messages"></div>
+        <div id="chat-input-container">
+            <input type="text" id="chat-input" placeholder="メッセージ..." maxlength="100">
+            <button id="chat-send">送信</button>
         </div>
     </div>
-
-    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-    <script type="module" src="js/main.js"></script>
+    
+    <!-- アクションボタン -->
+    <div id="action-buttons">
+        <button class="action-btn" id="penlight-btn">🔦</button>
+        <button class="action-btn" id="otagei-btn">🙌</button>
+    </div>
+    
+    <!-- ペンライト色選択 -->
+    <div id="penlight-colors" class="hidden">
+        <button class="color-btn selected" data-color="#ff0000" style="background:#ff0000"></button>
+        <button class="color-btn" data-color="#00ff00" style="background:#00ff00"></button>
+        <button class="color-btn" data-color="#0000ff" style="background:#0000ff"></button>
+        <button class="color-btn" data-color="#ffff00" style="background:#ffff00"></button>
+        <button class="color-btn" data-color="#ff00ff" style="background:#ff00ff"></button>
+        <button class="color-btn" data-color="#00ffff" style="background:#00ffff"></button>
+        <button class="color-btn" data-color="#ffffff" style="background:#ffffff"></button>
+        <button class="color-btn" data-color="#ff8800" style="background:#ff8800"></button>
+    </div>
+    
+    <!-- ジョイスティック -->
+    <div id="joystick-container">
+        <div id="joystick">
+            <div id="joystick-knob"></div>
+        </div>
+    </div>
+    
+    <!-- 設定パネル -->
+    <div id="overlay" class="hidden"></div>
+    <div id="settings-panel" class="hidden">
+        <h3>⚙️ 設定</h3>
+        
+        <div class="settings-section">
+            <h4>アバター</h4>
+            <div class="avatar-grid" id="avatar-grid">
+                <!-- JSで生成 -->
+            </div>
+        </div>
+        
+        <div class="settings-section">
+            <h4>背景</h4>
+            <div class="background-grid" id="background-grid">
+                <!-- JSで生成 -->
+            </div>
+        </div>
+        
+        <div class="settings-section">
+            <h4>明るさ</h4>
+            <div class="slider-container">
+                <input type="range" id="brightness-slider" min="0" max="200" value="100">
+                <span class="value" id="brightness-value">100%</span>
+            </div>
+        </div>
+        
+        <button id="reset-camera">カメラリセット</button>
+        <button id="close-settings">閉じる</button>
+    </div>
+    
+    <!-- 登壇リクエスト -->
+    <div id="speak-request-panel" class="hidden">
+        <button id="request-speak-btn">🎤 登壇リクエスト</button>
+        <button id="cancel-request-btn" class="hidden">リクエスト取消</button>
+    </div>
+    
+    <!-- ホストパネル -->
+    <div id="host-panel" class="hidden">
+        <h4>登壇リクエスト</h4>
+        <div id="request-list"></div>
+    </div>
+    
+    <!-- アナウンス -->
+    <div id="announcement" class="hidden"></div>
+    
+    <!-- デバッグ -->
+    <button id="debug-toggle">🔧 Debug</button>
+    <div id="debug-console"></div>
+    
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- アプリケーション -->
+    <script type="module" src="main.js"></script>
 </body>
 </html>

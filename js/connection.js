@@ -2,7 +2,7 @@
 // connection.js - PartyKit接続・音声通話
 // ============================================
 
-import { debugLog, isIOS, addSpeakerIndicator, removeSpeakerIndicator } from './utils.js';
+import { debugLog, isIOS, addSpeakerIndicator, removeSpeakerIndicator, setAvatarImage } from './utils.js';
 
 // --------------------------------------------
 // 設定
@@ -42,6 +42,8 @@ let callbacks = {
     onUserLeave: null,
     onPosition: null,
     onReaction: null,
+    onAvatarChange: null,
+    onNameChange: null,
     onSpeakApproved: null,
     onSpeakerJoined: null,
     onSpeakerLeft: null,
@@ -234,8 +236,25 @@ function handleServerMessage(data) {
             
             // 既存ユーザーを追加
             Object.entries(data.users).forEach(([odUserId, user]) => {
-                if (odUserId !== myServerConnectionId && callbacks.onUserJoin) {
-                    callbacks.onUserJoin(odUserId, user.name || user.userName || 'ゲスト');
+                if (odUserId !== myServerConnectionId) {
+                    // ユーザー参加コールバック
+                    if (callbacks.onUserJoin) {
+                        callbacks.onUserJoin(odUserId, user.name || user.userName || 'ゲスト');
+                    }
+                    
+                    // 既存ユーザーの位置を同期
+                    if (callbacks.onPosition && user.x !== undefined && user.z !== undefined) {
+                        setTimeout(() => {
+                            callbacks.onPosition(odUserId, user.x, user.y ?? 0, user.z);
+                        }, 100);
+                    }
+                    
+                    // 既存ユーザーのアバター画像を同期
+                    if (callbacks.onAvatarChange && user.avatarUrl) {
+                        setTimeout(() => {
+                            callbacks.onAvatarChange(odUserId, user.avatarUrl);
+                        }, 200);
+                    }
                 }
             });
             
@@ -270,6 +289,7 @@ function handleServerMessage(data) {
         case 'userJoin':
             const joinUserId = data.odUserId || data.userId || data.user?.id;
             const joinUserName = data.userName || data.user?.name || 'ゲスト';
+            debugLog(`userJoin: ${joinUserId} (${joinUserName})`, 'info');
             if (joinUserId && joinUserId !== myServerConnectionId && callbacks.onUserJoin) {
                 callbacks.onUserJoin(joinUserId, joinUserName);
             }
@@ -277,6 +297,7 @@ function handleServerMessage(data) {
             
         case 'userLeave':
             const leaveUserId = data.odUserId || data.userId;
+            debugLog(`userLeave: ${leaveUserId}`, 'info');
             if (callbacks.onUserLeave) callbacks.onUserLeave(leaveUserId);
             removeRemoteAudio(leaveUserId);
             if (data.speakers) updateSpeakerList(data.speakers);
@@ -284,7 +305,28 @@ function handleServerMessage(data) {
             
         case 'position':
             const posUserId = data.odUserId || data.userId;
-            if (callbacks.onPosition) callbacks.onPosition(posUserId, data.x, data.y, data.z);
+            const posX = data.x;
+            const posY = data.y ?? 0;
+            const posZ = data.z;
+            if (callbacks.onPosition) {
+                callbacks.onPosition(posUserId, posX, posY, posZ);
+            }
+            break;
+            
+        case 'avatarChange':
+            const avatarUserId = data.odUserId || data.userId;
+            debugLog(`avatarChange: ${avatarUserId} -> ${data.imageUrl}`, 'info');
+            if (callbacks.onAvatarChange) {
+                callbacks.onAvatarChange(avatarUserId, data.imageUrl);
+            }
+            break;
+            
+        case 'nameChange':
+            const nameUserId = data.odUserId || data.userId;
+            debugLog(`nameChange: ${nameUserId} -> ${data.name}`, 'info');
+            if (callbacks.onNameChange) {
+                callbacks.onNameChange(nameUserId, data.name);
+            }
             break;
             
         case 'reaction':
@@ -326,6 +368,7 @@ function handleServerMessage(data) {
             break;
 
         case 'speakDenied':
+            debugLog(`speakDenied: ${data.reason}`, 'warn');
             if (callbacks.onChat) {
                 callbacks.onChat('system', 'システム', data.reason || '登壇リクエストが却下されました');
             }
@@ -340,6 +383,7 @@ function handleServerMessage(data) {
 
         case 'speakerLeft':
             const leftUserId = data.odUserId || data.userId;
+            debugLog(`speakerLeft: ${leftUserId}`, 'info');
             if (data.speakers) updateSpeakerList(data.speakers);
             removeRemoteAudio(leftUserId);
             if (callbacks.onSpeakerLeft) callbacks.onSpeakerLeft(leftUserId);
@@ -729,6 +773,12 @@ export function sendNameChange(newName) {
     currentUserName = newName;
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'nameChange', name: newName }));
+    }
+}
+
+export function sendAvatarChange(imageUrl) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'avatarChange', imageUrl }));
     }
 }
 

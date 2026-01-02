@@ -7,7 +7,9 @@ interface User {
   id: string;
   name: string;
   x: number;
+  y: number;
   z: number;
+  avatarUrl: string | null;
   isSpeaker: boolean;
   sessionId: string | null;
 }
@@ -17,7 +19,6 @@ export default class Server implements Party.Server {
   speakers: Set<string> = new Set();
   tracks: Map<string, string> = new Map();
   sessions: Map<string, string> = new Map();
-  // 各トラックごとの購読セッションを管理: `${userId}-${trackName}` -> sessionId
   subscriberSessions: Map<string, string> = new Map();
 
   constructor(readonly room: Party.Room) {}
@@ -34,7 +35,9 @@ export default class Server implements Party.Server {
       id: conn.id,
       name,
       x: Math.random() * 10 - 5,
+      y: 0,
       z: Math.random() * 10 - 5,
+      avatarUrl: null,
       isSpeaker: false,
       sessionId: null,
     };
@@ -52,6 +55,8 @@ export default class Server implements Party.Server {
     
     this.room.broadcast(JSON.stringify({
       type: "userJoin",
+      odUserId: conn.id,
+      userName: name,
       user,
     }), [conn.id]);
     
@@ -66,12 +71,36 @@ export default class Server implements Party.Server {
         case "position":
           if (this.users[sender.id]) {
             this.users[sender.id].x = data.x;
+            this.users[sender.id].y = data.y ?? 0;
             this.users[sender.id].z = data.z;
             this.room.broadcast(JSON.stringify({
               type: "position",
               odUserId: sender.id,
               x: data.x,
+              y: data.y ?? 0,
               z: data.z,
+            }), [sender.id]);
+          }
+          break;
+          
+        case "avatarChange":
+          if (this.users[sender.id]) {
+            this.users[sender.id].avatarUrl = data.imageUrl;
+            this.room.broadcast(JSON.stringify({
+              type: "avatarChange",
+              odUserId: sender.id,
+              imageUrl: data.imageUrl,
+            }), [sender.id]);
+          }
+          break;
+          
+        case "nameChange":
+          if (this.users[sender.id]) {
+            this.users[sender.id].name = data.name;
+            this.room.broadcast(JSON.stringify({
+              type: "nameChange",
+              odUserId: sender.id,
+              name: data.name,
             }), [sender.id]);
           }
           break;
@@ -81,6 +110,7 @@ export default class Server implements Party.Server {
             type: "reaction",
             odUserId: sender.id,
             reaction: data.reaction,
+            color: data.color,
           }));
           break;
           
@@ -112,6 +142,27 @@ export default class Server implements Party.Server {
         case "subscribeAnswer":
           await this.handleSubscribeAnswer(sender, data);
           break;
+          
+        case "backgroundChange":
+          this.room.broadcast(JSON.stringify({
+            type: "backgroundChange",
+            url: data.url,
+          }));
+          break;
+          
+        case "brightnessChange":
+          this.room.broadcast(JSON.stringify({
+            type: "brightnessChange",
+            value: data.value,
+          }));
+          break;
+          
+        case "announce":
+          this.room.broadcast(JSON.stringify({
+            type: "announce",
+            message: data.message,
+          }));
+          break;
       }
     } catch (e) {
       console.error("[onMessage] Error:", e);
@@ -142,6 +193,7 @@ export default class Server implements Party.Server {
       this.room.broadcast(JSON.stringify({
         type: "speakerJoined",
         odUserId: sender.id,
+        userName: this.users[sender.id].name,
         sessionId: result.sessionId,
         speakers: Array.from(this.speakers),
       }), [sender.id]);
@@ -246,10 +298,8 @@ export default class Server implements Party.Server {
     const { remoteSessionId, trackName } = data;
     console.log(`[handleSubscribeTrack] User ${sender.id} subscribing to ${trackName}, remoteSessionId: ${remoteSessionId}`);
     
-    // 各トラックごとに新しいセッションを作成（キー: `${userId}-${trackName}`）
     const subscriptionKey = `${sender.id}-${trackName}`;
     
-    // 常に新しいセッションを作成（各トラックごとに独立したPeerConnectionを使うため）
     const result = await this.createSession();
     if (!result.success || !result.sessionId) {
       sender.send(JSON.stringify({
@@ -331,7 +381,6 @@ export default class Server implements Party.Server {
       this.tracks.delete(conn.id);
       this.sessions.delete(conn.id);
       
-      // このユーザーの全ての購読セッションを削除
       for (const [key, _] of this.subscriberSessions) {
         if (key.startsWith(`${conn.id}-`)) {
           this.subscriberSessions.delete(key);

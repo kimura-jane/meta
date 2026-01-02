@@ -55,6 +55,7 @@ let callbacks = {
     onBackgroundChange: null,
     onBrightnessChange: null,
     onChat: null,
+    onKicked: null,
     remoteAvatars: null
 };
 
@@ -73,6 +74,10 @@ export function getState() {
         speakRequests,
         currentSpeakers
     };
+}
+
+export function getMyConnectionId() {
+    return myServerConnectionId;
 }
 
 // --------------------------------------------
@@ -307,6 +312,12 @@ function handleServerMessage(data) {
             if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
             updateSpeakerList(data.speakers || []);
             
+            // 初期の登壇リクエストリストがあれば設定
+            if (data.speakRequests) {
+                speakRequests = data.speakRequests;
+                if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
+            }
+            
             if (data.brightness !== undefined && callbacks.onBrightnessChange) {
                 callbacks.onBrightnessChange(data.brightness);
             }
@@ -347,6 +358,9 @@ function handleServerMessage(data) {
             if (callbacks.onUserLeave) callbacks.onUserLeave(leaveUserId);
             removeRemoteAudio(leaveUserId);
             if (data.speakers) updateSpeakerList(data.speakers);
+            // 退出したユーザーをリクエストリストからも削除
+            speakRequests = speakRequests.filter(r => r.userId !== leaveUserId);
+            if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
             break;
             
         case 'position':
@@ -388,7 +402,23 @@ function handleServerMessage(data) {
             break;
 
         case 'speakRequest':
-            speakRequests.push({ id: data.userId, name: data.userName });
+            // 新しい登壇リクエストを追加
+            const reqUserId = data.userId || data.odUserId;
+            const reqUserName = data.userName || 'ゲスト';
+            
+            // 重複チェック
+            if (!speakRequests.find(r => r.userId === reqUserId)) {
+                speakRequests.push({ userId: reqUserId, userName: reqUserName });
+                debugLog(`登壇リクエスト受信: ${reqUserName} (${reqUserId})`, 'info');
+            }
+            
+            if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
+            break;
+
+        case 'speakRequestsUpdate':
+            // サーバーからの登壇リクエストリスト全体更新
+            speakRequests = data.requests || [];
+            debugLog(`登壇リクエストリスト更新: ${speakRequests.length}件`, 'info');
             if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
             break;
 
@@ -396,8 +426,8 @@ function handleServerMessage(data) {
             mySessionId = data.sessionId;
             isSpeaker = true;
             
-            if (!currentSpeakers.find(s => s.id === myServerConnectionId)) {
-                currentSpeakers.push({ id: myServerConnectionId, name: currentUserName });
+            if (!currentSpeakers.find(s => s.userId === myServerConnectionId)) {
+                currentSpeakers.push({ userId: myServerConnectionId, userName: currentUserName });
             }
             speakerCount = currentSpeakers.length;
             
@@ -421,17 +451,30 @@ function handleServerMessage(data) {
 
         case 'speakerJoined':
             const speakerJoinedId = data.odUserId || data.userId;
-            debugLog(`speakerJoined: ${speakerJoinedId}`, 'info');
+            const speakerJoinedName = data.userName || 'ゲスト';
+            debugLog(`speakerJoined: ${speakerJoinedId} (${speakerJoinedName})`, 'info');
+            
+            // 登壇者リストに追加
+            if (!currentSpeakers.find(s => s.userId === speakerJoinedId)) {
+                currentSpeakers.push({ userId: speakerJoinedId, userName: speakerJoinedName });
+            }
+            
             if (data.speakers) updateSpeakerList(data.speakers);
-            if (callbacks.onSpeakerJoined) callbacks.onSpeakerJoined(speakerJoinedId, data.userName);
+            if (callbacks.onSpeakerJoined) callbacks.onSpeakerJoined(speakerJoinedId, speakerJoinedName);
+            if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
             break;
 
         case 'speakerLeft':
             const leftUserId = data.odUserId || data.userId;
             debugLog(`speakerLeft: ${leftUserId}`, 'info');
+            
+            // 登壇者リストから削除
+            currentSpeakers = currentSpeakers.filter(s => s.userId !== leftUserId);
+            
             if (data.speakers) updateSpeakerList(data.speakers);
             removeRemoteAudio(leftUserId);
             if (callbacks.onSpeakerLeft) callbacks.onSpeakerLeft(leftUserId);
+            if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
             break;
 
         case 'trackPublished':
@@ -477,7 +520,10 @@ function handleServerMessage(data) {
             break;
 
         case 'kicked':
+            // 強制降壇された
+            debugLog('強制降壇されました', 'warn');
             stopSpeaking();
+            if (callbacks.onKicked) callbacks.onKicked();
             if (callbacks.onChat) {
                 callbacks.onChat('system', 'システム', '主催者により登壇を終了しました');
             }
@@ -513,12 +559,17 @@ function updateSpeakerList(speakers) {
     updateSpeakerButton();
     updateSpeakerCountUI();
     
+    // currentSpeakers を更新
     currentSpeakers = speakersArray.map(id => {
+        // 既存のエントリがあればそれを使う
+        const existing = currentSpeakers.find(s => s.userId === id);
+        if (existing) return existing;
+        
         if (id === myServerConnectionId) {
-            return { id, name: currentUserName };
+            return { userId: id, userName: currentUserName };
         }
         const userData = callbacks.remoteAvatars?.get(id);
-        return { id, name: userData?.userName || id };
+        return { userId: id, userName: userData?.userName || 'ゲスト' };
     });
     
     if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
@@ -544,6 +595,7 @@ export function requestSpeak() {
         stopSpeaking();
         return;
     }
+    debugLog('登壇リクエスト送信', 'info');
     socket.send(JSON.stringify({ type: 'requestSpeak' }));
 }
 
@@ -558,7 +610,7 @@ export function stopSpeaking() {
     }
     
     if (isSpeaker) {
-        currentSpeakers = currentSpeakers.filter(s => s.id !== myServerConnectionId);
+        currentSpeakers = currentSpeakers.filter(s => s.userId !== myServerConnectionId);
         speakerCount = Math.max(0, currentSpeakers.length);
         updateSpeakerCountUI();
         if (callbacks.onCurrentSpeakersUpdate) {
@@ -916,24 +968,42 @@ export function sendAnnounce(message) {
     }
 }
 
+// --------------------------------------------
+// 主催者機能
+// --------------------------------------------
 export function approveSpeak(userId) {
     if (socket && socket.readyState === WebSocket.OPEN) {
+        debugLog(`登壇許可送信: ${userId}`, 'info');
         socket.send(JSON.stringify({ type: 'approveSpeak', userId }));
-        speakRequests = speakRequests.filter(r => r.id !== userId);
+        // ローカルのリクエストリストからも削除
+        speakRequests = speakRequests.filter(r => r.userId !== userId);
         if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
     }
 }
 
 export function denySpeak(userId) {
     if (socket && socket.readyState === WebSocket.OPEN) {
+        debugLog(`登壇却下送信: ${userId}`, 'info');
         socket.send(JSON.stringify({ type: 'denySpeak', userId }));
-        speakRequests = speakRequests.filter(r => r.id !== userId);
+        // ローカルのリクエストリストからも削除
+        speakRequests = speakRequests.filter(r => r.userId !== userId);
         if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
     }
 }
 
 export function kickSpeaker(userId) {
     if (socket && socket.readyState === WebSocket.OPEN) {
+        debugLog(`強制降壇送信: ${userId}`, 'info');
         socket.send(JSON.stringify({ type: 'kickSpeaker', userId }));
     }
+}
+
+// 登壇リクエストリストを取得
+export function getSpeakRequests() {
+    return [...speakRequests];
+}
+
+// 現在の登壇者リストを取得
+export function getCurrentSpeakers() {
+    return [...currentSpeakers];
 }

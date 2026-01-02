@@ -49,6 +49,9 @@ let penlightLongPressTimer = null;
 let otageiAnimationId = null;
 let otageiBaseY = 0;
 
+// ステージの高さ
+const STAGE_Y = 1.5;
+
 // カメラ制御
 let cameraAngleX = 0;
 let cameraDistance = 6;
@@ -64,6 +67,7 @@ const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 
 
 // ペンライトアニメーション用
 let penlightTime = 0;
+
 // 初期化
 async function init() {
     debugLog('Initializing...');
@@ -199,7 +203,6 @@ function setupConnection() {
                 if (userData.penlight) {
                     scene.remove(userData.penlight);
                 }
-                // オタ芸アニメーション停止
                 stopRemoteOtagei(userId);
                 remoteAvatars.delete(userId);
             }
@@ -209,7 +212,6 @@ function setupConnection() {
             const userData = remoteAvatars.get(userId);
             if (userData && userData.avatar) {
                 userData.avatar.position.set(x, y, z);
-                // ペンライトも追従
                 if (userData.penlight && userData.penlight.visible) {
                     userData.penlight.position.set(x, y + 1.6, z);
                 }
@@ -234,7 +236,6 @@ function setupConnection() {
             const userData = remoteAvatars.get(userId);
             if (userData && userData.avatar) {
                 if (reactionType === 'penlight') {
-                    // リモートユーザーのペンライトを表示
                     let remotePenlight = userData.penlight;
                     if (!remotePenlight) {
                         remotePenlight = createPenlight(color || '#ff00ff');
@@ -248,7 +249,6 @@ function setupConnection() {
                         userData.avatar.position.y + 1.6,
                         userData.avatar.position.z
                     );
-                    // ペンライトの色を更新
                     if (color) {
                         const colorValue = new THREE.Color(color);
                         remotePenlight.traverse((child) => {
@@ -261,8 +261,12 @@ function setupConnection() {
                         });
                     }
                     debugLog(`Penlight shown for ${userId}`, 'success');
+                } else if (reactionType === 'penlight_off') {
+                    if (userData.penlight) {
+                        userData.penlight.visible = false;
+                        debugLog(`Penlight hidden for ${userId}`, 'info');
+                    }
                 } else if (reactionType === 'otagei') {
-                    // リモートユーザーのオタ芸アニメーション
                     startRemoteOtagei(userId, userData.avatar);
                     debugLog(`Otagei started for ${userId}`, 'success');
                 }
@@ -277,6 +281,10 @@ function setupConnection() {
         onSpeakApproved: () => {
             debugLog('Speak approved!');
             isOnStage = true;
+            if (isOtageiActive) {
+                isOtageiActive = false;
+                stopOtageiAnimation();
+            }
             moveToStage();
             showSpeakerControls(true);
             showNotification('登壇が承認されました！', 'success');
@@ -319,7 +327,6 @@ function setupConnection() {
 
 // リモートユーザーのオタ芸開始
 function startRemoteOtagei(userId, avatar) {
-    // 既存のアニメーションがあれば停止
     stopRemoteOtagei(userId);
     
     const baseY = avatar.position.y;
@@ -336,7 +343,6 @@ function startRemoteOtagei(userId, avatar) {
     animateOtagei();
     remoteOtageiAnimations.set(userId, { animationId, baseY });
     
-    // 3秒後に自動停止
     setTimeout(() => {
         stopRemoteOtagei(userId);
     }, 3000);
@@ -357,10 +363,10 @@ function stopRemoteOtagei(userId) {
 
 // リモートペンライトのアニメーション更新
 function updateRemotePenlights() {
-    remoteAvatars.forEach((userData, userId) => {
+    remoteAvatars.forEach((userData, odUserId) => {
         if (userData.penlight && userData.penlight.visible && userData.avatar) {
-            // リモートペンライトの位置を更新
-            const swingPhase = Math.sin(penlightTime * 2.5 + userId.charCodeAt(0) * 0.1);
+            const visitorId = odUserId;
+            const swingPhase = Math.sin(penlightTime * 2.5 + visitorId.charCodeAt(0) * 0.1);
             const sideOffset = swingPhase * 0.3;
             const arcHeight = (1 - Math.abs(swingPhase)) * 0.25;
             
@@ -374,6 +380,7 @@ function updateRemotePenlights() {
         }
     });
 }
+
 // ジョイスティックセットアップ
 function setupJoystick() {
     const joystickBase = document.getElementById('joystick-base');
@@ -527,7 +534,12 @@ function setupCameraSwipe() {
 function moveToStage() {
     const targetX = (Math.random() - 0.5) * 10;
     const targetZ = -5;
-    const targetY = 1.2;
+    const targetY = STAGE_Y;
+
+    if (isOtageiActive) {
+        isOtageiActive = false;
+        stopOtageiAnimation();
+    }
 
     animateMove(myAvatar, targetX, targetY, targetZ, () => {
         setAvatarSpotlight(myAvatar, true);
@@ -590,6 +602,7 @@ function processJoystickMovement() {
         let newX = myAvatar.position.x + moveX;
         newX = Math.max(-7, Math.min(7, newX));
         myAvatar.position.x = newX;
+        myAvatar.position.y = STAGE_Y;
     } else {
         let newX = myAvatar.position.x + moveX;
         let newZ = myAvatar.position.z + moveZ;
@@ -653,7 +666,6 @@ function setupActionButtons() {
 
     debugLog('Action buttons setup started', 'info');
 
-    // ペンライトON/OFF
     function togglePenlight() {
         debugLog('Penlight toggle called', 'info');
         
@@ -676,7 +688,6 @@ function setupActionButtons() {
         }
     }
 
-    // 長押し関連
     let longPressTriggered = false;
     let lastToggleTime = 0;
 
@@ -758,7 +769,6 @@ function setupActionButtons() {
         });
     }
 
-    // 色ボタン
     document.querySelectorAll('.color-btn').forEach(btn => {
         function selectColor(e) {
             e.preventDefault();
@@ -786,7 +796,6 @@ function setupActionButtons() {
         }
     });
 
-    // オタ芸ボタン
     let otageiLastToggleTime = 0;
     
     function safeToggleOtagei() {
@@ -882,7 +891,7 @@ function stopOtageiAnimation() {
         otageiAnimationId = null;
     }
     if (isOnStage) {
-        myAvatar.position.y = 1.2;
+        myAvatar.position.y = STAGE_Y;
     } else {
         myAvatar.position.y = 0;
     }
@@ -947,7 +956,6 @@ function animate() {
         camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
     }
 
-    // ペンライト振りアニメーション
     if (isPenlightActive && myPenlight && myPenlight.visible) {
         penlightTime += 0.06;
         
@@ -978,7 +986,6 @@ function animate() {
         }
     }
 
-    // リモートペンライトのアニメーション更新
     penlightTime += 0.01;
     updateRemotePenlights();
 
@@ -987,5 +994,3 @@ function animate() {
 
 // 開始
 init();
-
-

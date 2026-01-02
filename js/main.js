@@ -1,8 +1,8 @@
 // main.js - Metaverse空間のメインスクリプト
 
 import { initVenue, createAllVenue, animateVenue, changeStageBackground, setRoomBrightness } from './venue.js';
-import { connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange, sendAvatarChange, sendBackgroundChange, sendBrightness, sendAnnounce, requestSpeak, stopSpeaking, toggleMic, approveSpeak, denySpeak, kickSpeaker, setCallbacks, getState } from './connection.js';
-import { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers } from './settings.js';
+import { connectToPartyKit, sendPosition, sendReaction, sendChat, sendNameChange, sendAvatarChange, sendBackgroundChange, sendBrightness, sendAnnounce, requestSpeak, stopSpeaking, toggleMic, approveSpeak, denySpeak, kickSpeaker, setCallbacks, getState, getMyConnectionId } from './connection.js';
+import { initSettings, getSettings, showNotification, updateSpeakRequests, updateCurrentSpeakers, isHostUser } from './settings.js';
 import { createAvatar, setAvatarImage, setAvatarSpotlight, createPenlight, addChatMessage, debugLog, createDebugUI } from './utils.js';
 
 // Three.js
@@ -21,6 +21,7 @@ const CHARA_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/
 
 // 背景設定
 const STAGE_BACKGROUNDS = [
+    { name: 'デフォルト', file: 'IMG_3206.jpeg', isRoot: true },
     { name: 'IMG_0967', file: 'IMG_0967.png' },
     { name: 'IMG_3273', file: 'IMG_3273.jpeg' },
     { name: 'IMG_3274', file: 'IMG_3274.jpeg' },
@@ -28,6 +29,7 @@ const STAGE_BACKGROUNDS = [
     { name: 'IMG_9719', file: 'IMG_9719.jpeg' }
 ];
 const STAGE_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/stage/';
+const ROOT_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/';
 
 // ローカルユーザー
 let myUserId = 'user_' + Math.random().toString(36).substr(2, 9);
@@ -136,12 +138,15 @@ async function init() {
         },
         onApproveSpeak: (userId) => {
             approveSpeak(userId);
+            showNotification('登壇を許可しました', 'success');
         },
         onDenySpeak: (userId) => {
             denySpeak(userId);
+            showNotification('登壇を却下しました', 'info');
         },
         onKickSpeaker: (userId) => {
             kickSpeaker(userId);
+            showNotification('降壇させました', 'info');
         },
         onAnnounce: (message) => {
             sendAnnounce(message);
@@ -273,8 +278,8 @@ function setupConnection() {
             }
         },
         onChat: (userId, userName, message) => {
-            const state = getState();
-            if (userId !== state.myServerConnectionId) {
+            const myId = getMyConnectionId();
+            if (userId !== myId) {
                 addChatMessage(userName, message);
             }
         },
@@ -290,11 +295,12 @@ function setupConnection() {
             showNotification('登壇が承認されました！', 'success');
         },
         onSpeakerJoined: (userId, userName) => {
-            debugLog(`Speaker joined: ${userId}`);
+            debugLog(`Speaker joined: ${userId} (${userName})`);
             const userData = remoteAvatars.get(userId);
             if (userData && userData.avatar) {
                 setAvatarSpotlight(userData.avatar, true);
             }
+            showNotification(`${userName || 'ゲスト'} が登壇しました`, 'info');
         },
         onSpeakerLeft: (userId) => {
             debugLog(`Speaker left: ${userId}`);
@@ -304,14 +310,23 @@ function setupConnection() {
             }
         },
         onSpeakRequestsUpdate: (requests) => {
+            debugLog(`Speak requests updated: ${requests.length} requests`, 'info');
             updateSpeakRequests(requests);
         },
         onCurrentSpeakersUpdate: (speakers) => {
+            debugLog(`Current speakers updated: ${speakers.length} speakers`, 'info');
             updateCurrentSpeakers(speakers);
             updateSpeakerCount(speakers.length);
         },
+        onKicked: () => {
+            debugLog('Kicked from stage');
+            isOnStage = false;
+            moveToAudience();
+            showSpeakerControls(false);
+            showNotification('主催者により降壇しました', 'warn');
+        },
         onAnnounce: (message) => {
-            showNotification(`📢 ${message}`, 'info');
+            showAnnouncement(message);
         },
         onBackgroundChange: (imageUrl) => {
             changeStageBackground(imageUrl);
@@ -323,6 +338,65 @@ function setupConnection() {
     });
 
     connectToPartyKit(myUserName);
+}
+
+// アナウンス表示
+function showAnnouncement(message) {
+    // 既存のアナウンスを削除
+    const existing = document.getElementById('announcement-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'announcement-overlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        background: linear-gradient(135deg, rgba(255, 102, 255, 0.95), rgba(102, 51, 255, 0.95));
+        color: white;
+        padding: 20px;
+        text-align: center;
+        font-size: 18px;
+        font-weight: bold;
+        z-index: 15000;
+        animation: slideDown 0.3s ease-out;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    `;
+    overlay.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <span style="font-size: 24px;">📢</span>
+            <span>${message}</span>
+        </div>
+    `;
+
+    // アニメーション用CSS追加
+    if (!document.getElementById('announcement-styles')) {
+        const style = document.createElement('style');
+        style.id = 'announcement-styles';
+        style.textContent = `
+            @keyframes slideDown {
+                from { transform: translateY(-100%); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
+            }
+            @keyframes slideUp {
+                from { transform: translateY(0); opacity: 1; }
+                to { transform: translateY(-100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    document.body.appendChild(overlay);
+
+    // 5秒後に消える
+    setTimeout(() => {
+        overlay.style.animation = 'slideUp 0.3s ease-in forwards';
+        setTimeout(() => overlay.remove(), 300);
+    }, 5000);
+
+    // チャットにも追加
+    addChatMessage('📢 アナウンス', message);
 }
 
 // リモートユーザーのオタ芸開始
@@ -911,6 +985,9 @@ function setupSpeakerControls() {
         toggleMic();
         const state = getState();
         micBtn.textContent = state.isMicMuted ? '🎙️ マイク OFF' : '🎙️ マイク ON';
+        micBtn.style.background = state.isMicMuted 
+            ? 'linear-gradient(135deg, #f44336, #ff5722)' 
+            : 'linear-gradient(135deg, #4CAF50, #8BC34A)';
     });
 
     leaveBtn.addEventListener('click', () => {
@@ -929,6 +1006,15 @@ function showSpeakerControls(show) {
     const controls = document.getElementById('speaker-controls');
     if (controls) {
         controls.classList.toggle('hidden', !show);
+    }
+    
+    // マイクボタンをリセット
+    if (show) {
+        const micBtn = document.getElementById('mic-toggle-btn');
+        if (micBtn) {
+            micBtn.textContent = '🎙️ マイク ON';
+            micBtn.style.background = 'linear-gradient(135deg, #4CAF50, #8BC34A)';
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 // ============================================
-// PartyKit接続・音声通話
+// connection.js - PartyKit接続・音声通話
 // ============================================
 
 import { debugLog, isIOS, addSpeakerIndicator, removeSpeakerIndicator } from './utils.js';
@@ -23,6 +23,7 @@ let localStream = null;
 let peerConnection = null;
 let mySessionId = null;
 let isSpeaker = false;
+let isMicMuted = false;
 let myPublishedTrackName = null;
 
 const subscribedTracks = new Map();
@@ -62,6 +63,7 @@ export function getState() {
     return {
         connected,
         isSpeaker,
+        isMicMuted,
         speakerCount,
         myServerConnectionId,
         subscribedTracks,
@@ -230,9 +232,10 @@ function handleServerMessage(data) {
                 debugLog('TURN認証情報取得', 'success');
             }
             
-            Object.values(data.users).forEach(user => {
-                if (user.id !== myServerConnectionId && callbacks.onUserJoin) {
-                    callbacks.onUserJoin(user);
+            // 既存ユーザーを追加
+            Object.entries(data.users).forEach(([odUserId, user]) => {
+                if (odUserId !== myServerConnectionId && callbacks.onUserJoin) {
+                    callbacks.onUserJoin(odUserId, user.name || user.userName || 'ゲスト');
                 }
             });
             
@@ -265,8 +268,10 @@ function handleServerMessage(data) {
             break;
             
         case 'userJoin':
-            if (data.user.id !== myServerConnectionId && callbacks.onUserJoin) {
-                callbacks.onUserJoin(data.user);
+            const joinUserId = data.odUserId || data.userId || data.user?.id;
+            const joinUserName = data.userName || data.user?.name || 'ゲスト';
+            if (joinUserId && joinUserId !== myServerConnectionId && callbacks.onUserJoin) {
+                callbacks.onUserJoin(joinUserId, joinUserName);
             }
             break;
             
@@ -290,7 +295,7 @@ function handleServerMessage(data) {
         case 'chat':
             if (callbacks.onChat) {
                 const senderId = data.senderId || data.odUserId || data.userId;
-                callbacks.onChat(data.name, data.message, senderId);
+                callbacks.onChat(senderId, data.name, data.message);
             }
             break;
 
@@ -304,8 +309,10 @@ function handleServerMessage(data) {
             isSpeaker = true;
             
             // 自分を登壇者リストに追加
-            speakerCount++;
-            currentSpeakers.push({ id: myServerConnectionId, name: currentUserName });
+            if (!currentSpeakers.find(s => s.id === myServerConnectionId)) {
+                currentSpeakers.push({ id: myServerConnectionId, name: currentUserName });
+            }
+            speakerCount = currentSpeakers.length;
             
             updateSpeakerButton();
             updateSpeakerCountUI();
@@ -320,14 +327,15 @@ function handleServerMessage(data) {
 
         case 'speakDenied':
             if (callbacks.onChat) {
-                callbacks.onChat('システム', data.reason || '登壇リクエストが却下されました', 'system');
+                callbacks.onChat('system', 'システム', data.reason || '登壇リクエストが却下されました');
             }
             break;
 
         case 'speakerJoined':
-            const joinedUserId = data.odUserId || data.userId;
+            const speakerJoinedId = data.odUserId || data.userId;
+            debugLog(`speakerJoined: ${speakerJoinedId}`, 'info');
             if (data.speakers) updateSpeakerList(data.speakers);
-            if (callbacks.onSpeakerJoined) callbacks.onSpeakerJoined(joinedUserId);
+            if (callbacks.onSpeakerJoined) callbacks.onSpeakerJoined(speakerJoinedId, data.userName);
             break;
 
         case 'speakerLeft':
@@ -344,6 +352,8 @@ function handleServerMessage(data) {
         case 'newTrack':
             const trackUserId = data.odUserId || data.userId;
             const newTrackName = data.trackName;
+            
+            debugLog(`newTrack受信: user=${trackUserId}, track=${newTrackName}`, 'info');
             
             if (trackUserId === myServerConnectionId) return;
             if (myPublishedTrackName && newTrackName === myPublishedTrackName) return;
@@ -376,7 +386,7 @@ function handleServerMessage(data) {
         case 'kicked':
             stopSpeaking();
             if (callbacks.onChat) {
-                callbacks.onChat('システム', '主催者により登壇を終了しました', 'system');
+                callbacks.onChat('system', 'システム', '主催者により登壇を終了しました');
             }
             break;
             
@@ -392,7 +402,48 @@ function handleServerMessage(data) {
 function updateSpeakerCountUI() {
     const el = document.getElementById('speaker-count');
     if (el) {
-        el.textContent = `🎤 ${speakerCount}`;
+        el.textContent = speakerCount;
+    }
+}
+
+// --------------------------------------------
+// 登壇者リスト更新
+// --------------------------------------------
+function updateSpeakerList(speakers) {
+    const speakersArray = Array.isArray(speakers) ? speakers : [];
+    
+    // 自分が登壇中なら自分も含める
+    if (isSpeaker && !speakersArray.includes(myServerConnectionId)) {
+        speakersArray.push(myServerConnectionId);
+    }
+    
+    speakerCount = speakersArray.length;
+    updateSpeakerButton();
+    updateSpeakerCountUI();
+    
+    currentSpeakers = speakersArray.map(id => {
+        if (id === myServerConnectionId) {
+            return { id, name: currentUserName };
+        }
+        // remoteAvatars の構造は { avatar, userName }
+        const userData = callbacks.remoteAvatars?.get(id);
+        return { id, name: userData?.userName || id };
+    });
+    
+    if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
+    
+    // スピーカーインジケーター更新
+    if (callbacks.remoteAvatars) {
+        callbacks.remoteAvatars.forEach((userData, odUserId) => {
+            // userData.avatar が Three.js オブジェクト
+            if (userData && userData.avatar) {
+                if (speakersArray.includes(odUserId)) {
+                    addSpeakerIndicator(userData.avatar);
+                } else {
+                    removeSpeakerIndicator(userData.avatar);
+                }
+            }
+        });
     }
 }
 
@@ -419,8 +470,8 @@ export function stopSpeaking() {
     
     // 自分を登壇者リストから削除
     if (isSpeaker) {
-        speakerCount = Math.max(0, speakerCount - 1);
         currentSpeakers = currentSpeakers.filter(s => s.id !== myServerConnectionId);
+        speakerCount = Math.max(0, currentSpeakers.length);
         updateSpeakerCountUI();
         if (callbacks.onCurrentSpeakersUpdate) {
             callbacks.onCurrentSpeakersUpdate(currentSpeakers);
@@ -428,17 +479,22 @@ export function stopSpeaking() {
     }
     
     isSpeaker = false;
+    isMicMuted = false;
     mySessionId = null;
     myPublishedTrackName = null;
     updateSpeakerButton();
     
-    socket.send(JSON.stringify({ type: 'stopSpeak' }));
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'stopSpeak' }));
+    }
     
     if (callbacks.onSpeakerLeft) callbacks.onSpeakerLeft(myServerConnectionId);
 }
 
 async function startPublishing() {
     try {
+        debugLog('マイク取得開始...', 'info');
+        
         localStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 echoCancellation: true,
@@ -447,6 +503,8 @@ async function startPublishing() {
             }, 
             video: false 
         });
+        
+        debugLog('マイク取得成功', 'success');
         
         audioUnlocked = true;
         const unlockBtn = document.getElementById('audio-unlock-btn');
@@ -477,6 +535,8 @@ async function startPublishing() {
         const trackName = `audio-${myServerConnectionId}`;
         myPublishedTrackName = trackName;
         
+        debugLog(`トラック公開: ${trackName}`, 'info');
+        
         socket.send(JSON.stringify({
             type: 'publishTrack',
             sessionId: mySessionId,
@@ -495,6 +555,7 @@ async function handleTrackPublished(data) {
     
     try {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        debugLog('トラック公開完了', 'success');
         setTimeout(resumeAllAudio, 100);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
@@ -506,6 +567,8 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
     if (trackName === myPublishedTrackName) return;
     if (subscribedTracks.has(trackName)) return;
     if (pendingSubscriptions.has(trackName)) return;
+    
+    debugLog(`トラック購読開始: ${trackName}`, 'info');
     
     pendingSubscriptions.set(trackName, { odUserId, remoteSessionId });
     
@@ -524,6 +587,8 @@ async function handleSubscribed(data) {
     const pendingInfo = pendingSubscriptions.get(trackName);
     if (!pendingInfo) return;
     
+    debugLog(`購読処理: ${trackName}`, 'info');
+    
     try {
         const pc = new RTCPeerConnection({
             iceServers: getIceServers(),
@@ -531,20 +596,29 @@ async function handleSubscribed(data) {
         });
         
         pc.ontrack = (event) => {
+            debugLog(`音声トラック受信: ${trackName}`, 'success');
+            
             const audio = new Audio();
             audio.srcObject = event.streams[0] || new MediaStream([event.track]);
             audio.autoplay = true;
+            audio.volume = 1.0;
             
-            audio.play().catch(() => {
-                if (isIOS()) showAudioUnlockButton();
-            });
+            audio.play()
+                .then(() => debugLog(`音声再生開始: ${trackName}`, 'success'))
+                .catch((e) => {
+                    debugLog(`音声再生失敗: ${e.message}`, 'warn');
+                    if (isIOS()) showAudioUnlockButton();
+                });
             
             const trackInfo = subscribedTracks.get(trackName);
             if (trackInfo) {
                 trackInfo.audio = audio;
+                // remoteAvatars の構造は { avatar, userName }
                 if (callbacks.remoteAvatars) {
-                    const avatar = callbacks.remoteAvatars.get(trackInfo.odUserId);
-                    if (avatar) addSpeakerIndicator(avatar);
+                    const userData = callbacks.remoteAvatars.get(trackInfo.odUserId);
+                    if (userData && userData.avatar) {
+                        addSpeakerIndicator(userData.avatar);
+                    }
                 }
             }
         };
@@ -571,6 +645,8 @@ async function handleSubscribed(data) {
         pendingSubscriptions.delete(trackName);
         subscribedTracks.set(trackName, { odUserId: pendingInfo.odUserId, audio: null, pc: pc, sessionId: data.sessionId });
         
+        debugLog(`購読完了: ${trackName}`, 'success');
+        
     } catch (e) {
         debugLog(`handleSubscribedエラー: ${e.message}`, 'error');
         pendingSubscriptions.delete(trackName);
@@ -580,6 +656,7 @@ async function handleSubscribed(data) {
 function removeRemoteAudio(odUserId) {
     for (const [trackName, obj] of subscribedTracks) {
         if (obj.odUserId === odUserId) {
+            debugLog(`音声削除: ${trackName}`, 'info');
             if (obj.audio) { obj.audio.pause(); obj.audio.srcObject = null; }
             if (obj.pc) { try { obj.pc.close(); } catch(e) {} }
             subscribedTracks.delete(trackName);
@@ -587,39 +664,6 @@ function removeRemoteAudio(odUserId) {
     }
     for (const [trackName, obj] of pendingSubscriptions) {
         if (obj.odUserId === odUserId) pendingSubscriptions.delete(trackName);
-    }
-}
-
-function updateSpeakerList(speakers) {
-    const speakersArray = Array.isArray(speakers) ? speakers : [];
-    
-    // 自分が登壇中なら自分も含める
-    if (isSpeaker && !speakersArray.includes(myServerConnectionId)) {
-        speakersArray.push(myServerConnectionId);
-    }
-    
-    speakerCount = speakersArray.length;
-    updateSpeakerButton();
-    updateSpeakerCountUI();
-    
-    currentSpeakers = speakersArray.map(id => {
-        if (id === myServerConnectionId) {
-            return { id, name: currentUserName };
-        }
-        const avatar = callbacks.remoteAvatars?.get(id);
-        return { id, name: avatar?.userData?.userName || id };
-    });
-    
-    if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
-    
-    if (callbacks.remoteAvatars) {
-        callbacks.remoteAvatars.forEach((avatar, odUserId) => {
-            if (speakersArray.includes(odUserId)) {
-                addSpeakerIndicator(avatar);
-            } else {
-                removeSpeakerIndicator(avatar);
-            }
-        });
     }
 }
 
@@ -647,7 +691,9 @@ export function toggleMic() {
         const audioTrack = localStream.getAudioTracks()[0];
         if (audioTrack) {
             audioTrack.enabled = !audioTrack.enabled;
-            return audioTrack.enabled;
+            isMicMuted = !audioTrack.enabled;
+            debugLog(`マイク: ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
+            return !isMicMuted;
         }
     }
     return false;
@@ -668,12 +714,12 @@ export function sendReaction(reaction, color) {
     }
 }
 
-export function sendChat(name, message) {
+export function sendChat(message) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ 
             type: 'chat', 
-            name, 
-            message,
+            name: currentUserName,
+            message: message,
             senderId: myServerConnectionId
         }));
     }

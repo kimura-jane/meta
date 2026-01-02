@@ -16,8 +16,8 @@ const ROOT_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/'
 
 const CHARA_LIST = [
     '12444', '12555', 'IMG_1677', 'IMG_1861', 'IMG_1889',
-    'IMG_2958', 'IMG_3264', 'IMG_3267', 'IMG_3269', 'IMG_7483',
-    'onigiriya_kanatake_512'
+    'IMG_2958', 'IMG_3264', 'IMG_3267', 'IMG_3269', 'IMG_3325',
+    'IMG_3326', 'IMG_3327', 'IMG_3328', 'IMG_7483', 'onigiriya_kanatake_512'
 ];
 
 const CHARA_EXTENSIONS = {
@@ -30,6 +30,10 @@ const CHARA_EXTENSIONS = {
     'IMG_3264': 'png',
     'IMG_3267': 'png',
     'IMG_3269': 'png',
+    'IMG_3325': 'png',
+    'IMG_3326': 'png',
+    'IMG_3327': 'webp',
+    'IMG_3328': 'webp',
     'IMG_7483': 'png',
     'onigiriya_kanatake_512': 'png'
 };

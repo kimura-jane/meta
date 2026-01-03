@@ -373,15 +373,20 @@ body {
     transform: scale(1.15);
 }
 
-/* スピーカーコントロール（右上） */
+/* スピーカーコントロール（右上） - 改善版 */
 #speaker-controls {
     position: absolute;
-    top: 80px;
-    right: 16px;
+    top: 16px;
+    right: 80px;
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     z-index: 100;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(12px);
+    border-radius: 14px;
+    padding: 10px 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
 }
 
 #speaker-controls.hidden {
@@ -389,35 +394,64 @@ body {
 }
 
 #mic-toggle-btn {
-    padding: 12px 20px;
-    background: linear-gradient(135deg, #00cc66, #00ff88);
-    border: none;
-    border-radius: 12px;
+    padding: 12px 18px;
+    background: linear-gradient(135deg, #4CAF50, #66BB6A);
+    border: 2px solid rgba(255, 255, 255, 0.7);
+    border-radius: 10px;
     color: #fff;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.3s ease;
+    box-shadow: 0 2px 12px rgba(76, 175, 80, 0.5);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+#mic-toggle-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 18px rgba(76, 175, 80, 0.7);
+}
+
+#mic-toggle-btn:active {
+    transform: scale(0.98);
 }
 
 #mic-toggle-btn.muted {
-    background: linear-gradient(135deg, #cc3333, #ff4444);
+    background: linear-gradient(135deg, #e53935, #ef5350);
+    box-shadow: 0 2px 12px rgba(229, 57, 53, 0.5);
 }
 
 #leave-stage-btn {
-    padding: 12px 20px;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.3);
-    border-radius: 12px;
+    padding: 12px 18px;
+    background: linear-gradient(135deg, #d32f2f, #b71c1c);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    border-radius: 10px;
     color: #fff;
     font-size: 14px;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.3s ease;
+    box-shadow: 
+        0 2px 12px rgba(211, 47, 47, 0.5),
+        0 0 20px rgba(211, 47, 47, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 #leave-stage-btn:hover {
-    background: rgba(255,0,0,0.3);
-    border-color: rgba(255,0,0,0.5);
+    background: linear-gradient(135deg, #f44336, #d32f2f);
+    transform: scale(1.05);
+    box-shadow: 
+        0 4px 18px rgba(244, 67, 54, 0.6),
+        0 0 30px rgba(244, 67, 54, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+#leave-stage-btn:active {
+    transform: scale(0.98);
+    box-shadow: 
+        0 2px 8px rgba(211, 47, 47, 0.5),
+        0 0 15px rgba(211, 47, 47, 0.3);
 }
 
 /* 通知 */

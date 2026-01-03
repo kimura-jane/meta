@@ -14,12 +14,19 @@ interface User {
   sessionId: string | null;
 }
 
+interface SpeakRequest {
+  userId: string;
+  userName: string;
+  timestamp: number;
+}
+
 export default class Server implements Party.Server {
   users: Record<string, User> = {};
   speakers: Set<string> = new Set();
   tracks: Map<string, string> = new Map();
   sessions: Map<string, string> = new Map();
   subscriberSessions: Map<string, string> = new Map();
+  speakRequests: SpeakRequest[] = [];
 
   constructor(readonly room: Party.Room) {}
 
@@ -51,6 +58,7 @@ export default class Server implements Party.Server {
       speakers: Array.from(this.speakers),
       tracks: Array.from(this.tracks.entries()),
       sessions: Array.from(this.sessions.entries()),
+      speakRequests: this.speakRequests,
     }));
     
     this.room.broadcast(JSON.stringify({
@@ -118,6 +126,7 @@ export default class Server implements Party.Server {
           this.room.broadcast(JSON.stringify({
             type: "chat",
             odUserId: sender.id,
+            senderId: sender.id,
             name: this.users[sender.id]?.name || "匿名",
             message: data.message,
           }));
@@ -125,6 +134,18 @@ export default class Server implements Party.Server {
           
         case "requestSpeak":
           await this.handleRequestSpeak(sender);
+          break;
+          
+        case "approveSpeak":
+          await this.handleApproveSpeak(sender, data.userId);
+          break;
+          
+        case "denySpeak":
+          this.handleDenySpeak(sender, data.userId);
+          break;
+          
+        case "kickSpeaker":
+          await this.handleKickSpeaker(sender, data.userId);
           break;
           
         case "stopSpeak":
@@ -177,35 +198,157 @@ export default class Server implements Party.Server {
       return;
     }
     
+    // 既にリクエスト済みか確認
+    if (this.speakRequests.find(r => r.userId === sender.id)) {
+      sender.send(JSON.stringify({ type: "speakDenied", reason: "既にリクエスト済みです" }));
+      return;
+    }
+    
+    // 既に登壇中か確認
+    if (this.speakers.has(sender.id)) {
+      sender.send(JSON.stringify({ type: "speakDenied", reason: "既に登壇中です" }));
+      return;
+    }
+    
+    // リクエストをリストに追加
+    const request: SpeakRequest = {
+      userId: sender.id,
+      userName: this.users[sender.id]?.name || "匿名",
+      timestamp: Date.now(),
+    };
+    this.speakRequests.push(request);
+    
+    // 全員にリクエストを通知
+    this.room.broadcast(JSON.stringify({
+      type: "speakRequest",
+      userId: sender.id,
+      userName: request.userName,
+    }));
+    
+    // リクエストリストの更新も送信
+    this.room.broadcast(JSON.stringify({
+      type: "speakRequestsUpdate",
+      requests: this.speakRequests,
+    }));
+    
+    console.log(`[handleRequestSpeak] Request added, total requests: ${this.speakRequests.length}`);
+  }
+
+  async handleApproveSpeak(sender: Party.Connection, targetUserId: string) {
+    console.log(`[handleApproveSpeak] Approving user ${targetUserId}`);
+    
+    // リクエストリストから削除
+    this.speakRequests = this.speakRequests.filter(r => r.userId !== targetUserId);
+    
+    // 対象ユーザーの接続を取得
+    const targetConn = this.room.getConnection(targetUserId);
+    if (!targetConn) {
+      console.log(`[handleApproveSpeak] Target user ${targetUserId} not found`);
+      return;
+    }
+    
+    if (this.speakers.size >= 5) {
+      targetConn.send(JSON.stringify({ type: "speakDenied", reason: "満員です" }));
+      return;
+    }
+    
     const result = await this.createSession();
     
     if (result.success && result.sessionId) {
-      this.speakers.add(sender.id);
-      this.users[sender.id].isSpeaker = true;
-      this.users[sender.id].sessionId = result.sessionId;
-      this.sessions.set(sender.id, result.sessionId);
+      this.speakers.add(targetUserId);
+      if (this.users[targetUserId]) {
+        this.users[targetUserId].isSpeaker = true;
+        this.users[targetUserId].sessionId = result.sessionId;
+      }
+      this.sessions.set(targetUserId, result.sessionId);
       
-      sender.send(JSON.stringify({
+      targetConn.send(JSON.stringify({
         type: "speakApproved",
         sessionId: result.sessionId,
       }));
       
       this.room.broadcast(JSON.stringify({
         type: "speakerJoined",
-        odUserId: sender.id,
-        userName: this.users[sender.id].name,
+        odUserId: targetUserId,
+        userName: this.users[targetUserId]?.name || "匿名",
         sessionId: result.sessionId,
         speakers: Array.from(this.speakers),
-      }), [sender.id]);
+      }), [targetUserId]);
       
-      console.log(`[handleRequestSpeak] User ${sender.id} approved, sessionId: ${result.sessionId}, speakers: ${this.speakers.size}`);
+      // リクエストリストの更新を送信
+      this.room.broadcast(JSON.stringify({
+        type: "speakRequestsUpdate",
+        requests: this.speakRequests,
+      }));
+      
+      console.log(`[handleApproveSpeak] User ${targetUserId} approved, sessionId: ${result.sessionId}, speakers: ${this.speakers.size}`);
     } else {
-      sender.send(JSON.stringify({
+      targetConn.send(JSON.stringify({
         type: "speakDenied",
         reason: result.error || "セッション作成失敗",
       }));
-      console.log(`[handleRequestSpeak] User ${sender.id} denied: ${result.error}`);
+      console.log(`[handleApproveSpeak] User ${targetUserId} denied: ${result.error}`);
     }
+  }
+
+  handleDenySpeak(sender: Party.Connection, targetUserId: string) {
+    console.log(`[handleDenySpeak] Denying user ${targetUserId}`);
+    
+    // リクエストリストから削除
+    this.speakRequests = this.speakRequests.filter(r => r.userId !== targetUserId);
+    
+    // 対象ユーザーに通知
+    const targetConn = this.room.getConnection(targetUserId);
+    if (targetConn) {
+      targetConn.send(JSON.stringify({
+        type: "speakDenied",
+        reason: "リクエストが却下されました",
+      }));
+    }
+    
+    // リクエストリストの更新を送信
+    this.room.broadcast(JSON.stringify({
+      type: "speakRequestsUpdate",
+      requests: this.speakRequests,
+    }));
+    
+    console.log(`[handleDenySpeak] User ${targetUserId} denied, remaining requests: ${this.speakRequests.length}`);
+  }
+
+  async handleKickSpeaker(sender: Party.Connection, targetUserId: string) {
+    console.log(`[handleKickSpeaker] Kicking user ${targetUserId}`);
+    
+    if (!this.speakers.has(targetUserId)) {
+      console.log(`[handleKickSpeaker] User ${targetUserId} is not a speaker`);
+      return;
+    }
+    
+    // 登壇者リストから削除
+    this.speakers.delete(targetUserId);
+    this.tracks.delete(targetUserId);
+    this.sessions.delete(targetUserId);
+    
+    if (this.users[targetUserId]) {
+      this.users[targetUserId].isSpeaker = false;
+      this.users[targetUserId].sessionId = null;
+    }
+    
+    // 対象ユーザーに通知
+    const targetConn = this.room.getConnection(targetUserId);
+    if (targetConn) {
+      targetConn.send(JSON.stringify({
+        type: "kicked",
+      }));
+    }
+    
+    // 全員に通知
+    this.room.broadcast(JSON.stringify({
+      type: "speakerLeft",
+      odUserId: targetUserId,
+      speakers: Array.from(this.speakers),
+    }));
+    
+    console.log(`[handleKickSpeaker] User ${targetUserId} kicked, remaining speakers: ${this.speakers.size}`);
   }
 
   async handleStopSpeak(sender: Party.Connection) {
@@ -381,6 +524,9 @@ export default class Server implements Party.Server {
       this.tracks.delete(conn.id);
       this.sessions.delete(conn.id);
       
+      // リクエストリストからも削除
+      this.speakRequests = this.speakRequests.filter(r => r.userId !== conn.id);
+      
       for (const [key, _] of this.subscriberSessions) {
         if (key.startsWith(`${conn.id}-`)) {
           this.subscriberSessions.delete(key);
@@ -393,6 +539,12 @@ export default class Server implements Party.Server {
         type: "userLeave",
         odUserId: conn.id,
         speakers: Array.from(this.speakers),
+      }));
+      
+      // リクエストリストの更新も送信
+      this.room.broadcast(JSON.stringify({
+        type: "speakRequestsUpdate",
+        requests: this.speakRequests,
       }));
     }
   }

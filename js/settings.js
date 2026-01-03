@@ -63,11 +63,26 @@ function showNotification(message, type = 'info') {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 80px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 24px;
+        background: ${type === 'success' ? 'rgba(76, 175, 80, 0.9)' : type === 'error' ? 'rgba(244, 67, 54, 0.9)' : 'rgba(33, 150, 243, 0.9)'};
+        color: white;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    `;
     document.body.appendChild(notification);
     
-    setTimeout(() => notification.classList.add('show'), 10);
+    setTimeout(() => notification.style.opacity = '1', 10);
     setTimeout(() => {
-        notification.classList.remove('show');
+        notification.style.opacity = '0';
         setTimeout(() => notification.remove(), 300);
     }, 3000);
 }
@@ -76,16 +91,16 @@ function updateSpeakRequests(requests) {
     const container = document.getElementById('speak-requests-list');
     if (!container) return;
     
-    if (requests.length === 0) {
+    if (!requests || requests.length === 0) {
         container.innerHTML = '<div style="color: #888; font-size: 12px;">リクエストなし</div>';
         return;
     }
     
     container.innerHTML = requests.map(req => `
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-bottom: 4px;">
-            <span>${req.userName}</span>
+            <span>${req.userName || 'ゲスト'}</span>
             <div>
-                <button onclick="window.approveSpeak('${req.oderId}')" style="background: #4CAF50; border: none; color: white; padding: 4px 8px; border-radius: 4px; margin-right: 4px; cursor: pointer;">許可</button>
+                <button onclick="window.approveSpeak('${req.userId}')" style="background: #4CAF50; border: none; color: white; padding: 4px 8px; border-radius: 4px; margin-right: 4px; cursor: pointer;">許可</button>
                 <button onclick="window.denySpeak('${req.userId}')" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">拒否</button>
             </div>
         </div>
@@ -96,14 +111,14 @@ function updateCurrentSpeakers(speakers) {
     const container = document.getElementById('current-speakers-list');
     if (!container) return;
     
-    if (speakers.length === 0) {
+    if (!speakers || speakers.length === 0) {
         container.innerHTML = '<div style="color: #888; font-size: 12px;">登壇者なし</div>';
         return;
     }
     
     container.innerHTML = speakers.map(speaker => `
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; margin-bottom: 4px;">
-            <span>🎤 ${speaker.userName}</span>
+            <span>🎤 ${speaker.userName || 'ゲスト'}</span>
             <button onclick="window.kickSpeaker('${speaker.userId}')" style="background: #ff9800; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer;">降壇</button>
         </div>
     `).join('');

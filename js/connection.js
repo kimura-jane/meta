@@ -28,10 +28,14 @@ let myPublishedTrackName = null;
 
 const subscribedTracks = new Map();
 const pendingSubscriptions = new Map();
-const pendingAudioElements = [];
+const pendingStreams = [];
 
 let speakerCount = 0;
 let audioUnlocked = false;
+
+// 共有AudioContext（iOS Safari対策：1個だけ作成）
+let sharedAudioContext = null;
+let masterGainNode = null;
 
 // 登壇リクエスト・登壇者リスト
 let speakRequests = [];
@@ -103,49 +107,135 @@ function getIceServers() {
 }
 
 // --------------------------------------------
-// 音声アンロック（iOS Safari用）
+// 共有AudioContext管理（iOS Safari対策の核心）
 // --------------------------------------------
-function setupAudioUnlock() {
-    if (audioUnlocked) return;
+function createSharedAudioContext() {
+    if (sharedAudioContext && sharedAudioContext.state !== 'closed') {
+        return sharedAudioContext;
+    }
     
-    const unlockAudio = async () => {
-        if (audioUnlocked) return;
+    try {
+        sharedAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+            latencyHint: 'interactive',
+            sampleRate: 48000
+        });
         
-        debugLog('音声アンロック試行...', 'info');
+        masterGainNode = sharedAudioContext.createGain();
+        masterGainNode.gain.value = 1.0;
+        masterGainNode.connect(sharedAudioContext.destination);
         
-        for (const audio of pendingAudioElements) {
-            try {
-                await audio.play();
-                debugLog('保留音声再生成功', 'success');
-            } catch (e) {
-                debugLog(`保留音声再生失敗: ${e.message}`, 'warn');
-            }
-        }
-        
-        for (const [trackName, obj] of subscribedTracks) {
-            if (obj.audio) {
-                try {
-                    await obj.audio.play();
-                    debugLog(`音声再生成功: ${trackName}`, 'success');
-                } catch (e) {
-                    debugLog(`音声再生失敗: ${trackName}: ${e.message}`, 'warn');
-                }
-            }
-        }
-        
-        audioUnlocked = true;
-        debugLog('音声アンロック完了', 'success');
-        
-        const btn = document.getElementById('audio-unlock-btn');
-        if (btn) btn.remove();
-    };
-    
-    document.addEventListener('touchstart', unlockAudio, { once: false });
-    document.addEventListener('click', unlockAudio, { once: false });
+        debugLog(`SharedAudioContext作成: state=${sharedAudioContext.state}`, 'info');
+        return sharedAudioContext;
+    } catch (e) {
+        debugLog(`SharedAudioContext作成失敗: ${e.message}`, 'error');
+        return null;
+    }
 }
 
+async function unlockAudioContext() {
+    if (audioUnlocked && sharedAudioContext && sharedAudioContext.state === 'running') {
+        debugLog('AudioContext既にアンロック済み', 'info');
+        return true;
+    }
+    
+    if (!sharedAudioContext) {
+        createSharedAudioContext();
+    }
+    
+    if (!sharedAudioContext) {
+        debugLog('AudioContext作成できず', 'error');
+        return false;
+    }
+    
+    try {
+        if (sharedAudioContext.state === 'suspended') {
+            debugLog('AudioContext resume試行...', 'info');
+            await sharedAudioContext.resume();
+            debugLog(`AudioContext resume完了: state=${sharedAudioContext.state}`, 'success');
+        }
+        
+        if (sharedAudioContext.state === 'running') {
+            audioUnlocked = true;
+            debugLog('AudioContextアンロック成功！', 'success');
+            
+            connectPendingStreams();
+            
+            const btn = document.getElementById('audio-unlock-btn');
+            if (btn) btn.remove();
+            
+            return true;
+        } else {
+            debugLog(`AudioContextがrunningにならない: ${sharedAudioContext.state}`, 'error');
+            return false;
+        }
+    } catch (e) {
+        debugLog(`AudioContext resume失敗: ${e.message}`, 'error');
+        return false;
+    }
+}
+
+function connectPendingStreams() {
+    if (!sharedAudioContext || sharedAudioContext.state !== 'running') {
+        debugLog('AudioContextがrunningではないため、ストリーム接続をスキップ', 'warn');
+        return;
+    }
+    
+    debugLog(`待機中ストリーム接続: ${pendingStreams.length}件`, 'info');
+    
+    while (pendingStreams.length > 0) {
+        const { stream, trackName, odUserId } = pendingStreams.shift();
+        connectStreamToAudioContext(stream, trackName, odUserId);
+    }
+}
+
+function connectStreamToAudioContext(stream, trackName, odUserId) {
+    debugLog(`ストリーム接続試行: ${trackName}, AudioContext state=${sharedAudioContext?.state}, audioUnlocked=${audioUnlocked}`, 'info');
+    
+    if (!sharedAudioContext || sharedAudioContext.state !== 'running') {
+        debugLog(`ストリーム待機リストに追加: ${trackName}`, 'info');
+        pendingStreams.push({ stream, trackName, odUserId });
+        showAudioUnlockButton();
+        return false;
+    }
+    
+    try {
+        const source = sharedAudioContext.createMediaStreamSource(stream);
+        const gainNode = sharedAudioContext.createGain();
+        gainNode.gain.value = 1.0;
+        
+        source.connect(gainNode);
+        gainNode.connect(masterGainNode);
+        
+        const trackInfo = subscribedTracks.get(trackName);
+        if (trackInfo) {
+            trackInfo.source = source;
+            trackInfo.gainNode = gainNode;
+        }
+        
+        const latency = sharedAudioContext.baseLatency ? (sharedAudioContext.baseLatency * 1000).toFixed(1) : '不明';
+        debugLog(`ストリーム接続成功: ${trackName} (レイテンシ: ${latency}ms)`, 'success');
+        
+        if (callbacks.remoteAvatars && odUserId) {
+            const userData = callbacks.remoteAvatars.get(odUserId);
+            if (userData && userData.avatar) {
+                addSpeakerIndicator(userData.avatar);
+            }
+        }
+        
+        return true;
+    } catch (e) {
+        debugLog(`ストリーム接続失敗: ${e.message}`, 'error');
+        return false;
+    }
+}
+
+// --------------------------------------------
+// 音声アンロックボタン（iOS Safari用）
+// --------------------------------------------
 function showAudioUnlockButton() {
-    if (audioUnlocked) return;
+    if (audioUnlocked && sharedAudioContext && sharedAudioContext.state === 'running') {
+        return;
+    }
     
     const existing = document.getElementById('audio-unlock-btn');
     if (existing) return;
@@ -170,56 +260,34 @@ function showAudioUnlockButton() {
     `;
     
     btn.onclick = async () => {
-        debugLog('音声アンロック開始', 'info');
-        
-        for (const audio of pendingAudioElements) {
-            try {
-                await audio.play();
-                debugLog('保留音声再生成功', 'success');
-            } catch (e) {
-                debugLog(`保留音声再生失敗: ${e.message}`, 'warn');
-            }
+        debugLog('音声アンロックボタン押下', 'info');
+        const success = await unlockAudioContext();
+        if (success) {
+            debugLog('ユーザー操作による音声アンロック完了！', 'success');
+        } else {
+            debugLog('音声アンロック失敗', 'error');
         }
-        
-        for (const [trackName, obj] of subscribedTracks) {
-            if (obj.audio) {
-                try {
-                    await obj.audio.play();
-                    debugLog(`音声再生成功: ${trackName}`, 'success');
-                } catch (e) {
-                    debugLog(`音声再生失敗: ${trackName}: ${e.message}`, 'warn');
-                }
-            }
-        }
-        
-        audioUnlocked = true;
-        btn.remove();
-        debugLog('音声アンロック完了', 'success');
     };
     
     document.body.appendChild(btn);
     debugLog('音声アンロックボタン表示', 'warn');
 }
 
-function resumeAllAudio() {
-    debugLog('全音声再開処理', 'info');
+function setupAudioUnlock() {
+    createSharedAudioContext();
     
-    let hasFailedAudio = false;
-    
-    subscribedTracks.forEach((obj, trackName) => {
-        if (obj.audio) {
-            obj.audio.play()
-                .then(() => debugLog(`音声再開: ${trackName}`, 'success'))
-                .catch(e => {
-                    debugLog(`音声再開失敗: ${trackName}: ${e.message}`, 'warn');
-                    hasFailedAudio = true;
-                });
+    const handleUserGesture = async () => {
+        if (audioUnlocked && sharedAudioContext && sharedAudioContext.state === 'running') {
+            return;
         }
-    });
+        
+        debugLog('ユーザー操作検出、AudioContextアンロック試行', 'info');
+        await unlockAudioContext();
+    };
     
-    if (hasFailedAudio && !audioUnlocked) {
-        showAudioUnlockButton();
-    }
+    document.addEventListener('touchstart', handleUserGesture, { once: false, passive: true });
+    document.addEventListener('touchend', handleUserGesture, { once: false, passive: true });
+    document.addEventListener('click', handleUserGesture, { once: false });
 }
 
 // --------------------------------------------
@@ -263,12 +331,13 @@ export function connectToPartyKit(userName) {
         if (callbacks.onConnectedChange) callbacks.onConnectedChange(false);
         
         subscribedTracks.forEach((obj) => {
+            if (obj.source) { try { obj.source.disconnect(); } catch(e) {} }
+            if (obj.gainNode) { try { obj.gainNode.disconnect(); } catch(e) {} }
             if (obj.pc) { try { obj.pc.close(); } catch(e) {} }
-            if (obj.audio) { obj.audio.pause(); obj.audio.srcObject = null; }
-            if (obj.audioContext) { try { obj.audioContext.close(); } catch(e) {} }
         });
         subscribedTracks.clear();
         pendingSubscriptions.clear();
+        pendingStreams.length = 0;
         
         setTimeout(() => connectToPartyKit(currentUserName), 3000);
     };
@@ -312,7 +381,6 @@ function handleServerMessage(data) {
             if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
             updateSpeakerList(data.speakers || []);
             
-            // 初期の登壇リクエストリストがあれば設定
             if (data.speakRequests) {
                 speakRequests = data.speakRequests;
                 if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
@@ -358,7 +426,6 @@ function handleServerMessage(data) {
             if (callbacks.onUserLeave) callbacks.onUserLeave(leaveUserId);
             removeRemoteAudio(leaveUserId);
             if (data.speakers) updateSpeakerList(data.speakers);
-            // 退出したユーザーをリクエストリストからも削除
             speakRequests = speakRequests.filter(r => r.userId !== leaveUserId);
             if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
             break;
@@ -402,11 +469,9 @@ function handleServerMessage(data) {
             break;
 
         case 'speakRequest':
-            // 新しい登壇リクエストを追加
             const reqUserId = data.userId || data.odUserId;
             const reqUserName = data.userName || 'ゲスト';
             
-            // 重複チェック
             if (!speakRequests.find(r => r.userId === reqUserId)) {
                 speakRequests.push({ userId: reqUserId, userName: reqUserName });
                 debugLog(`登壇リクエスト受信: ${reqUserName} (${reqUserId})`, 'info');
@@ -416,7 +481,6 @@ function handleServerMessage(data) {
             break;
 
         case 'speakRequestsUpdate':
-            // サーバーからの登壇リクエストリスト全体更新
             speakRequests = data.requests || [];
             debugLog(`登壇リクエストリスト更新: ${speakRequests.length}件`, 'info');
             if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
@@ -454,7 +518,6 @@ function handleServerMessage(data) {
             const speakerJoinedName = data.userName || 'ゲスト';
             debugLog(`speakerJoined: ${speakerJoinedId} (${speakerJoinedName})`, 'info');
             
-            // 登壇者リストに追加
             if (!currentSpeakers.find(s => s.userId === speakerJoinedId)) {
                 currentSpeakers.push({ userId: speakerJoinedId, userName: speakerJoinedName });
             }
@@ -468,7 +531,6 @@ function handleServerMessage(data) {
             const leftUserId = data.odUserId || data.userId;
             debugLog(`speakerLeft: ${leftUserId}`, 'info');
             
-            // 登壇者リストから削除
             currentSpeakers = currentSpeakers.filter(s => s.userId !== leftUserId);
             
             if (data.speakers) updateSpeakerList(data.speakers);
@@ -490,7 +552,7 @@ function handleServerMessage(data) {
             if (trackUserId === myServerConnectionId) return;
             if (myPublishedTrackName && newTrackName === myPublishedTrackName) return;
             
-            if (!audioUnlocked) {
+            if (!audioUnlocked || !sharedAudioContext || sharedAudioContext.state !== 'running') {
                 showAudioUnlockButton();
             }
             
@@ -520,7 +582,6 @@ function handleServerMessage(data) {
             break;
 
         case 'kicked':
-            // 強制降壇された
             debugLog('強制降壇されました', 'warn');
             stopSpeaking();
             if (callbacks.onKicked) callbacks.onKicked();
@@ -559,9 +620,7 @@ function updateSpeakerList(speakers) {
     updateSpeakerButton();
     updateSpeakerCountUI();
     
-    // currentSpeakers を更新
     currentSpeakers = speakersArray.map(id => {
-        // 既存のエントリがあればそれを使う
         const existing = currentSpeakers.find(s => s.userId === id);
         if (existing) return existing;
         
@@ -633,28 +692,24 @@ export function stopSpeaking() {
 
 async function startPublishing() {
     try {
-        debugLog('マイク取得開始（低遅延モード）...', 'info');
+        debugLog('マイク取得開始...', 'info');
         
-        // 低遅延設定でマイク取得
         localStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
-                echoCancellation: true,      // ハウリング防止のため有効
-                noiseSuppression: false,     // 遅延削減
-                autoGainControl: false,      // 遅延削減
-                latency: 0.01,               // 最小遅延（10ms目標）
-                sampleRate: 48000,           // 高サンプルレート
-                channelCount: 1              // モノラル（処理軽減）
+                echoCancellation: true,
+                noiseSuppression: false,
+                autoGainControl: false,
+                latency: 0.01,
+                sampleRate: 48000,
+                channelCount: 1
             }, 
             video: false 
         });
         
-        debugLog('マイク取得成功（低遅延）', 'success');
+        debugLog('マイク取得成功', 'success');
         
-        audioUnlocked = true;
-        const unlockBtn = document.getElementById('audio-unlock-btn');
-        if (unlockBtn) unlockBtn.remove();
-        
-        setTimeout(resumeAllAudio, 50);
+        // マイク許可はユーザー操作なので、ここでAudioContextをアンロック
+        await unlockAudioContext();
         
         peerConnection = new RTCPeerConnection({
             iceServers: getIceServers(),
@@ -668,7 +723,7 @@ async function startPublishing() {
         const transceiver = peerConnection.addTransceiver(audioTrack, { 
             direction: 'sendonly',
             sendEncodings: [{
-                maxBitrate: 128000,  // 128kbps
+                maxBitrate: 128000,
                 priority: 'high'
             }]
         });
@@ -707,7 +762,6 @@ async function handleTrackPublished(data) {
     try {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
         debugLog('トラック公開完了', 'success');
-        setTimeout(resumeAllAudio, 50);
     } catch (e) {
         debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
     }
@@ -738,7 +792,7 @@ async function handleSubscribed(data) {
     const pendingInfo = pendingSubscriptions.get(trackName);
     if (!pendingInfo) return;
     
-    debugLog(`購読処理（低遅延モード）: ${trackName}`, 'info');
+    debugLog(`購読処理: ${trackName}`, 'info');
     
     try {
         const pc = new RTCPeerConnection({
@@ -747,83 +801,15 @@ async function handleSubscribed(data) {
             rtcpMuxPolicy: 'require'
         });
         
-        let audioContext = null;
-        
         pc.ontrack = (event) => {
             debugLog(`音声トラック受信: ${trackName}`, 'success');
             
             const stream = event.streams[0] || new MediaStream([event.track]);
             
-            // AudioContext を使用した低遅延再生
-            try {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    latencyHint: 'interactive',  // 低遅延モード
-                    sampleRate: 48000
-                });
-                
-                const source = audioContext.createMediaStreamSource(stream);
-                
-                // ゲインノードで音量調整可能に
-                const gainNode = audioContext.createGain();
-                gainNode.gain.value = 1.0;
-                
-                source.connect(gainNode);
-                gainNode.connect(audioContext.destination);
-                
-                // AudioContext が suspended の場合は resume
-                if (audioContext.state === 'suspended') {
-                    audioContext.resume().then(() => {
-                        debugLog(`AudioContext再開: ${trackName}`, 'success');
-                    });
-                }
-                
-                debugLog(`低遅延AudioContext有効: ${trackName} (レイテンシ: ${(audioContext.baseLatency * 1000).toFixed(1)}ms)`, 'success');
-                
-                const trackInfo = subscribedTracks.get(trackName);
-                if (trackInfo) {
-                    trackInfo.audioContext = audioContext;
-                    trackInfo.gainNode = gainNode;
-                }
-                
-            } catch (e) {
-                debugLog(`AudioContext作成失敗、通常再生にフォールバック: ${e.message}`, 'warn');
-                
-                // フォールバック: 通常のAudio要素
-                const audio = new Audio();
-                audio.srcObject = stream;
-                audio.autoplay = true;
-                audio.volume = 1.0;
-                
-                pendingAudioElements.push(audio);
-                
-                audio.play()
-                    .then(() => {
-                        debugLog(`音声再生開始: ${trackName}`, 'success');
-                        const idx = pendingAudioElements.indexOf(audio);
-                        if (idx !== -1) pendingAudioElements.splice(idx, 1);
-                    })
-                    .catch((err) => {
-                        debugLog(`音声再生失敗: ${err.message}`, 'warn');
-                        if (!audioUnlocked) {
-                            showAudioUnlockButton();
-                        }
-                    });
-                
-                const trackInfo = subscribedTracks.get(trackName);
-                if (trackInfo) {
-                    trackInfo.audio = audio;
-                }
-            }
+            debugLog(`トラック状態: readyState=${event.track.readyState}, AudioContext=${sharedAudioContext?.state}, audioUnlocked=${audioUnlocked}`, 'info');
             
-            if (callbacks.remoteAvatars) {
-                const trackInfo = subscribedTracks.get(trackName);
-                if (trackInfo) {
-                    const userData = callbacks.remoteAvatars.get(trackInfo.odUserId);
-                    if (userData && userData.avatar) {
-                        addSpeakerIndicator(userData.avatar);
-                    }
-                }
-            }
+            // 共有AudioContextに接続（新しいAudioContextを作らない！）
+            connectStreamToAudioContext(stream, trackName, pendingInfo.odUserId);
         };
         
         let offerSdp = typeof data.offer === 'string' ? data.offer : data.offer.sdp;
@@ -833,10 +819,9 @@ async function handleSubscribed(data) {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         
-        // ICE gathering を素早く完了
         await new Promise((resolve) => {
             if (pc.iceGatheringState === 'complete') { resolve(); return; }
-            const timeout = setTimeout(resolve, 100);  // 100msで打ち切り
+            const timeout = setTimeout(resolve, 100);
             pc.onicecandidate = (e) => { if (!e.candidate) { clearTimeout(timeout); resolve(); } };
         });
         
@@ -849,11 +834,10 @@ async function handleSubscribed(data) {
         pendingSubscriptions.delete(trackName);
         subscribedTracks.set(trackName, { 
             odUserId: pendingInfo.odUserId, 
-            audio: null, 
-            audioContext: null,
-            gainNode: null,
             pc: pc, 
-            sessionId: data.sessionId 
+            sessionId: data.sessionId,
+            source: null,
+            gainNode: null
         });
         
         debugLog(`購読完了: ${trackName}`, 'success');
@@ -868,14 +852,26 @@ function removeRemoteAudio(odUserId) {
     for (const [trackName, obj] of subscribedTracks) {
         if (obj.odUserId === odUserId) {
             debugLog(`音声削除: ${trackName}`, 'info');
-            if (obj.audio) { obj.audio.pause(); obj.audio.srcObject = null; }
-            if (obj.audioContext) { try { obj.audioContext.close(); } catch(e) {} }
-            if (obj.pc) { try { obj.pc.close(); } catch(e) {} }
+            if (obj.source) { 
+                try { obj.source.disconnect(); } catch(e) {} 
+            }
+            if (obj.gainNode) { 
+                try { obj.gainNode.disconnect(); } catch(e) {} 
+            }
+            if (obj.pc) { 
+                try { obj.pc.close(); } catch(e) {} 
+            }
             subscribedTracks.delete(trackName);
         }
     }
     for (const [trackName, obj] of pendingSubscriptions) {
         if (obj.odUserId === odUserId) pendingSubscriptions.delete(trackName);
+    }
+    
+    for (let i = pendingStreams.length - 1; i >= 0; i--) {
+        if (pendingStreams[i].odUserId === odUserId) {
+            pendingStreams.splice(i, 1);
+        }
     }
 }
 
@@ -975,7 +971,6 @@ export function approveSpeak(userId) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         debugLog(`登壇許可送信: ${userId}`, 'info');
         socket.send(JSON.stringify({ type: 'approveSpeak', userId }));
-        // ローカルのリクエストリストからも削除
         speakRequests = speakRequests.filter(r => r.userId !== userId);
         if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
     }
@@ -985,7 +980,6 @@ export function denySpeak(userId) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         debugLog(`登壇却下送信: ${userId}`, 'info');
         socket.send(JSON.stringify({ type: 'denySpeak', userId }));
-        // ローカルのリクエストリストからも削除
         speakRequests = speakRequests.filter(r => r.userId !== userId);
         if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
     }
@@ -998,12 +992,10 @@ export function kickSpeaker(userId) {
     }
 }
 
-// 登壇リクエストリストを取得
 export function getSpeakRequests() {
     return [...speakRequests];
 }
 
-// 現在の登壇者リストを取得
 export function getCurrentSpeakers() {
     return [...currentSpeakers];
 }

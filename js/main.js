@@ -66,6 +66,67 @@ function isContentAllowed() {
   return !secretMode || isAuthed;
 }
 
+// ★ PATCH: 秘密会議ON/未認証になった瞬間に「見えてる中身」をクライアント側でも完全に掃除する
+function purgeSensitiveClientState(reason = '') {
+  // scene未初期化のタイミングもあり得るので安全側
+  const hasScene = !!scene;
+
+  // 1) リモートアバター/ペンライト/オタ芸を全削除
+  remoteAvatars.forEach((userData, userId) => {
+    try {
+      stopRemoteOtagei(userId);
+    } catch (_) {}
+
+    if (hasScene) {
+      try { if (userData?.avatar) scene.remove(userData.avatar); } catch (_) {}
+      try { if (userData?.penlight) scene.remove(userData.penlight); } catch (_) {}
+    }
+  });
+  remoteAvatars.clear();
+
+  // 2) ネームタグを全削除（自分の分は後で作り直す）
+  Array.from(nameTags.keys()).forEach((id) => removeNameTag(id));
+
+  // 3) 登壇UIを安全側に倒す
+  try { updateSpeakRequests([]); } catch (_) {}
+  try { updateCurrentSpeakers([]); } catch (_) {}
+  try { updateSpeakerCount(0); } catch (_) {}
+  try { showSpeakerControls(false); } catch (_) {}
+
+  // 4) 自分が登壇中/アクション中でも、未認証ならローカル表示を止める
+  try {
+    isOnStage = false;
+    setAvatarSpotlight(myAvatar, false);
+  } catch (_) {}
+
+  try {
+    isOtageiActive = false;
+    stopOtageiAnimation();
+  } catch (_) {}
+
+  try {
+    isPenlightActive = false;
+    if (myPenlight) myPenlight.visible = false;
+  } catch (_) {}
+
+  // 5) ユーザー数表示を更新（未認証なら自分だけ）
+  try { updateUserCount(); } catch (_) {}
+
+  // 6) 自分のネームタグは「現在のID」で作り直す（ただし secret && !authed なら updateNameTags で隠れる）
+  try {
+    const myId = getMyConnectionId() || myUserId;
+    upsertNameTag(myId, myUserName);
+  } catch (_) {}
+
+  // 7) もしアナウンスが残ってたら消す（覗き見対策）
+  try {
+    const existing = document.getElementById('announcement-overlay');
+    if (existing) existing.remove();
+  } catch (_) {}
+
+  if (reason) debugLog(`purgeSensitiveClientState: ${reason}`, 'warn');
+}
+
 // -----------------------------
 // ★ ネームタグ（DOMオーバーレイ）
 // -----------------------------
@@ -151,7 +212,8 @@ function ensureAuthOverlay() {
     position: fixed;
     inset: 0;
     z-index: 20000;
-    background: rgba(0,0,0,0.85);
+    /* ★ PATCH: 透けると覗き見になるのでほぼ不透明 */
+    background: rgba(0,0,0,0.96);
     backdrop-filter: blur(6px);
     display: none;
     align-items: center;
@@ -582,6 +644,9 @@ function setupConnection() {
       // 接続し直し時は一旦未認証扱い（default deny）
       isAuthed = false;
 
+      // ★ PATCH: secretMode=ONで入ってきたら即「中身」を掃除
+      if (secretMode) purgeSensitiveClientState('onInitMin secretMode=ON');
+
       // 自分の接続IDが確定していれば、ネームタグのキーを差し替え
       const myId = getMyConnectionId();
       if (myId && myId !== myUserId) {
@@ -603,14 +668,22 @@ function setupConnection() {
     },
     onAuthNg: () => {
       isAuthed = false;
+      // ★ PATCH: NGになった瞬間に見えてるものは掃除
+      purgeSensitiveClientState('onAuthNg');
       setAuthOverlayMessage('パスワードが違います');
       refreshSecretGateUI();
       showNotification('入室パスワードが違います', 'warn');
     },
     onSecretModeChanged: (value) => {
       secretMode = !!value;
+
       // secretModeがOFFなら全開、ONなら未認証に戻すのが安全
-      if (secretMode) isAuthed = false;
+      if (secretMode) {
+        isAuthed = false;
+        // ★ PATCH: ONに切り替わった瞬間に中身を掃除（最重要）
+        purgeSensitiveClientState('onSecretModeChanged -> ON');
+      }
+
       refreshSecretGateUI();
       showNotification(secretMode ? '秘密会議モード ON' : '秘密会議モード OFF', 'info');
     },

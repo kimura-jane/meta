@@ -1,7 +1,6 @@
-// settings.js - 設定画面・主催者メニュー（即復旧版・全文）
-// ✅ 主催者判定はローカル照合（HOST_PASSWORD）で行う（※サーバ判定ではない）
-
-const HOST_PASSWORD = 'jomon2026';
+// settings.js - 設定画面・主催者メニュー（サーバ認証対応・全文）
+// ✅ 主催者判定はサーバ結果だけで確定する（ローカル照合しない）
+// ✅ connection.js から setHostAuthResult(ok, reason) が呼ばれる想定
 
 const STAGE_BACKGROUNDS = [
   { name: 'デフォルト', file: 'IMG_3206.jpeg', isRoot: true },
@@ -41,6 +40,9 @@ const CHARA_EXTENSIONS = {
 
 const CHARA_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/chara/';
 
+// --------------------
+// 状態
+// --------------------
 let isHost = false;
 
 let currentSettings = {
@@ -53,9 +55,12 @@ let currentSettings = {
 let callbacks = {};
 let hostLoginPending = false;
 
+// --------------------
+// 外部API
+// --------------------
 function initSettings(userName, cbs) {
   currentSettings.userName = userName;
-  callbacks = { ...callbacks, ...(cbs || {}) }; // ✅ 安全にマージ
+  callbacks = { ...callbacks, ...(cbs || {}) };
   createSettingsUI();
 }
 
@@ -63,7 +68,33 @@ function getSettings() {
   return { ...currentSettings };
 }
 
-function setHostMode(enabled) {
+function isHostMode() {
+  return isHost;
+}
+
+// ✅ connection.js から呼ばれて主催者状態を確定する
+function setHostAuthResult(ok, reason = '') {
+  hostLoginPending = false;
+  setHostModeUI(!!ok);
+
+  if (ok) {
+    showNotification('主催者として認証されました', 'success');
+  } else {
+    if (reason) showNotification(`主催者認証NG: ${reason}`, 'error');
+    else showNotification('主催者認証が解除されました', 'info');
+  }
+
+  // 入力欄/ボタン状態を復帰
+  const btn = document.getElementById('host-login-btn');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = '認証';
+    btn.style.opacity = '1';
+  }
+}
+
+// UIだけ切替（状態の真実はsetHostAuthResultが決める）
+function setHostModeUI(enabled) {
   isHost = !!enabled;
 
   const loginArea = document.getElementById('host-login-area');
@@ -80,10 +111,6 @@ function setHostMode(enabled) {
   }
 }
 
-function isHostMode() {
-  return isHost;
-}
-
 function showNotification(message, type = 'info') {
   const notification = document.createElement('div');
   notification.className = `notification ${type}`;
@@ -97,6 +124,7 @@ function showNotification(message, type = 'info') {
     background: ${
       type === 'success' ? 'rgba(76, 175, 80, 0.9)'
       : type === 'error' ? 'rgba(244, 67, 54, 0.9)'
+      : type === 'warn' ? 'rgba(255, 152, 0, 0.9)'
       : 'rgba(33, 150, 243, 0.9)'
     };
     color: white;
@@ -329,7 +357,7 @@ function createSettingsUI() {
         ">認証</button>
 
         <div style="margin-top:8px; font-size:11px; color:#aaa; line-height:1.4;">
-          ※ 主催者判定はこの端末で照合します（HOST_PASSWORD）
+          ※ 認証の合否はサーバ判定です（この端末だけで主催者化しません）
         </div>
       </div>
 
@@ -402,6 +430,7 @@ function createSettingsUI() {
 
   document.body.appendChild(panel);
 
+  // --- アバター
   const avatarGrid = document.getElementById('avatar-grid');
   CHARA_LIST.forEach(charaId => {
     const ext = CHARA_EXTENSIONS[charaId] || 'png';
@@ -430,6 +459,7 @@ function createSettingsUI() {
     avatarGrid.appendChild(avatarOption);
   });
 
+  // --- 背景
   const bgSelection = document.getElementById('background-selection');
   STAGE_BACKGROUNDS.forEach(bg => {
     const url = bg.isRoot ? `${ROOT_BASE_URL}${bg.file}` : `${STAGE_BASE_URL}${bg.file}`;
@@ -456,10 +486,12 @@ function createSettingsUI() {
     bgSelection.appendChild(bgOption);
   });
 
+  // --- 開閉
   settingsBtn.onclick = () => { overlay.style.display = 'block'; panel.style.right = '0'; };
   overlay.onclick = () => { overlay.style.display = 'none'; panel.style.right = '-350px'; };
   document.getElementById('close-settings').onclick = () => { overlay.style.display = 'none'; panel.style.right = '-350px'; };
 
+  // --- 一般UI
   document.getElementById('request-speak-btn').onclick = () => { if (callbacks.onRequestSpeak) callbacks.onRequestSpeak(); };
 
   document.getElementById('save-name-btn').onclick = () => {
@@ -484,6 +516,7 @@ function createSettingsUI() {
     if (callbacks.onResetCamera) callbacks.onResetCamera();
   };
 
+  // --- 主催者ログイン（サーバへ投げるだけ。合否はsetHostAuthResultで確定）
   document.getElementById('host-login-btn').onclick = async () => {
     if (hostLoginPending) return;
 
@@ -492,32 +525,38 @@ function createSettingsUI() {
       showNotification('パスワードを入力してください', 'error');
       return;
     }
-
-    if (password !== HOST_PASSWORD) {
-      showNotification('パスワードが違います', 'error');
+    if (!callbacks.onHostLogin) {
+      showNotification('主催者ログイン処理が未接続です（main.js側の連携が必要）', 'error');
       return;
     }
 
-    setHostMode(true);
-    showNotification('主催者としてログインしました', 'success');
+    hostLoginPending = true;
 
-    // 任意：サーバ側に通知したいときだけ（無ければ何もしない）
-    if (callbacks.onHostLogin) {
-      hostLoginPending = true;
-      try {
-        const ret = callbacks.onHostLogin(password);
-        const ok = (ret instanceof Promise) ? await ret : !!ret;
-        if (!ok) showNotification('サーバ通知に失敗（主催UIは利用可）', 'error');
-      } catch (e) {
-        showNotification(`サーバ通知エラー（主催UIは利用可）: ${e?.message || e}`, 'error');
-      } finally {
-        hostLoginPending = false;
+    const btn = document.getElementById('host-login-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '認証中...';
+      btn.style.opacity = '0.8';
+    }
+
+    try {
+      // ここでは結果を決めない（サーバ返答を待つ）
+      callbacks.onHostLogin(password);
+    } catch (e) {
+      hostLoginPending = false;
+      setHostModeUI(false);
+      showNotification(`主催者ログイン送信エラー: ${e?.message || e}`, 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '認証';
+        btn.style.opacity = '1';
       }
     }
   };
 
   document.getElementById('host-logout-btn').onclick = () => {
-    setHostMode(false);
+    hostLoginPending = false;
+    setHostModeUI(false);
     if (callbacks.onHostLogout) callbacks.onHostLogout();
     showNotification('ログアウトしました', 'info');
   };
@@ -536,6 +575,7 @@ function createSettingsUI() {
     }
   };
 
+  // style
   const style = document.createElement('style');
   style.textContent = `
     .toggle-switch { position: relative; width: 44px; height: 24px; }
@@ -560,9 +600,11 @@ function createSettingsUI() {
   `;
   document.head.appendChild(style);
 
-  setHostMode(isHost);
+  // 初期は主催者OFF
+  setHostModeUI(false);
 }
 
+// main.js 経由のボタンに繋ぐ
 window.approveSpeak = (userId) => { if (callbacks.onApproveSpeak) callbacks.onApproveSpeak(userId); };
 window.denySpeak    = (userId) => { if (callbacks.onDenySpeak) callbacks.onDenySpeak(userId); };
 window.kickSpeaker  = (userId) => { if (callbacks.onKickSpeaker) callbacks.onKickSpeaker(userId); };
@@ -574,6 +616,6 @@ export {
   updateSpeakRequests,
   updateCurrentSpeakers,
   updateUserCount,
-  setHostMode,
-  isHostMode
+  isHostMode,
+  setHostAuthResult
 };

@@ -2,22 +2,17 @@
 // connection.js - PartyKit接続・音声通話（秘密会議対応版）
 // ============================================
 //
-// ✅追加したこと（重要）
-// 1) 秘密会議：secretMode / isAuthed / isHost を保持し、未認証をデフォルトdeny
-// 2) サーバから initMin を受けて main.js に通知（callbacks.onInitMin）
-// 3) 入室認証 sendAuth(pass) と authOk/authNg を処理（callbacks.onAuthOk/onAuthNg）
-// 4) secretModeChanged を処理（callbacks.onSecretModeChanged）
-// 5) 未認証時は「送信も受信も中身系はブロック」（クライアント側の保険）
-// 6) 主催者は未認証でも解除（disableSecretMode）だけ可能（中身は不可）
+// ✅このファイルの責務
+// - PartyKit(WebSocket)接続
+// - Cloudflare Calls を使った publish / subscribe
+// - 登壇リクエスト / 主催者操作
+// - 秘密会議（secretMode / 入室認証 auth / 主催者 hostAuth）
 //
-// ※server.ts側に以下イベント/メッセージの実装が必要
-// - initMin: { type:'initMin', yourId, secretMode, isHost, ... }  ※未認証には中身を載せない
-// - auth:    { type:'auth', password } → authOk / authNg
-// - authOk:  { type:'authOk' }  ※このあと full init を送る（init か initFull）推奨
-// - authNg:  { type:'authNg' }
-// - secretModeChanged: { type:'secretModeChanged', value:boolean }
-// - disableSecretMode: { type:'disableSecretMode' }  ※isHostのみ許可
-// - （既存）hostAuth / hostLogout / hostAuthResult
+// ✅注意（仕様の整合）
+// - サーバ(server.ts)が「secretMode中でも host を isAuthed 扱いにする」実装なら、
+//   initMin で isAuthed=true が返るので、このクライアントも host を中身アクセス可にします。
+// - もし「主催者は解除だけ可（中身不可）」にしたいなら、server.ts の isAuthed() を
+//   host救済しない設計に揃えるのが正解です（クライアントだけで縛ってもズレます）。
 //
 
 import {
@@ -76,7 +71,7 @@ let hostAuthPending = false;
 
 // ★秘密会議：サーバ真実
 let secretMode = false;
-let isAuthed = false; // 入室パスOKか（default deny）
+let isAuthed = false; // 入室パスOKか
 let isHost = false;   // 主催者ログイン済みか（server管理）
 
 function canAccessContent() {
@@ -106,7 +101,7 @@ let callbacks = {
   remoteAvatars: null,
 
   // ★追加（main.js が期待）
-  onInitMin: null,            // (data:{secretMode,isHost,authRequired?}) => void
+  onInitMin: null,            // ({secretMode,isHost,authRequired?}) => void
   onAuthOk: null,             // () => void
   onAuthNg: null,             // () => void
   onSecretModeChanged: null   // (value:boolean) => void
@@ -390,10 +385,14 @@ function setupAudioUnlock() {
 export function connectToPartyKit(userName) {
   currentUserName = userName;
 
-  // 接続ごとに default deny
+  // 接続ごとに default deny + host状態も初期化（安全）
   isAuthed = false;
   secretMode = false;
   isHost = false;
+
+  hostAuthed = false;
+  hostAuthPending = false;
+  setHostAuthResult(false, '未接続のため主催者状態を解除しました');
 
   const wsUrl = `wss://${PARTYKIT_HOST}/party/${ROOM_ID}?name=${encodeURIComponent(userName)}`;
   debugLog(`接続開始: ${PARTYKIT_HOST}`, 'info');
@@ -466,18 +465,17 @@ export function connectToPartyKit(userName) {
 function handleServerMessage(data) {
   switch (data.type) {
     // ★秘密会議：最小初期化（未認証向け）
-    // 例: { type:'initMin', yourId:'..', secretMode:true, isHost:false, authRequired:true }
+    // 例: { type:'initMin', yourId:'..', secretMode:true, isHost:false, isAuthed:false, authRequired:true }
     case 'initMin': {
       myServerConnectionId = data.yourId;
 
-      // turnCredentials は未認証へ送らない（推奨）のでここでは受けない
       secretMode = !!data.secretMode;
       isHost = !!data.isHost;
 
-      // default deny を徹底
-      isAuthed = !!data.isAuthed; // もしサーバが返すなら尊重（基本false）
+      // サーバが返す真実を尊重（未指定なら false 維持）
+      if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
-      debugLog(`initMin: ID=${myServerConnectionId}, secretMode=${secretMode}, isHost=${isHost}`, 'success');
+      debugLog(`initMin: ID=${myServerConnectionId}, secretMode=${secretMode}, isHost=${isHost}, isAuthed=${isAuthed}`, 'success');
 
       if (callbacks.onInitMin) {
         callbacks.onInitMin({
@@ -489,26 +487,22 @@ function handleServerMessage(data) {
       break;
     }
 
-    // 既存（認証後の full init）
-    // ※ server.ts は secretMode=ON で未認証のクライアントには絶対送らないこと
+    // 認証後の full init
     case 'init': {
-      // 保険：secretMode ON で未認証なら無視（サーバ設計が正しければ来ない）
-      if (secretMode && !isAuthed) {
-        debugLog('init を未認証で受信（危険）→ 無視', 'error');
-        return;
-      }
-
       myServerConnectionId = data.yourId;
-      debugLog(`初期化(init): ID=${myServerConnectionId}, ${Object.keys(data.users || {}).length}人`, 'success');
+
+      // init が来た時点で「中身アクセス許可された」とみなす（サーバ設計前提）
+      if (secretMode) isAuthed = true;
+      if (data.secretMode !== undefined) secretMode = !!data.secretMode;
+      if (data.isHost !== undefined) isHost = !!data.isHost;
+      if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
+
+      debugLog(`初期化(init): ID=${myServerConnectionId}, ${Object.keys(data.users || {}).length}人, secretMode=${secretMode}, isAuthed=${isAuthed}`, 'success');
 
       if (data.turnCredentials) {
         turnCredentials = data.turnCredentials;
         debugLog('TURN認証情報取得', 'success');
       }
-
-      // secretMode情報が乗ってきた場合は更新
-      if (data.secretMode !== undefined) secretMode = !!data.secretMode;
-      if (data.isHost !== undefined) isHost = !!data.isHost;
 
       // 既存ユーザー反映
       Object.entries(data.users || {}).forEach(([odUserId, user]) => {
@@ -566,7 +560,7 @@ function handleServerMessage(data) {
       debugLog('authOk: 入室認証OK', 'success');
       if (callbacks.onAuthOk) callbacks.onAuthOk();
 
-      // 認証OK後に full init を要求（サーバが自動で送るなら不要だが、保険）
+      // 認証OK後に full init を要求（サーバが自動で送るなら不要だが保険）
       safeSend({ type: 'requestInit' });
       break;
     }
@@ -582,15 +576,14 @@ function handleServerMessage(data) {
     case 'secretModeChanged': {
       secretMode = !!data.value;
 
-      // ONになった瞬間は default deny に戻す（安全）
-      if (secretMode) isAuthed = false;
+      // サーバ真実が来るなら同期（来ないなら現状維持）
+      if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
-      debugLog(`secretModeChanged: ${secretMode}`, 'info');
+      debugLog(`secretModeChanged: ${secretMode} (isAuthed=${isAuthed})`, 'info');
       if (callbacks.onSecretModeChanged) callbacks.onSecretModeChanged(secretMode);
 
-      // OFFなら full init を要求しても良い
-      if (!secretMode) safeSend({ type: 'requestInit' });
-
+      // 状態変化後は必ずサーバへ init 再要求（min/full をサーバが判断）
+      safeSend({ type: 'requestInit' });
       break;
     }
 
@@ -798,7 +791,7 @@ function handleServerMessage(data) {
       hostAuthed = ok;
       hostAuthPending = false;
 
-      // server が isHost も返すなら同期しておく（推奨）
+      // server が isHost も返すなら同期
       if (data.isHost !== undefined) isHost = !!data.isHost;
 
       setHostAuthResult(ok, reason);
@@ -812,6 +805,9 @@ function handleServerMessage(data) {
           authRequired: secretMode
         });
       }
+
+      // host状態が変わったら状態を再取得（min/fullをサーバが判断）
+      safeSend({ type: 'requestInit' });
       break;
     }
 
@@ -1194,9 +1190,22 @@ export function sendAuth(password) {
   return safeSend({ type: 'auth', password });
 }
 
-// ★主催者：秘密会議解除（未認証でも送ってOK。ただし server が isHost を必須にする）
+// ★主催者：秘密会議解除（※クライアント側でも hostAuthed を必須にして無駄送信防止）
 export function disableSecretMode() {
+  if (!hostAuthed) {
+    debugLog('主催者未認証のため disableSecretMode をブロック', 'warn');
+    return false;
+  }
   return safeSend({ type: 'disableSecretMode' });
+}
+
+// ★主催者：秘密会議 ON/OFF（server.ts に setSecretMode 実装済みなら使える）
+export function setSecretMode(value) {
+  if (!hostAuthed) {
+    debugLog('主催者未認証のため setSecretMode をブロック', 'warn');
+    return false;
+  }
+  return safeSend({ type: 'setSecretMode', value: !!value });
 }
 
 export function sendPosition(x, y, z) {
@@ -1222,7 +1231,7 @@ export function sendChat(message) {
 export function sendNameChange(newName) {
   currentUserName = newName;
 
-  // 名前変更も中身扱いにする（secretMode中未認証は送らない）
+  // 名前変更も中身扱い
   if (!canAccessContent()) return;
 
   safeSend({ type: 'nameChange', name: newName });
@@ -1277,7 +1286,6 @@ export function hostLogout() {
 
 // --------------------------------------------
 // 主催者操作（サーバでも必ず検証する想定）
-// ※仕様どおり「未認証主催者は解除だけ」なら、ここは contentAllowed を必須にしておく
 // --------------------------------------------
 export function approveSpeak(userId) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -1286,7 +1294,7 @@ export function approveSpeak(userId) {
     return;
   }
   if (!canAccessContent()) {
-    debugLog('未認証のため approveSpeak をブロック（解除だけ許可）', 'warn');
+    debugLog('未認証のため approveSpeak をブロック', 'warn');
     return;
   }
   socket.send(JSON.stringify({ type: 'approveSpeak', userId }));
@@ -1299,7 +1307,7 @@ export function denySpeak(userId) {
     return;
   }
   if (!canAccessContent()) {
-    debugLog('未認証のため denySpeak をブロック（解除だけ許可）', 'warn');
+    debugLog('未認証のため denySpeak をブロック', 'warn');
     return;
   }
   socket.send(JSON.stringify({ type: 'denySpeak', userId }));
@@ -1312,7 +1320,7 @@ export function kickSpeaker(userId) {
     return;
   }
   if (!canAccessContent()) {
-    debugLog('未認証のため kickSpeaker をブロック（解除だけ許可）', 'warn');
+    debugLog('未認証のため kickSpeaker をブロック', 'warn');
     return;
   }
   socket.send(JSON.stringify({ type: 'kickSpeaker', userId }));

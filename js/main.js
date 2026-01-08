@@ -28,7 +28,7 @@ import {
   getState,
   getMyConnectionId,
 
-  // ★ 追加：秘密会議の認証/解除（connection.js側に実装が必要）
+  // ★ 秘密会議の認証/解除（connection.js側に実装が必要）
   sendAuth,              // (pass: string) => void
   disableSecretMode      // () => void  ※主催者のみ
 } from './connection.js';
@@ -66,9 +66,27 @@ function isContentAllowed() {
   return !secretMode || isAuthed;
 }
 
+// -----------------------------
+// ★ 認証リクエストの種類（後方互換用）
+// -----------------------------
+let lastAuthRequestKind = null; // 'room' | 'host'
+
+// sendAuthを呼ぶ共通関数（kindを覚える）
+function requestAuth(kind, pass) {
+  lastAuthRequestKind = kind;
+  const p = (pass || '').trim();
+  if (!p) return;
+
+  try {
+    sendAuth(p);
+  } catch (e) {
+    debugLog('sendAuth not available / failed', 'error');
+    setAuthOverlayMessage('認証送信に失敗しました（connection.jsを更新して）');
+  }
+}
+
 // ★ PATCH: 秘密会議ON/未認証になった瞬間に「見えてる中身」をクライアント側でも完全に掃除する
 function purgeSensitiveClientState(reason = '') {
-  // scene未初期化のタイミングもあり得るので安全側
   const hasScene = !!scene;
 
   // 1) リモートアバター/ペンライト/オタ芸を全削除
@@ -112,7 +130,7 @@ function purgeSensitiveClientState(reason = '') {
   // 5) ユーザー数表示を更新（未認証なら自分だけ）
   try { updateUserCount(); } catch (_) {}
 
-  // 6) 自分のネームタグは「現在のID」で作り直す（ただし secret && !authed なら updateNameTags で隠れる）
+  // 6) 自分のネームタグは「現在のID」で作り直す
   try {
     const myId = getMyConnectionId() || myUserId;
     upsertNameTag(myId, myUserName);
@@ -199,8 +217,17 @@ let penlightTime = 0;
 // -----------------------------
 let authOverlay = null;
 let authOverlayMsg = null;
+
+// 入室
 let authOverlayInput = null;
 let authOverlayEnterBtn = null;
+
+// 主催者ログイン（解除のため）
+let hostOverlayWrap = null;
+let hostOverlayInput = null;
+let hostOverlayLoginBtn = null;
+
+// 解除ボタン
 let authOverlayDisableBtn = null;
 
 function ensureAuthOverlay() {
@@ -212,7 +239,6 @@ function ensureAuthOverlay() {
     position: fixed;
     inset: 0;
     z-index: 20000;
-    /* ★ PATCH: 透けると覗き見になるのでほぼ不透明 */
     background: rgba(0,0,0,0.96);
     backdrop-filter: blur(6px);
     display: none;
@@ -223,7 +249,7 @@ function ensureAuthOverlay() {
 
   const card = document.createElement('div');
   card.style.cssText = `
-    width: min(520px, 92vw);
+    width: min(560px, 92vw);
     background: rgba(20,20,30,0.95);
     border: 1px solid rgba(255,255,255,0.12);
     border-radius: 14px;
@@ -245,6 +271,7 @@ function ensureAuthOverlay() {
   authOverlayMsg.textContent = '';
   authOverlayMsg.style.cssText = `font-size:13px; margin: 8px 0 10px; color:#ffb3ff; min-height: 18px;`;
 
+  // 入室パス
   authOverlayInput = document.createElement('input');
   authOverlayInput.type = 'password';
   authOverlayInput.placeholder = '入室パスワード';
@@ -291,48 +318,113 @@ function ensureAuthOverlay() {
     display: none;
   `;
 
+  row.appendChild(authOverlayEnterBtn);
+  row.appendChild(authOverlayDisableBtn);
+
+  // 主催者ログイン枠（解除のために必要）
+  hostOverlayWrap = document.createElement('div');
+  hostOverlayWrap.style.cssText = `
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255,255,255,0.12);
+  `;
+
+  const hostTitle = document.createElement('div');
+  hostTitle.textContent = '👑 主催者ログイン（解除のため）';
+  hostTitle.style.cssText = `font-size:13px; font-weight:800; margin-bottom:8px; opacity:0.95;`;
+
+  hostOverlayInput = document.createElement('input');
+  hostOverlayInput.type = 'password';
+  hostOverlayInput.placeholder = '主催者ログインパスワード';
+  hostOverlayInput.autocomplete = 'current-password';
+  hostOverlayInput.style.cssText = `
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(0,0,0,0.35);
+    color: #fff;
+    outline: none;
+    font-size: 15px;
+    margin-bottom: 10px;
+  `;
+
+  hostOverlayLoginBtn = document.createElement('button');
+  hostOverlayLoginBtn.textContent = '主催者ログイン';
+  hostOverlayLoginBtn.style.cssText = `
+    width: 100%;
+    padding: 12px 10px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-weight: 800;
+    background: linear-gradient(135deg, #ffaa00, #ff5500);
+    color: white;
+  `;
+
   const foot = document.createElement('div');
   foot.style.cssText = `margin-top: 12px; font-size: 12px; opacity: 0.8; line-height: 1.45;`;
   foot.textContent = '※主催者でも「中身を見る」には入室パスが必要です。解除は主催者権限のみ可能。';
 
-  row.appendChild(authOverlayEnterBtn);
-  row.appendChild(authOverlayDisableBtn);
+  hostOverlayWrap.appendChild(hostTitle);
+  hostOverlayWrap.appendChild(hostOverlayInput);
+  hostOverlayWrap.appendChild(hostOverlayLoginBtn);
 
   card.appendChild(title);
   card.appendChild(desc);
   card.appendChild(authOverlayMsg);
   card.appendChild(authOverlayInput);
   card.appendChild(row);
+  card.appendChild(hostOverlayWrap);
   card.appendChild(foot);
 
   authOverlay.appendChild(card);
   document.body.appendChild(authOverlay);
 
-  function tryAuth() {
+  function tryRoomAuth() {
     const pass = (authOverlayInput.value || '').trim();
     if (!pass) {
-      setAuthOverlayMessage('パスワードを入力してください');
+      setAuthOverlayMessage('入室パスワードを入力してください');
       return;
     }
     setAuthOverlayMessage('認証中...');
-    try {
-      sendAuth(pass); // connection.js側で server に送る
-    } catch (e) {
-      debugLog('sendAuth not available / failed', 'error');
-      setAuthOverlayMessage('認証送信に失敗しました（connection.jsを更新して）');
+    requestAuth('room', pass);
+  }
+
+  function tryHostAuth() {
+    const pass = (hostOverlayInput.value || '').trim();
+    if (!pass) {
+      setAuthOverlayMessage('主催者パスワードを入力してください');
+      return;
     }
+    setAuthOverlayMessage('主催者認証中...');
+    requestAuth('host', pass);
   }
 
   authOverlayEnterBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    tryAuth();
+    tryRoomAuth();
   });
 
   authOverlayInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      tryAuth();
+      tryRoomAuth();
+    }
+  });
+
+  hostOverlayLoginBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    tryHostAuth();
+  });
+
+  hostOverlayInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      tryHostAuth();
     }
   });
 
@@ -340,9 +432,9 @@ function ensureAuthOverlay() {
     e.preventDefault();
     e.stopPropagation();
     try {
-      disableSecretMode(); // 主催者のみ server でチェックされる前提
+      disableSecretMode(); // server側でisHostチェック必須
       setAuthOverlayMessage('解除リクエストを送信しました');
-    } catch (e) {
+    } catch (e2) {
       setAuthOverlayMessage('解除送信に失敗しました（connection.jsを更新して）');
     }
   });
@@ -355,10 +447,17 @@ function setAuthOverlayMessage(text) {
 function showAuthOverlay() {
   ensureAuthOverlay();
   authOverlay.style.display = 'flex';
-  // 主催者だけ解除ボタン表示（中身は見れない）
+
+  // 解除ボタンは「主催者ログイン済み && secretMode && 未入室」のときだけ
   if (authOverlayDisableBtn) {
     authOverlayDisableBtn.style.display = (isHost && secretMode && !isAuthed) ? 'block' : 'none';
   }
+
+  // 主催者ログイン枠は secretMode のときだけ見せる（通常モードでは不要）
+  if (hostOverlayWrap) {
+    hostOverlayWrap.style.display = secretMode ? 'block' : 'none';
+  }
+
   setTimeout(() => {
     if (authOverlayInput) authOverlayInput.focus();
   }, 50);
@@ -369,24 +468,26 @@ function hideAuthOverlay() {
   authOverlay.style.display = 'none';
   setAuthOverlayMessage('');
   if (authOverlayInput) authOverlayInput.value = '';
+  if (hostOverlayInput) hostOverlayInput.value = '';
 }
 
 function refreshSecretGateUI() {
-  // secretMode OFF なら全開
   if (!secretMode) {
     hideAuthOverlay();
     enableContentUI(true);
     return;
   }
 
-  // secretMode ON
   if (isAuthed) {
     hideAuthOverlay();
     enableContentUI(true);
   } else {
     showAuthOverlay();
-    enableContentUI(false); // UI操作を止める（サーバでも止めるがUXのため）
+    enableContentUI(false);
   }
+
+  // ネームタグの隠し/表示も同期
+  try { updateNameTags(); } catch (_) {}
 }
 
 // UIをまとめて disable/enable（「触れない」状態にするだけ）
@@ -402,6 +503,64 @@ function enableContentUI(enable) {
   if (actionBar) actionBar.style.pointerEvents = enable ? 'auto' : 'none';
   if (joystick) joystick.style.pointerEvents = enable ? 'auto' : 'none';
   if (speakerControls) speakerControls.style.pointerEvents = enable ? 'auto' : 'none';
+}
+
+// -----------------------------
+// ★ settings.js 側の「主催者ログイン」UIを、main.jsから配線する
+// （settings.jsの実装が変わっても、なるべく壊れにくいようにDOM探索で補助）
+// -----------------------------
+let hostUIWired = false;
+
+function wireHostLoginUI() {
+  if (hostUIWired) return;
+
+  // 1) まずは「明示的コールバック」を initSettings に渡しているので、
+  //    settings.jsがそれを使うならここは不要。
+  // 2) それでも「未接続」と出る場合のための、DOM直配線（保険）。
+  //
+  // 期待：主催者ログイン枠に password input と 「認証」ボタンがある
+  const root = document.body;
+  if (!root) return;
+
+  // 「主催者ログイン」を含む要素を探す
+  const labels = Array.from(root.querySelectorAll('*'))
+    .filter(el => el && el.children && el.children.length === 0)
+    .filter(el => (el.textContent || '').includes('主催者ログイン'));
+
+  if (labels.length === 0) return;
+
+  // それっぽいセクションを上に辿る
+  let section = labels[0];
+  for (let i = 0; i < 6; i++) {
+    if (!section) break;
+    // input/password と button が両方ある親をセクション候補に
+    const hasPass = !!section.querySelector('input[type="password"]');
+    const hasBtn = Array.from(section.querySelectorAll('button')).some(b => (b.textContent || '').trim() === '認証');
+    if (hasPass && hasBtn) break;
+    section = section.parentElement;
+  }
+
+  if (!section) return;
+
+  const passInput = section.querySelector('input[type="password"]');
+  const authBtn = Array.from(section.querySelectorAll('button')).find(b => (b.textContent || '').trim() === '認証');
+
+  if (!passInput || !authBtn) return;
+
+  authBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const pass = (passInput.value || '').trim();
+    if (!pass) {
+      showNotification('主催者パスワードを入力してください', 'warn');
+      return;
+    }
+    showNotification('主催者認証中...', 'info');
+    requestAuth('host', pass);
+  }, { passive: false });
+
+  hostUIWired = true;
+  debugLog('Host login UI wired (DOM fallback)', 'success');
 }
 
 // -----------------------------
@@ -479,7 +638,7 @@ function updateNameTags() {
   const width = window.innerWidth;
   const height = window.innerHeight;
 
-  const headOffset = 2.2; // 頭上の高さ（アバター形状に合わせて調整）
+  const headOffset = 2.2;
 
   function placeTag(userId, avatarObj) {
     const t = nameTags.get(userId);
@@ -488,12 +647,10 @@ function updateNameTags() {
     const pos = avatarObj.position.clone();
     pos.y += headOffset;
 
-    // 画面投影
     pos.project(camera);
     const x = (pos.x * 0.5 + 0.5) * width;
     const y = (-pos.y * 0.5 + 0.5) * height;
 
-    // 画面外・背面なら隠す
     const behind = pos.z > 1;
     const out = x < -50 || x > width + 50 || y < -50 || y > height + 50;
     t.el.style.display = (behind || out) ? 'none' : 'block';
@@ -544,7 +701,7 @@ async function init() {
   myAvatar.position.set((Math.random() - 0.5) * 10, 0, 5 + Math.random() * 5);
   scene.add(myAvatar);
 
-  // ★ 自分のネームタグ（接続IDが確定したら置き換える）
+  // 自分のネームタグ（接続IDが確定したら置き換える）
   upsertNameTag(myUserId, myUserName);
 
   // ペンライト作成
@@ -560,7 +717,6 @@ async function init() {
       sendNameChange(newName);
       showNotification(`名前を「${newName}」に変更しました`, 'success');
 
-      // ★ 自分のネームタグ更新
       const myId = getMyConnectionId() || myUserId;
       upsertNameTag(myId, myUserName);
     },
@@ -606,6 +762,31 @@ async function init() {
       cameraHeight = 4;
       cameraDistance = 6;
       showNotification('カメラをリセットしました', 'info');
+    },
+
+    // ★ 追加：settings.jsがこれを呼べるなら、主催者ログインが「未接続」にならない
+    onHostLogin: (pass) => {
+      const p = (pass || '').trim();
+      if (!p) {
+        showNotification('主催者パスワードを入力してください', 'warn');
+        return;
+      }
+      showNotification('主催者認証中...', 'info');
+      requestAuth('host', p);
+    },
+
+    // ★ 追加：settings.js側に解除ボタンがある場合のため
+    onDisableSecretMode: () => {
+      if (!isHost) {
+        showNotification('主催者ログインが必要です', 'warn');
+        return;
+      }
+      try {
+        disableSecretMode();
+        showNotification('解除リクエストを送信しました', 'info');
+      } catch (_) {
+        showNotification('解除送信に失敗しました', 'warn');
+      }
     }
   });
 
@@ -629,28 +810,27 @@ async function init() {
   updateUserCount();
   updateSpeakerCount(0);
 
+  // settings UIの主催者ログイン導線を保険で配線（遅延初期化対策）
+  setTimeout(wireHostLoginUI, 300);
+  setTimeout(wireHostLoginUI, 1200);
+
   debugLog('Initialization complete');
 }
 
 // 接続セットアップ
 function setupConnection() {
   setCallbacks({
-    // ★ 追加：接続直後に「最小情報」だけ来る想定（connection.jsが呼ぶ）
     onInitMin: (data) => {
-      // data: { secretMode, isHost, authRequired }
       secretMode = !!data?.secretMode;
       isHost = !!data?.isHost;
 
       // 接続し直し時は一旦未認証扱い（default deny）
       isAuthed = false;
 
-      // ★ PATCH: secretMode=ONで入ってきたら即「中身」を掃除
       if (secretMode) purgeSensitiveClientState('onInitMin secretMode=ON');
 
-      // 自分の接続IDが確定していれば、ネームタグのキーを差し替え
       const myId = getMyConnectionId();
       if (myId && myId !== myUserId) {
-        // 古いタグを消して新しいIDで作り直す
         removeNameTag(myUserId);
         upsertNameTag(myId, myUserName);
       }
@@ -659,28 +839,58 @@ function setupConnection() {
       refreshSecretGateUI();
     },
 
-    // ★ 追加：認証結果（connection.jsが呼ぶ）
-    onAuthOk: () => {
-      isAuthed = true;
+    // ★ 認証結果（後方互換：dataが無い場合は lastAuthRequestKind で推定）
+    onAuthOk: (data) => {
+      // data が { isAuthed, isHost } を返す実装ならそれを採用
+      if (data && typeof data === 'object') {
+        if (Object.prototype.hasOwnProperty.call(data, 'isAuthed')) isAuthed = !!data.isAuthed;
+        if (Object.prototype.hasOwnProperty.call(data, 'isHost')) isHost = !!data.isHost;
+      } else {
+        // 返りが無い/古い実装用の推定
+        if (lastAuthRequestKind === 'room') isAuthed = true;
+        if (lastAuthRequestKind === 'host') isHost = true;
+        if (!lastAuthRequestKind) {
+          // どっちか不明なら「入室」扱いに倒す（安全上は“中身OK”になるので本当はサーバが返すべき）
+          isAuthed = true;
+        }
+      }
+
       setAuthOverlayMessage('');
       refreshSecretGateUI();
-      showNotification('入室パスワード認証OK', 'success');
-    },
-    onAuthNg: () => {
-      isAuthed = false;
-      // ★ PATCH: NGになった瞬間に見えてるものは掃除
-      purgeSensitiveClientState('onAuthNg');
-      setAuthOverlayMessage('パスワードが違います');
+
+      if (lastAuthRequestKind === 'host') {
+        showNotification('主催者ログインOK', 'success');
+      } else {
+        showNotification('入室パスワード認証OK', 'success');
+      }
+
+      // 主催者ログインが通ったら解除ボタン表示更新
       refreshSecretGateUI();
-      showNotification('入室パスワードが違います', 'warn');
+
+      // settings UIの配線も再試行
+      setTimeout(wireHostLoginUI, 100);
     },
+
+    onAuthNg: () => {
+      // NGになった瞬間に見えてるものは掃除
+      purgeSensitiveClientState('onAuthNg');
+
+      if (lastAuthRequestKind === 'host') {
+        setAuthOverlayMessage('主催者パスワードが違います');
+        showNotification('主催者パスワードが違います', 'warn');
+      } else {
+        setAuthOverlayMessage('パスワードが違います');
+        showNotification('入室パスワードが違います', 'warn');
+      }
+
+      refreshSecretGateUI();
+    },
+
     onSecretModeChanged: (value) => {
       secretMode = !!value;
 
-      // secretModeがOFFなら全開、ONなら未認証に戻すのが安全
       if (secretMode) {
         isAuthed = false;
-        // ★ PATCH: ONに切り替わった瞬間に中身を掃除（最重要）
         purgeSensitiveClientState('onSecretModeChanged -> ON');
       }
 
@@ -689,7 +899,6 @@ function setupConnection() {
     },
 
     onUserJoin: (userId, userName) => {
-      // ★ 未認証なら中身扱いなので無視（保険）
       if (!isContentAllowed()) return;
 
       debugLog(`User joined: ${userId} (${userName})`);
@@ -701,33 +910,27 @@ function setupConnection() {
         remoteAvatars.set(userId, { avatar, userName, penlight: null });
         debugLog(`Remote avatar created for ${userId}`, 'success');
 
-        // ★ ネームタグ作成
         upsertNameTag(userId, userName || 'ゲスト');
       }
       updateUserCount();
     },
+
     onUserLeave: (userId) => {
-      // ★ 未認証なら中身扱いなので無視（保険）
       if (!isContentAllowed()) return;
 
       debugLog(`User left: ${userId}`);
       const userData = remoteAvatars.get(userId);
       if (userData) {
-        if (userData.avatar) {
-          scene.remove(userData.avatar);
-        }
-        if (userData.penlight) {
-          scene.remove(userData.penlight);
-        }
+        if (userData.avatar) scene.remove(userData.avatar);
+        if (userData.penlight) scene.remove(userData.penlight);
         stopRemoteOtagei(userId);
         remoteAvatars.delete(userId);
       }
 
-      // ★ ネームタグ削除
       removeNameTag(userId);
-
       updateUserCount();
     },
+
     onPosition: (userId, x, y, z) => {
       if (!isContentAllowed()) return;
 
@@ -739,26 +942,25 @@ function setupConnection() {
         }
       }
     },
+
     onAvatarChange: (userId, imageUrl) => {
       if (!isContentAllowed()) return;
 
       debugLog(`Avatar change received: ${userId} -> ${imageUrl}`);
       const userData = remoteAvatars.get(userId);
-      if (userData && userData.avatar) {
-        setAvatarImage(userData.avatar, imageUrl);
-      }
+      if (userData && userData.avatar) setAvatarImage(userData.avatar, imageUrl);
     },
+
     onNameChange: (userId, newName) => {
       if (!isContentAllowed()) return;
 
       debugLog(`Name change received: ${userId} -> ${newName}`);
       const userData = remoteAvatars.get(userId);
-      if (userData) {
-        userData.userName = newName;
-      }
-      // ★ ネームタグ更新
+      if (userData) userData.userName = newName;
+
       upsertNameTag(userId, newName || 'ゲスト');
     },
+
     onReaction: (userId, reactionType, color) => {
       if (!isContentAllowed()) return;
 
@@ -785,9 +987,7 @@ function setupConnection() {
               if (child.isMesh && child.material && child.name !== 'penlightHandle') {
                 child.material.color.copy(colorValue);
               }
-              if (child.isPointLight) {
-                child.color.copy(colorValue);
-              }
+              if (child.isPointLight) child.color.copy(colorValue);
             });
           }
           debugLog(`Penlight shown for ${userId}`, 'success');
@@ -802,14 +1002,14 @@ function setupConnection() {
         }
       }
     },
+
     onChat: (userId, userName, message) => {
       if (!isContentAllowed()) return;
 
       const myId = getMyConnectionId();
-      if (userId !== myId) {
-        addChatMessage(userName, message);
-      }
+      if (userId !== myId) addChatMessage(userName, message);
     },
+
     onSpeakApproved: () => {
       if (!isContentAllowed()) return;
 
@@ -823,31 +1023,31 @@ function setupConnection() {
       showSpeakerControls(true);
       showNotification('登壇が承認されました！', 'success');
     },
+
     onSpeakerJoined: (userId, userName) => {
       if (!isContentAllowed()) return;
 
       debugLog(`Speaker joined: ${userId} (${userName})`);
       const userData = remoteAvatars.get(userId);
-      if (userData && userData.avatar) {
-        setAvatarSpotlight(userData.avatar, true);
-      }
+      if (userData && userData.avatar) setAvatarSpotlight(userData.avatar, true);
       showNotification(`${userName || 'ゲスト'} が登壇しました`, 'info');
     },
+
     onSpeakerLeft: (userId) => {
       if (!isContentAllowed()) return;
 
       debugLog(`Speaker left: ${userId}`);
       const userData = remoteAvatars.get(userId);
-      if (userData && userData.avatar) {
-        setAvatarSpotlight(userData.avatar, false);
-      }
+      if (userData && userData.avatar) setAvatarSpotlight(userData.avatar, false);
     },
+
     onSpeakRequestsUpdate: (requests) => {
       if (!isContentAllowed()) return;
 
       debugLog(`Speak requests updated: ${requests.length} requests`, 'info');
       updateSpeakRequests(requests);
     },
+
     onCurrentSpeakersUpdate: (speakers) => {
       if (!isContentAllowed()) return;
 
@@ -855,6 +1055,7 @@ function setupConnection() {
       updateCurrentSpeakers(speakers);
       updateSpeakerCount(speakers.length);
     },
+
     onKicked: () => {
       if (!isContentAllowed()) return;
 
@@ -864,27 +1065,28 @@ function setupConnection() {
       showSpeakerControls(false);
       showNotification('主催者により降壇しました', 'warn');
     },
+
     onAnnounce: (message) => {
       if (!isContentAllowed()) return;
-
       showAnnouncement(message);
     },
+
     onBackgroundChange: (imageUrl) => {
       if (!isContentAllowed()) return;
-
       changeStageBackground(imageUrl);
     },
+
     onBrightnessChange: (value) => {
       if (!isContentAllowed()) return;
-
       setRoomBrightness(value);
     },
+
     remoteAvatars: remoteAvatars
   });
 
   connectToPartyKit(myUserName);
 
-  // ★ 接続直後にsecretModeが分かるまで一旦は触れるが、もし secretMode=ON が来たら即ブロック
+  // 接続直後はUIを用意しておく（secretMode情報が来たら refreshSecretGateUI が締める）
   ensureAuthOverlay();
   ensureNameTagLayer();
   refreshSecretGateUI();
@@ -974,9 +1176,7 @@ function stopRemoteOtagei(userId) {
   if (animation) {
     cancelAnimationFrame(animation.animationId);
     const userData = remoteAvatars.get(userId);
-    if (userData && userData.avatar) {
-      userData.avatar.position.y = animation.baseY;
-    }
+    if (userData && userData.avatar) userData.avatar.position.y = animation.baseY;
     remoteOtageiAnimations.delete(userId);
   }
 }
@@ -1207,7 +1407,6 @@ function animateMove(avatar, targetX, targetY, targetZ, onComplete) {
 
 // ジョイスティックによる移動処理
 function processJoystickMovement() {
-  // ★ 秘密会議で未認証なら移動も止める（UIブロックと整合）
   if (!isContentAllowed()) return;
 
   if (!joystickActive || (joystickX === 0 && joystickY === 0)) return;
@@ -1242,7 +1441,6 @@ function processJoystickMovement() {
 
 // ユーザー数更新
 function updateUserCount() {
-  // ★ 未認証中は0扱いにしてもいいが、今は自分だけにする
   const count = isContentAllowed() ? (remoteAvatars.size + 1) : 1;
   const el = document.getElementById('user-count');
   if (el) el.textContent = count;
@@ -1267,7 +1465,6 @@ function setupChatUI() {
   form.addEventListener('submit', (e) => {
     e.preventDefault();
 
-    // ★ 秘密会議で未認証なら送らない
     if (!isContentAllowed()) {
       showNotification('入室パスワードが必要です', 'warn');
       return;
@@ -1298,7 +1495,6 @@ function setupActionButtons() {
   debugLog('Action buttons setup started', 'info');
 
   function togglePenlight() {
-    // ★ 未認証なら何もしない
     if (!isContentAllowed()) return;
 
     debugLog('Penlight toggle called', 'info');
@@ -1356,9 +1552,7 @@ function setupActionButtons() {
         clearTimeout(penlightLongPressTimer);
         penlightLongPressTimer = null;
       }
-      if (!longPressTriggered) {
-        safeTogglePenlight();
-      }
+      if (!longPressTriggered) safeTogglePenlight();
       longPressTriggered = false;
     });
 
@@ -1389,9 +1583,7 @@ function setupActionButtons() {
         clearTimeout(penlightLongPressTimer);
         penlightLongPressTimer = null;
       }
-      if (!longPressTriggered) {
-        safeTogglePenlight();
-      }
+      if (!longPressTriggered) safeTogglePenlight();
       longPressTriggered = false;
     });
 
@@ -1426,11 +1618,8 @@ function setupActionButtons() {
       debugLog(`Penlight color changed to ${penlightColor}`, 'info');
     }
 
-    if (isTouchDevice) {
-      btn.addEventListener('touchend', selectColor);
-    } else {
-      btn.addEventListener('click', selectColor);
-    }
+    if (isTouchDevice) btn.addEventListener('touchend', selectColor);
+    else btn.addEventListener('click', selectColor);
   });
 
   let otageiLastToggleTime = 0;
@@ -1497,9 +1686,7 @@ function updatePenlightColor() {
       if (child.isMesh && child.material && child.name !== 'penlightHandle') {
         child.material.color.copy(colorValue);
       }
-      if (child.isPointLight) {
-        child.color.copy(colorValue);
-      }
+      if (child.isPointLight) child.color.copy(colorValue);
     });
 
     debugLog(`Penlight color updated to ${penlightColor}`, 'info');
@@ -1529,11 +1716,8 @@ function stopOtageiAnimation() {
     cancelAnimationFrame(otageiAnimationId);
     otageiAnimationId = null;
   }
-  if (isOnStage) {
-    myAvatar.position.y = STAGE_Y;
-  } else {
-    myAvatar.position.y = 0;
-  }
+  if (isOnStage) myAvatar.position.y = STAGE_Y;
+  else myAvatar.position.y = 0;
 }
 
 // スピーカーコントロールセットアップ
@@ -1576,9 +1760,7 @@ function setupSpeakerControls() {
 // スピーカーコントロール表示/非表示
 function showSpeakerControls(show) {
   const controls = document.getElementById('speaker-controls');
-  if (controls) {
-    controls.classList.toggle('hidden', !show);
-  }
+  if (controls) controls.classList.toggle('hidden', !show);
 
   if (show) {
     const micBtn = document.getElementById('mic-toggle-btn');
@@ -1601,7 +1783,6 @@ function animate() {
   requestAnimationFrame(animate);
 
   animateVenue();
-
   processJoystickMovement();
 
   if (myAvatar) {
@@ -1646,7 +1827,7 @@ function animate() {
   penlightTime += 0.01;
   updateRemotePenlights();
 
-  // ★ ネームタグ更新（毎フレーム）
+  // ネームタグ更新（毎フレーム）
   updateNameTags();
 
   renderer.render(scene, camera);

@@ -27,23 +27,19 @@ interface SpeakRequest {
 export default class Server implements Party.Server {
   users: Record<string, User> = {};
   speakers: Set<string> = new Set();
-  tracks: Map<string, string> = new Map();    // speakerUserId -> trackName
-  sessions: Map<string, string> = new Map();  // speakerUserId -> sessionId
-  subscriberSessions: Map<string, string> = new Map(); // `${subscriberId}-${trackName}` -> sessionId
+  tracks: Map<string, string> = new Map();
+  sessions: Map<string, string> = new Map();
+  subscriberSessions: Map<string, string> = new Map();
   speakRequests: SpeakRequest[] = [];
 
-  // ✅ 主催者認証済み connection.id
   hosts: Set<string> = new Set();
 
-  // ✅ 秘密会議
-  secretMode: boolean = false;         // ONなら未認証へ中身を送らない
-  authed: Set<string> = new Set();     // 入室パス OK の connection.id
-  joined: Set<string> = new Set();     // “中身世界”へ参加済み（userJoin発行済み）
+  secretMode: boolean = false;
+  authed: Set<string> = new Set();
+  joined: Set<string> = new Set();
 
-  // brute force 対策（超簡易）
   authFail: Map<string, { count: number; lastAt: number; lockedUntil: number }> = new Map();
 
-  // ルーム共通（任意）
   brightness: number | null = null;
   backgroundUrl: string | null = null;
 
@@ -68,7 +64,6 @@ export default class Server implements Party.Server {
     return this.hosts.has(connId);
   }
 
-  // ★host は “入室認証” ではない（抜け道禁止）
   isAuthed(connId: string): boolean {
     return this.authed.has(connId);
   }
@@ -84,7 +79,6 @@ export default class Server implements Party.Server {
     conn.send(JSON.stringify(payload));
   }
 
-  // 未認証へ送っていい最小情報
   sendInitMin(conn: Party.Connection) {
     this.send(conn, {
       type: "initMin",
@@ -137,8 +131,6 @@ export default class Server implements Party.Server {
       tracks: this.buildVisibleTracksEntries(),
       sessions: this.buildVisibleSessionsEntries(),
       speakRequests: this.buildVisibleSpeakRequests(),
-
-      // ★ここが重要：クライアントに真実を渡す
       secretMode: this.secretMode,
       isHost: this.isHost(conn.id),
       isAuthed: this.isAuthed(conn.id),
@@ -151,7 +143,6 @@ export default class Server implements Party.Server {
     this.send(conn, payload);
   }
 
-  // ★中身イベントを “入室認証済み” にだけ送る
   broadcastAllowed(payload: any, excludeIds: string[] = []) {
     const json = JSON.stringify(payload);
 
@@ -168,7 +159,6 @@ export default class Server implements Party.Server {
     }
   }
 
-  // ★非機密イベントは全員へ送る
   broadcastPublic(payload: any, excludeIds: string[] = []) {
     this.room.broadcast(JSON.stringify(payload), excludeIds);
   }
@@ -277,9 +267,6 @@ export default class Server implements Party.Server {
       const data = JSON.parse(message);
 
       switch (data.type) {
-        // --------------------
-        // Secret Mode / Auth
-        // --------------------
         case "requestInit": {
           this.completeJoin(sender);
           break;
@@ -374,9 +361,6 @@ export default class Server implements Party.Server {
           break;
         }
 
-        // --------------------
-        // Host Auth
-        // --------------------
         case "hostAuth":
         case "hostLogin": {
           this.handleHostAuth(sender, data.password);
@@ -388,9 +372,6 @@ export default class Server implements Party.Server {
           break;
         }
 
-        // --------------------
-        // Content messages
-        // --------------------
         case "position": {
           if (!this.canAccessContent(sender.id)) break;
 
@@ -446,9 +427,6 @@ export default class Server implements Party.Server {
           break;
         }
 
-        // --------------------
-        // Speak Request / Approve / Deny / Kick
-        // --------------------
         case "requestSpeak": {
           if (!this.canAccessContent(sender.id)) {
             this.send(sender, { type: "speakDenied", reason: "入室認証が必要です" });
@@ -491,9 +469,6 @@ export default class Server implements Party.Server {
           break;
         }
 
-        // --------------------
-        // Cloudflare Calls
-        // --------------------
         case "publishTrack": {
           if (!this.canAccessContent(sender.id)) {
             this.send(sender, { type: "error", code: "SRV_ERR_AUTH_REQUIRED" });
@@ -521,9 +496,6 @@ export default class Server implements Party.Server {
           break;
         }
 
-        // --------------------
-        // Room UI state
-        // --------------------
         case "backgroundChange": {
           if (!this.canAccessContent(sender.id)) break;
 
@@ -548,7 +520,6 @@ export default class Server implements Party.Server {
         }
 
         default: {
-          // ★未知typeは落とさない。ログだけ。
           console.warn("[onMessage] unknown type:", data?.type);
           break;
         }
@@ -574,23 +545,35 @@ export default class Server implements Party.Server {
     }
 
     this.hosts.add(sender.id);
+
+    // ★ 主催者は自動的に入室認証済みにする（秘密会議でも中身を見れる）
+    this.authed.add(sender.id);
+
     console.log(`[handleHostAuth] OK ${sender.id}`);
 
-    this.send(sender, { type: "hostAuthResult", ok: true, reason: "", isHost: true });
+    this.send(sender, { type: "hostAuthResult", ok: true, reason: "", isHost: true, isAuthed: true });
 
-    if (this.secretMode) this.sendInitMin(sender);
+    // ★ 主催者ログイン成功後、completeJoin を呼んで full init を送る
+    this.completeJoin(sender);
   }
 
   handleHostLogout(sender: Party.Connection) {
     this.hosts.delete(sender.id);
+
+    // ★ 主催者ログアウト時、入室認証も解除するかは要件次第
+    // ここでは解除しない（入室パスで入った場合は維持）
+    // this.authed.delete(sender.id);
+
     console.log(`[handleHostLogout] ${sender.id}`);
-    this.send(sender, { type: "hostAuthResult", ok: false, reason: "logout", isHost: false });
-    if (this.secretMode && !this.isAuthed(sender.id)) this.sendInitMin(sender);
+    this.send(sender, { type: "hostAuthResult", ok: false, reason: "logout", isHost: false, isAuthed: this.isAuthed(sender.id) });
+
+    if (this.secretMode && !this.isAuthed(sender.id)) {
+      this.sendInitMin(sender);
+    }
   }
 
   // --------------------------
   // Speak Request / Approve / Deny / Kick
-  // （以下はお前の元コードそのまま）
   // --------------------------
   async handleRequestSpeak(sender: Party.Connection) {
     if (this.speakers.size >= 5) {
@@ -730,8 +713,7 @@ export default class Server implements Party.Server {
   }
 
   // --------------------------
-  // Cloudflare Calls (publish / subscribe)
-  // （以下はお前の元コードそのまま）
+  // Cloudflare Calls
   // --------------------------
   async handlePublishTrack(sender: Party.Connection, data: any) {
     const token = this.getToken();
@@ -863,7 +845,7 @@ export default class Server implements Party.Server {
   }
 
   // --------------------------
-  // Cloudflare Calls API helpers（お前の元コードそのまま）
+  // Cloudflare Calls API helpers
   // --------------------------
   async createSession(): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     const token = this.getToken();

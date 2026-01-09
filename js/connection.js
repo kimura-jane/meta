@@ -16,12 +16,6 @@ import { setHostAuthResult } from './settings.js';
 // --------------------------------------------
 const PARTYKIT_HOST = 'kimurameta.kimura-jane.partykit.dev';
 const ROOM_ID = 'main-stage';
-
-/**
- * partykit.json で "parties" を使っている場合は PARTY_NAME を設定
- * - 使ってない（デフォルト構成）なら null のまま → /party/<room>
- * - 使ってるなら "metaverse" 等 → /parties/<party>/<room>
- */
 const PARTY_NAME = null;
 
 // --------------------------------------------
@@ -40,33 +34,28 @@ let isSpeaker = false;
 let isMicMuted = false;
 let myPublishedTrackName = null;
 
-const subscribedTracks = new Map();        // trackName -> { odUserId, pc, sessionId, source, gainNode, audioEl }
-const pendingSubscriptions = new Map();    // trackName -> { odUserId, remoteSessionId }
-const pendingStreams = [];                 // { stream, trackName, odUserId }
+const subscribedTracks = new Map();
+const pendingSubscriptions = new Map();
+const pendingStreams = [];
 
 let speakerCount = 0;
 let audioUnlocked = false;
 
-// 共有AudioContext（iOS Safari対策：1個だけ作成）
 let sharedAudioContext = null;
 let masterGainNode = null;
 
-// iOS向け：audio要素も併用
-const remoteAudioEls = new Map(); // trackName -> HTMLAudioElement
-const pendingAudioPlays = new Set(); // trackName
+const remoteAudioEls = new Map();
+const pendingAudioPlays = new Set();
 
-// 登壇リクエスト・登壇者リスト
 let speakRequests = [];
 let currentSpeakers = [];
 
-// 主催者認証（サーバ結果で確定）
 let hostAuthed = false;
 let hostAuthPending = false;
 
-// ★秘密会議：サーバ真実
 let secretMode = false;
-let isAuthed = false; // 入室パスOKか
-let isHost = false;   // 主催者ログイン済みか（server管理）
+let isAuthed = false;
+let isHost = false;
 
 function canAccessContent() {
   return !secretMode || isAuthed;
@@ -74,7 +63,6 @@ function canAccessContent() {
 
 // コールバック
 let callbacks = {
-  // 既存
   onUserJoin: null,
   onUserLeave: null,
   onPosition: null,
@@ -93,16 +81,15 @@ let callbacks = {
   onChat: null,
   onKicked: null,
   remoteAvatars: null,
-
-  // ★追加（main.js が期待）
-  onInitMin: null,            // ({secretMode,isHost,authRequired?}) => void
-  onAuthOk: null,             // () => void
-  onAuthNg: null,             // () => void
-  onSecretModeChanged: null   // (value:boolean) => void
+  onInitMin: null,
+  onAuthOk: null,
+  onAuthNg: null,
+  onSecretModeChanged: null,
+  onHostAuthResult: null
 };
 
 export function setCallbacks(cbs) {
-  callbacks = { ...callbacks, ...cbs };
+  callbacks = { ...callbacks, ...(cbs || {}) };
 }
 
 export function getState() {
@@ -116,8 +103,6 @@ export function getState() {
     speakRequests,
     currentSpeakers,
     hostAuthed,
-
-    // ★追加（デバッグ用）
     secretMode,
     isAuthed,
     isHost
@@ -221,7 +206,6 @@ function connectPendingStreams() {
   }
 }
 
-// iOSはaudio要素優先
 function connectStreamPlayback(stream, trackName, odUserId) {
   if (isIOS()) return connectStreamToAudioElement(stream, trackName, odUserId);
   return connectStreamToAudioContext(stream, trackName, odUserId);
@@ -353,7 +337,6 @@ function showAudioUnlockButton() {
   document.body.appendChild(btn);
 }
 
-// ★重要：再接続でイベントリスナー増殖させない
 let audioUnlockSetupDone = false;
 
 function setupAudioUnlockOnce() {
@@ -376,7 +359,7 @@ function setupAudioUnlockOnce() {
 }
 
 // --------------------------------------------
-// WebSocket URL（/party と /parties 両対応）
+// WebSocket URL
 // --------------------------------------------
 function buildWsUrl(userName) {
   const base = `wss://${PARTYKIT_HOST}`;
@@ -391,7 +374,7 @@ function buildWsUrl(userName) {
 }
 
 // --------------------------------------------
-// 再接続制御（多重接続防止＋バックオフ）
+// 再接続制御
 // --------------------------------------------
 let reconnectTimer = null;
 let reconnectAttempt = 0;
@@ -408,7 +391,7 @@ function scheduleReconnect() {
   if (!wantReconnect) return;
   if (reconnectTimer) return;
 
-  const base = 800; // ms
+  const base = 800;
   const max = 8000;
   const jitter = Math.floor(Math.random() * 250);
 
@@ -436,7 +419,6 @@ function cleanupSubscriptions() {
   pendingSubscriptions.clear();
   pendingStreams.length = 0;
 
-  // iOS audio要素掃除
   for (const [trackName, el] of remoteAudioEls) {
     try { el.srcObject = null; } catch(_) {}
     try { el.remove(); } catch(_) {}
@@ -451,7 +433,6 @@ function cleanupSubscriptions() {
 export function connectToPartyKit(userName) {
   currentUserName = userName;
 
-  // 多重接続防止：既存socketが生きてたら閉じる
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     try { socket.close(1000, 'reconnect'); } catch(_) {}
   }
@@ -460,14 +441,12 @@ export function connectToPartyKit(userName) {
   wantReconnect = true;
   clearReconnectTimer();
 
-  // 接続ごとに default deny + host状態も初期化（安全）
+  // 接続ごとに状態リセット（通知は出さない）
   isAuthed = false;
   secretMode = false;
   isHost = false;
-
   hostAuthed = false;
   hostAuthPending = false;
-  setHostAuthResult(false, '未接続のため主催者状態を解除しました');
 
   const wsUrl = buildWsUrl(userName);
   debugLog(`接続開始: ${wsUrl}`, 'info');
@@ -484,7 +463,7 @@ export function connectToPartyKit(userName) {
 
   socket.onopen = () => {
     connected = true;
-    reconnectAttempt = 0; // 成功したら戻す
+    reconnectAttempt = 0;
     debugLog('PartyKit接続成功', 'success');
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
   };
@@ -507,28 +486,25 @@ export function connectToPartyKit(userName) {
 
     cleanupSubscriptions();
 
-    // 秘密会議：接続単位で無効
     isAuthed = false;
     secretMode = false;
     isHost = false;
-
-    // 主催者認証はサーバ接続単位なので切断で無効
     hostAuthed = false;
     hostAuthPending = false;
+
+    // 切断時に settings.js へ通知
     setHostAuthResult(false, '接続が切れたため主催者状態を解除しました');
 
-    // 1000/1001 は通常終了扱い：必要なら再接続しない
     if (ev.code === 1000 || ev.code === 1001) return;
 
     scheduleReconnect();
   };
 
   socket.onerror = () => {
-    debugLog('WebSocketエラー（詳細はoncloseのcode/reasonを見る）', 'error');
+    debugLog('WebSocketエラー', 'error');
   };
 }
 
-// 任意：明示切断
 export function disconnectPartyKit() {
   wantReconnect = false;
   clearReconnectTimer();
@@ -546,7 +522,6 @@ export function disconnectPartyKit() {
 // --------------------------------------------
 function handleServerMessage(data) {
   switch (data.type) {
-    // ★秘密会議：最小初期化（未認証向け）
     case 'initMin': {
       myServerConnectionId = data.yourId;
 
@@ -566,11 +541,9 @@ function handleServerMessage(data) {
       break;
     }
 
-    // 認証後の full init
     case 'init': {
       myServerConnectionId = data.yourId;
 
-      // ★サーバの真実を同期
       if (data.secretMode !== undefined) secretMode = !!data.secretMode;
       if (data.isHost !== undefined) isHost = !!data.isHost;
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
@@ -582,7 +555,6 @@ function handleServerMessage(data) {
         debugLog('TURN認証情報取得', 'success');
       }
 
-      // 既存ユーザー反映
       Object.entries(data.users || {}).forEach(([odUserId, user]) => {
         if (odUserId === myServerConnectionId) return;
 
@@ -612,7 +584,6 @@ function handleServerMessage(data) {
         callbacks.onBackgroundChange(data.backgroundUrl);
       }
 
-      // 既存トラック購読
       if (data.tracks && data.sessions) {
         const tracksArray = Array.isArray(data.tracks) ? data.tracks : [];
         const sessionsArray = Array.isArray(data.sessions) ? data.sessions : [];
@@ -630,7 +601,6 @@ function handleServerMessage(data) {
       break;
     }
 
-    // ★入室認証結果
     case 'authOk': {
       isAuthed = true;
       debugLog('authOk: 入室認証OK', 'success');
@@ -646,7 +616,6 @@ function handleServerMessage(data) {
       break;
     }
 
-    // ★秘密会議のON/OFF変更
     case 'secretModeChanged': {
       secretMode = !!data.value;
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
@@ -658,7 +627,6 @@ function handleServerMessage(data) {
       break;
     }
 
-    // ✅主催者認証結果（サーバから）※これは未認証でも受けてOK
     case 'hostAuthResult': {
       const ok = !!data.ok;
       const reason = data.reason || '';
@@ -666,10 +634,17 @@ function handleServerMessage(data) {
       hostAuthPending = false;
 
       if (data.isHost !== undefined) isHost = !!data.isHost;
+      if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
       setHostAuthResult(ok, reason);
-      debugLog(`hostAuthResult: ${ok ? 'OK' : 'NG'} ${reason}`, ok ? 'success' : 'warn');
+      debugLog(`hostAuthResult: ${ok ? 'OK' : 'NG'} ${reason}, isHost=${isHost}, isAuthed=${isAuthed}`, ok ? 'success' : 'warn');
 
+      // main.js へも通知
+      if (callbacks.onHostAuthResult) {
+        callbacks.onHostAuthResult({ ok, reason, isHost, isAuthed });
+      }
+
+      // initMin 相当の状態更新を main.js に通知
       if (callbacks.onInitMin) {
         callbacks.onInitMin({
           secretMode,
@@ -678,11 +653,9 @@ function handleServerMessage(data) {
         });
       }
 
-      safeSend({ type: 'requestInit' });
       break;
     }
 
-    // --------- ここから「中身系」：未認証なら全部無視（保険） ---------
     case 'userJoin': {
       if (!canAccessContent()) return;
       const joinUserId = data.odUserId || data.userId || data.user?.id;
@@ -885,7 +858,6 @@ function handleServerMessage(data) {
     }
 
     default: {
-      // ★未知typeは握りつぶす（落とさない）
       if (data?.type) debugLog(`未知メッセージ: ${data.type}`, 'warn');
       break;
     }
@@ -1250,13 +1222,11 @@ function safeSend(obj) {
   return false;
 }
 
-// ★秘密会議：入室認証
 export function sendAuth(password) {
   if (!password) return false;
   return safeSend({ type: 'auth', password });
 }
 
-// ★主催者：秘密会議解除
 export function disableSecretMode() {
   if (!hostAuthed) {
     debugLog('主催者未認証のため disableSecretMode をブロック', 'warn');
@@ -1265,7 +1235,6 @@ export function disableSecretMode() {
   return safeSend({ type: 'disableSecretMode' });
 }
 
-// ★主催者：秘密会議 ON/OFF
 export function setSecretMode(value) {
   if (!hostAuthed) {
     debugLog('主催者未認証のため setSecretMode をブロック', 'warn');
@@ -1321,7 +1290,7 @@ export function sendAnnounce(message) {
 }
 
 // --------------------------------------------
-// 主催者機能：サーバ認証
+// 主催者機能
 // --------------------------------------------
 export function hostLogin(password) {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -1341,6 +1310,7 @@ export function hostLogin(password) {
 export function hostLogout() {
   hostAuthed = false;
   hostAuthPending = false;
+  isHost = false;
   setHostAuthResult(false, 'ログアウトしました');
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'hostLogout' }));

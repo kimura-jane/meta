@@ -85,7 +85,8 @@ let callbacks = {
   onAuthOk: null,
   onAuthNg: null,
   onSecretModeChanged: null,
-  onHostAuthResult: null
+  onHostAuthResult: null,
+  onMyIdChanged: null
 };
 
 export function setCallbacks(cbs) {
@@ -441,22 +442,23 @@ export function connectToPartyKit(userName) {
   wantReconnect = true;
   clearReconnectTimer();
 
-  // 接続ごとに状態リセット（通知は出さない）
+  // 接続ごとに状態リセット
   isAuthed = false;
   secretMode = false;
   isHost = false;
   hostAuthed = false;
   hostAuthPending = false;
+  myServerConnectionId = null;
 
   const wsUrl = buildWsUrl(userName);
-  debugLog(`接続開始: ${wsUrl}`, 'info');
+  debugLog(`[Connection] 接続開始: ${wsUrl}`, 'info');
 
   setupAudioUnlockOnce();
 
   try {
     socket = new WebSocket(wsUrl);
   } catch (e) {
-    debugLog(`WebSocket作成エラー: ${e?.message || e}`, 'error');
+    debugLog(`[Connection] WebSocket作成エラー: ${e?.message || e}`, 'error');
     scheduleReconnect();
     return;
   }
@@ -464,22 +466,22 @@ export function connectToPartyKit(userName) {
   socket.onopen = () => {
     connected = true;
     reconnectAttempt = 0;
-    debugLog('PartyKit接続成功', 'success');
+    debugLog('[Connection] PartyKit接続成功', 'success');
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
   };
 
   socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      if (data.type !== 'position') debugLog(`受信: ${data.type}`, 'info');
+      if (data.type !== 'position') debugLog(`[Connection] 受信: ${data.type}`, 'info');
       handleServerMessage(data);
     } catch (e) {
-      debugLog(`メッセージ解析エラー: ${e?.message || e}`, 'error');
+      debugLog(`[Connection] メッセージ解析エラー: ${e?.message || e}`, 'error');
     }
   };
 
   socket.onclose = (ev) => {
-    debugLog(`接続切断 code=${ev.code} reason=${ev.reason || '(none)'} wasClean=${ev.wasClean}`, 'warn');
+    debugLog(`[Connection] 接続切断 code=${ev.code} reason=${ev.reason || '(none)'}`, 'warn');
 
     connected = false;
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(false);
@@ -492,7 +494,6 @@ export function connectToPartyKit(userName) {
     hostAuthed = false;
     hostAuthPending = false;
 
-    // 切断時に settings.js へ通知
     setHostAuthResult(false, '接続が切れたため主催者状態を解除しました');
 
     if (ev.code === 1000 || ev.code === 1001) return;
@@ -501,7 +502,7 @@ export function connectToPartyKit(userName) {
   };
 
   socket.onerror = () => {
-    debugLog('WebSocketエラー', 'error');
+    debugLog('[Connection] WebSocketエラー', 'error');
   };
 }
 
@@ -523,18 +524,25 @@ export function disconnectPartyKit() {
 function handleServerMessage(data) {
   switch (data.type) {
     case 'initMin': {
+      const oldId = myServerConnectionId;
       myServerConnectionId = data.yourId;
 
       secretMode = !!data.secretMode;
       isHost = !!data.isHost;
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
-      debugLog(`initMin: ID=${myServerConnectionId}, secretMode=${secretMode}, isHost=${isHost}, isAuthed=${isAuthed}`, 'success');
+      debugLog(`[Connection] initMin: ID=${myServerConnectionId}, secretMode=${secretMode}, isHost=${isHost}, isAuthed=${isAuthed}`, 'success');
+
+      // IDが変わったことを通知
+      if (callbacks.onMyIdChanged && oldId !== myServerConnectionId) {
+        callbacks.onMyIdChanged(oldId, myServerConnectionId);
+      }
 
       if (callbacks.onInitMin) {
         callbacks.onInitMin({
           secretMode,
           isHost,
+          isAuthed,
           authRequired: data.authRequired !== undefined ? !!data.authRequired : secretMode
         });
       }
@@ -542,17 +550,23 @@ function handleServerMessage(data) {
     }
 
     case 'init': {
+      const oldId = myServerConnectionId;
       myServerConnectionId = data.yourId;
 
       if (data.secretMode !== undefined) secretMode = !!data.secretMode;
       if (data.isHost !== undefined) isHost = !!data.isHost;
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
-      debugLog(`初期化(init): ID=${myServerConnectionId}, ${Object.keys(data.users || {}).length}人, secretMode=${secretMode}, isAuthed=${isAuthed}`, 'success');
+      debugLog(`[Connection] init: ID=${myServerConnectionId}, ${Object.keys(data.users || {}).length}人, secretMode=${secretMode}, isAuthed=${isAuthed}`, 'success');
+
+      // IDが変わったことを通知
+      if (callbacks.onMyIdChanged && oldId !== myServerConnectionId) {
+        callbacks.onMyIdChanged(oldId, myServerConnectionId);
+      }
 
       if (data.turnCredentials) {
         turnCredentials = data.turnCredentials;
-        debugLog('TURN認証情報取得', 'success');
+        debugLog('[Connection] TURN認証情報取得', 'success');
       }
 
       Object.entries(data.users || {}).forEach(([odUserId, user]) => {
@@ -603,7 +617,7 @@ function handleServerMessage(data) {
 
     case 'authOk': {
       isAuthed = true;
-      debugLog('authOk: 入室認証OK', 'success');
+      debugLog('[Connection] authOk: 入室認証OK', 'success');
       if (callbacks.onAuthOk) callbacks.onAuthOk();
       safeSend({ type: 'requestInit' });
       break;
@@ -611,7 +625,7 @@ function handleServerMessage(data) {
 
     case 'authNg': {
       isAuthed = false;
-      debugLog('authNg: 入室認証NG', 'warn');
+      debugLog('[Connection] authNg: 入室認証NG', 'warn');
       if (callbacks.onAuthNg) callbacks.onAuthNg();
       break;
     }
@@ -620,7 +634,7 @@ function handleServerMessage(data) {
       secretMode = !!data.value;
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
-      debugLog(`secretModeChanged: ${secretMode} (isAuthed=${isAuthed})`, 'info');
+      debugLog(`[Connection] secretModeChanged: ${secretMode} (isAuthed=${isAuthed})`, 'info');
       if (callbacks.onSecretModeChanged) callbacks.onSecretModeChanged(secretMode);
 
       safeSend({ type: 'requestInit' });
@@ -637,18 +651,17 @@ function handleServerMessage(data) {
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
       setHostAuthResult(ok, reason);
-      debugLog(`hostAuthResult: ${ok ? 'OK' : 'NG'} ${reason}, isHost=${isHost}, isAuthed=${isAuthed}`, ok ? 'success' : 'warn');
+      debugLog(`[Connection] hostAuthResult: ${ok ? 'OK' : 'NG'} ${reason}, isHost=${isHost}, isAuthed=${isAuthed}`, ok ? 'success' : 'warn');
 
-      // main.js へも通知
       if (callbacks.onHostAuthResult) {
         callbacks.onHostAuthResult({ ok, reason, isHost, isAuthed });
       }
 
-      // initMin 相当の状態更新を main.js に通知
       if (callbacks.onInitMin) {
         callbacks.onInitMin({
           secretMode,
           isHost,
+          isAuthed,
           authRequired: secretMode
         });
       }
@@ -755,7 +768,7 @@ function handleServerMessage(data) {
 
     case 'speakDenied': {
       if (!canAccessContent()) return;
-      debugLog(`speakDenied: ${data.reason}`, 'warn');
+      debugLog(`[Connection] speakDenied: ${data.reason}`, 'warn');
       if (callbacks.onChat) callbacks.onChat('system', 'システム', data.reason || '登壇リクエストが却下されました');
       break;
     }
@@ -821,7 +834,7 @@ function handleServerMessage(data) {
 
     case 'subscribeAnswerAck': {
       if (!canAccessContent()) return;
-      debugLog('Answer確認OK', 'success');
+      debugLog('[Connection] Answer確認OK', 'success');
       break;
     }
 
@@ -845,7 +858,7 @@ function handleServerMessage(data) {
 
     case 'kicked': {
       if (!canAccessContent()) return;
-      debugLog('強制降壇されました', 'warn');
+      debugLog('[Connection] 強制降壇されました', 'warn');
       stopSpeaking();
       if (callbacks.onKicked) callbacks.onKicked();
       if (callbacks.onChat) callbacks.onChat('system', 'システム', '主催者により登壇を終了しました');
@@ -853,12 +866,12 @@ function handleServerMessage(data) {
     }
 
     case 'error': {
-      debugLog(`サーバーエラー: ${data.code || data.message} ${data.message ? `(${data.message})` : ''}`, 'error');
+      debugLog(`[Connection] サーバーエラー: ${data.code || data.message}`, 'error');
       break;
     }
 
     default: {
-      if (data?.type) debugLog(`未知メッセージ: ${data.type}`, 'warn');
+      if (data?.type) debugLog(`[Connection] 未知メッセージ: ${data.type}`, 'warn');
       break;
     }
   }
@@ -914,7 +927,7 @@ export function requestSpeak() {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
   if (!canAccessContent()) {
-    debugLog('未認証のため requestSpeak をブロック', 'warn');
+    debugLog('[Connection] 未認証のため requestSpeak をブロック', 'warn');
     return;
   }
 
@@ -922,7 +935,7 @@ export function requestSpeak() {
     stopSpeaking();
     return;
   }
-  debugLog('登壇リクエスト送信', 'info');
+  debugLog('[Connection] 登壇リクエスト送信', 'info');
   socket.send(JSON.stringify({ type: 'requestSpeak' }));
 }
 
@@ -958,13 +971,13 @@ export function stopSpeaking() {
 
 async function startPublishing() {
   if (!canAccessContent()) {
-    debugLog('未認証のため publish をブロック', 'warn');
+    debugLog('[Connection] 未認証のため publish をブロック', 'warn');
     stopSpeaking();
     return;
   }
 
   try {
-    debugLog('マイク取得開始...', 'info');
+    debugLog('[Connection] マイク取得開始...', 'info');
 
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -978,7 +991,7 @@ async function startPublishing() {
       video: false
     });
 
-    debugLog('マイク取得成功', 'success');
+    debugLog('[Connection] マイク取得成功', 'success');
 
     await unlockAudioContext();
 
@@ -1009,7 +1022,7 @@ async function startPublishing() {
     const trackName = `audio-${myServerConnectionId}`;
     myPublishedTrackName = trackName;
 
-    debugLog(`トラック公開: ${trackName}`, 'info');
+    debugLog(`[Connection] トラック公開: ${trackName}`, 'info');
 
     if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error('Socket not open');
 
@@ -1021,7 +1034,7 @@ async function startPublishing() {
     }));
 
   } catch (error) {
-    debugLog(`publishエラー: ${error?.message || error}`, 'error');
+    debugLog(`[Connection] publishエラー: ${error?.message || error}`, 'error');
     stopSpeaking();
   }
 }
@@ -1031,9 +1044,9 @@ async function handleTrackPublished(data) {
 
   try {
     await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-    debugLog('トラック公開完了', 'success');
+    debugLog('[Connection] トラック公開完了', 'success');
   } catch (e) {
-    debugLog(`setRemoteDescriptionエラー: ${e?.message || e}`, 'error');
+    debugLog(`[Connection] setRemoteDescriptionエラー: ${e?.message || e}`, 'error');
   }
 }
 
@@ -1041,7 +1054,7 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
   if (!canAccessContent()) {
-    debugLog('未認証のため subscribeToTrack をブロック', 'warn');
+    debugLog('[Connection] 未認証のため subscribeToTrack をブロック', 'warn');
     return;
   }
 
@@ -1050,7 +1063,7 @@ async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
   if (subscribedTracks.has(trackName)) return;
   if (pendingSubscriptions.has(trackName)) return;
 
-  debugLog(`トラック購読開始: ${trackName}`, 'info');
+  debugLog(`[Connection] トラック購読開始: ${trackName}`, 'info');
 
   pendingSubscriptions.set(trackName, { odUserId, remoteSessionId });
 
@@ -1091,7 +1104,7 @@ async function handleSubscribed(data) {
   const pendingInfo = pendingSubscriptions.get(trackName);
   if (!pendingInfo) return;
 
-  debugLog(`購読処理: ${trackName}`, 'info');
+  debugLog(`[Connection] 購読処理: ${trackName}`, 'info');
 
   try {
     const pc = new RTCPeerConnection({
@@ -1103,7 +1116,7 @@ async function handleSubscribed(data) {
     try { pc.addTransceiver('audio', { direction: 'recvonly' }); } catch (_) {}
 
     pc.ontrack = (event) => {
-      debugLog(`音声トラック受信: ${trackName}`, 'success');
+      debugLog(`[Connection] 音声トラック受信: ${trackName}`, 'success');
 
       const stream = event.streams?.[0] || new MediaStream([event.track]);
 
@@ -1140,10 +1153,10 @@ async function handleSubscribed(data) {
       audioEl: null
     });
 
-    debugLog(`購読完了: ${trackName}`, 'success');
+    debugLog(`[Connection] 購読完了: ${trackName}`, 'success');
 
   } catch (e) {
-    debugLog(`handleSubscribedエラー: ${e?.message || e}`, 'error');
+    debugLog(`[Connection] handleSubscribedエラー: ${e?.message || e}`, 'error');
     pendingSubscriptions.delete(trackName);
   }
 }
@@ -1151,7 +1164,7 @@ async function handleSubscribed(data) {
 function removeRemoteAudio(odUserId) {
   for (const [trackName, obj] of subscribedTracks) {
     if (obj.odUserId === odUserId) {
-      debugLog(`音声削除: ${trackName}`, 'info');
+      debugLog(`[Connection] 音声削除: ${trackName}`, 'info');
 
       if (obj.source) { try { obj.source.disconnect(); } catch(_) {} }
       if (obj.gainNode) { try { obj.gainNode.disconnect(); } catch(_) {} }
@@ -1204,7 +1217,7 @@ export function toggleMic() {
     if (audioTrack) {
       audioTrack.enabled = !audioTrack.enabled;
       isMicMuted = !audioTrack.enabled;
-      debugLog(`マイク: ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
+      debugLog(`[Connection] マイク: ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
       return !isMicMuted;
     }
   }
@@ -1219,27 +1232,34 @@ function safeSend(obj) {
     socket.send(JSON.stringify(obj));
     return true;
   }
+  debugLog(`[Connection] safeSend失敗: socket not open`, 'warn');
   return false;
 }
 
 export function sendAuth(password) {
-  if (!password) return false;
+  if (!password) {
+    debugLog('[Connection] sendAuth: パスワードが空', 'warn');
+    return false;
+  }
+  debugLog('[Connection] sendAuth: 入室認証送信', 'info');
   return safeSend({ type: 'auth', password });
 }
 
 export function disableSecretMode() {
   if (!hostAuthed) {
-    debugLog('主催者未認証のため disableSecretMode をブロック', 'warn');
+    debugLog('[Connection] 主催者未認証のため disableSecretMode をブロック', 'warn');
     return false;
   }
+  debugLog('[Connection] disableSecretMode送信', 'info');
   return safeSend({ type: 'disableSecretMode' });
 }
 
 export function setSecretMode(value) {
   if (!hostAuthed) {
-    debugLog('主催者未認証のため setSecretMode をブロック', 'warn');
+    debugLog('[Connection] 主催者未認証のため setSecretMode をブロック', 'warn');
     return false;
   }
+  debugLog(`[Connection] setSecretMode送信: ${value}`, 'info');
   return safeSend({ type: 'setSecretMode', value: !!value });
 }
 
@@ -1266,6 +1286,7 @@ export function sendChat(message) {
 export function sendNameChange(newName) {
   currentUserName = newName;
   if (!canAccessContent()) return;
+  debugLog(`[Connection] sendNameChange: ${newName}`, 'info');
   safeSend({ type: 'nameChange', name: newName });
 }
 
@@ -1293,21 +1314,30 @@ export function sendAnnounce(message) {
 // 主催者機能
 // --------------------------------------------
 export function hostLogin(password) {
+  debugLog(`[Connection] hostLogin called: connected=${connected}, hasPassword=${!!password}`, 'info');
+
   if (!socket || socket.readyState !== WebSocket.OPEN) {
+    debugLog('[Connection] hostLogin: ソケット未接続', 'error');
     setHostAuthResult(false, '未接続です');
     return;
   }
   if (!password) {
+    debugLog('[Connection] hostLogin: パスワードが空', 'warn');
     setHostAuthResult(false, 'パスワードが空です');
     return;
   }
-  if (hostAuthPending) return;
+  if (hostAuthPending) {
+    debugLog('[Connection] hostLogin: 認証中のためスキップ', 'warn');
+    return;
+  }
 
   hostAuthPending = true;
+  debugLog('[Connection] hostLogin: hostAuth送信', 'info');
   socket.send(JSON.stringify({ type: 'hostAuth', password }));
 }
 
 export function hostLogout() {
+  debugLog('[Connection] hostLogout called', 'info');
   hostAuthed = false;
   hostAuthPending = false;
   isHost = false;
@@ -1323,11 +1353,11 @@ export function hostLogout() {
 export function approveSpeak(userId) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
   if (!hostAuthed) {
-    debugLog('主催者未認証のため approveSpeak をブロック', 'warn');
+    debugLog('[Connection] 主催者未認証のため approveSpeak をブロック', 'warn');
     return;
   }
   if (!canAccessContent()) {
-    debugLog('未認証のため approveSpeak をブロック', 'warn');
+    debugLog('[Connection] 未認証のため approveSpeak をブロック', 'warn');
     return;
   }
   socket.send(JSON.stringify({ type: 'approveSpeak', userId }));
@@ -1336,11 +1366,11 @@ export function approveSpeak(userId) {
 export function denySpeak(userId) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
   if (!hostAuthed) {
-    debugLog('主催者未認証のため denySpeak をブロック', 'warn');
+    debugLog('[Connection] 主催者未認証のため denySpeak をブロック', 'warn');
     return;
   }
   if (!canAccessContent()) {
-    debugLog('未認証のため denySpeak をブロック', 'warn');
+    debugLog('[Connection] 未認証のため denySpeak をブロック', 'warn');
     return;
   }
   socket.send(JSON.stringify({ type: 'denySpeak', userId }));
@@ -1349,11 +1379,11 @@ export function denySpeak(userId) {
 export function kickSpeaker(userId) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
   if (!hostAuthed) {
-    debugLog('主催者未認証のため kickSpeaker をブロック', 'warn');
+    debugLog('[Connection] 主催者未認証のため kickSpeaker をブロック', 'warn');
     return;
   }
   if (!canAccessContent()) {
-    debugLog('未認証のため kickSpeaker をブロック', 'warn');
+    debugLog('[Connection] 未認証のため kickSpeaker をブロック', 'warn');
     return;
   }
   socket.send(JSON.stringify({ type: 'kickSpeaker', userId }));

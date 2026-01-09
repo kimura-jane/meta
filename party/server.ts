@@ -57,12 +57,10 @@ export default class Server implements Party.Server {
   }
 
   getHostPassword(): string {
-    // PartyKit Secrets で HOST_PASSWORD
     return (this.room.env.HOST_PASSWORD as string) || DEV_FALLBACK_HOST_PASSWORD;
   }
 
   getRoomPassword(): string {
-    // PartyKit Secrets で ROOM_PASSWORD（秘密会議入室パス）
     return (this.room.env.ROOM_PASSWORD as string) || DEV_FALLBACK_ROOM_PASSWORD;
   }
 
@@ -70,12 +68,11 @@ export default class Server implements Party.Server {
     return this.hosts.has(connId);
   }
 
-  // ★重要：host は “入室認証” ではない（抜け道禁止）
+  // ★host は “入室認証” ではない（抜け道禁止）
   isAuthed(connId: string): boolean {
     return this.authed.has(connId);
   }
 
-  // 中身アクセス可否（音声/チャット/参加者情報など）
   canAccessContent(connId: string): boolean {
     return !this.secretMode || this.isAuthed(connId);
   }
@@ -102,7 +99,6 @@ export default class Server implements Party.Server {
   buildVisibleUsers(): Record<string, User> {
     if (!this.secretMode) return this.users;
 
-    // secretMode中は “入室認証済みユーザーだけ” を見せる（主催者でも未入室なら見えない）
     const visible: Record<string, User> = {};
     for (const [id, u] of Object.entries(this.users)) {
       if (this.isAuthed(id)) visible[id] = u;
@@ -141,6 +137,12 @@ export default class Server implements Party.Server {
       tracks: this.buildVisibleTracksEntries(),
       sessions: this.buildVisibleSessionsEntries(),
       speakRequests: this.buildVisibleSpeakRequests(),
+
+      // ★ここが重要：クライアントに真実を渡す
+      secretMode: this.secretMode,
+      isHost: this.isHost(conn.id),
+      isAuthed: this.isAuthed(conn.id),
+      authRequired: this.secretMode,
     };
 
     if (this.brightness !== null) payload.brightness = this.brightness;
@@ -166,13 +168,12 @@ export default class Server implements Party.Server {
     }
   }
 
-  // ★非機密イベント（secretModeChanged等）は全員へ送る
+  // ★非機密イベントは全員へ送る
   broadcastPublic(payload: any, excludeIds: string[] = []) {
     this.room.broadcast(JSON.stringify(payload), excludeIds);
   }
 
   completeJoin(conn: Party.Connection) {
-    // 参加条件チェック：secretMode中は authed 必須
     if (!this.canAccessContent(conn.id)) {
       this.sendInitMin(conn);
       return;
@@ -185,10 +186,8 @@ export default class Server implements Party.Server {
 
     this.joined.add(conn.id);
 
-    // full init（中身）
     this.sendFullInit(conn);
 
-    // 他の参加者へ userJoin（中身）
     const u = this.users[conn.id];
     if (u) {
       this.broadcastAllowed(
@@ -223,16 +222,13 @@ export default class Server implements Party.Server {
 
     this.users[conn.id] = user;
 
-    // secretMode ON はまず最小情報だけ（デフォルト deny）
     if (this.secretMode) {
       this.sendInitMin(conn);
-      // authed なら即 join
       if (this.isAuthed(conn.id)) this.completeJoin(conn);
       console.log(`[onConnect] (secret) ${conn.id} (${name})`);
       return;
     }
 
-    // 通常モード：中身へ参加
     this.completeJoin(conn);
     console.log(`[onConnect] ${conn.id} (${name})`);
   }
@@ -261,7 +257,6 @@ export default class Server implements Party.Server {
 
     delete this.users[conn.id];
 
-    // 中身参加者にだけ通知
     this.broadcastAllowed({
       type: "userLeave",
       odUserId: conn.id,
@@ -286,13 +281,11 @@ export default class Server implements Party.Server {
         // Secret Mode / Auth
         // --------------------
         case "requestInit": {
-          // authOk後の保険
           this.completeJoin(sender);
           break;
         }
 
         case "auth": {
-          // 入室パス（秘密会議）
           const lock = this.authFail.get(sender.id);
           const now = Date.now();
           if (lock && lock.lockedUntil > now) {
@@ -306,7 +299,6 @@ export default class Server implements Party.Server {
           if (!ok) {
             const cur = this.authFail.get(sender.id) || { count: 0, lastAt: 0, lockedUntil: 0 };
             const nextCount = cur.count + 1;
-            // 5回失敗で30秒ロック（雑でOK）
             const lockedUntil = nextCount >= 5 ? now + 30_000 : 0;
             this.authFail.set(sender.id, { count: nextCount, lastAt: now, lockedUntil });
 
@@ -314,13 +306,11 @@ export default class Server implements Party.Server {
             break;
           }
 
-          // 成功：失敗カウンタクリア
           this.authFail.delete(sender.id);
 
           this.authed.add(sender.id);
           this.send(sender, { type: "authOk" });
 
-          // 認証OKなら中身へ参加
           this.completeJoin(sender);
 
           console.log(`[auth] OK ${sender.id}`);
@@ -328,7 +318,6 @@ export default class Server implements Party.Server {
         }
 
         case "disableSecretMode": {
-          // 主催者だけ（入室してなくても可）
           if (!this.isHost(sender.id)) {
             this.send(sender, { type: "error", code: "SRV_ERR_NOT_HOST" });
             break;
@@ -336,10 +325,8 @@ export default class Server implements Party.Server {
 
           this.secretMode = false;
 
-          // OFF通知は全員へ
           this.broadcastPublic({ type: "secretModeChanged", value: false });
 
-          // 全員へ full init（通常モード整合）
           for (const id of Object.keys(this.users)) {
             this.joined.add(id);
             const c = this.room.getConnection(id);
@@ -350,7 +337,6 @@ export default class Server implements Party.Server {
           break;
         }
 
-        // 任意：主催者が秘密会議をON/OFFする
         case "setSecretMode": {
           if (!this.isHost(sender.id)) {
             this.send(sender, { type: "error", code: "SRV_ERR_NOT_HOST" });
@@ -361,26 +347,21 @@ export default class Server implements Party.Server {
           this.secretMode = value;
 
           if (value) {
-            // ★ONにした瞬間：誰も自動入室させない（抜け道禁止）
             this.authed.clear();
             this.joined.clear();
 
-            // 進行中の登壇/トラックは安全側で全クリア（漏れ対策）
             this.speakers.clear();
             this.tracks.clear();
             this.sessions.clear();
             this.speakRequests = [];
 
-            // 全員へ「ON」通知（最小情報を出すため）
             this.broadcastPublic({ type: "secretModeChanged", value: true });
 
-            // 全員へ initMin 送り直し（UIブロック誘導）
             for (const id of Object.keys(this.users)) {
               const c = this.room.getConnection(id);
               if (c) this.sendInitMin(c);
             }
           } else {
-            // OFF：全員開放
             this.broadcastPublic({ type: "secretModeChanged", value: false });
             for (const id of Object.keys(this.users)) {
               this.joined.add(id);
@@ -408,7 +389,7 @@ export default class Server implements Party.Server {
         }
 
         // --------------------
-        // Content messages (secretMode: unauthは全拒否)
+        // Content messages
         // --------------------
         case "position": {
           if (!this.canAccessContent(sender.id)) break;
@@ -448,7 +429,6 @@ export default class Server implements Party.Server {
 
         case "reaction": {
           if (!this.canAccessContent(sender.id)) break;
-
           this.broadcastAllowed({ type: "reaction", odUserId: sender.id, reaction: data.reaction, color: data.color });
           break;
         }
@@ -512,7 +492,7 @@ export default class Server implements Party.Server {
         }
 
         // --------------------
-        // Cloudflare Calls (publish / subscribe)
+        // Cloudflare Calls
         // --------------------
         case "publishTrack": {
           if (!this.canAccessContent(sender.id)) {
@@ -542,7 +522,7 @@ export default class Server implements Party.Server {
         }
 
         // --------------------
-        // Room UI state（中身扱い）
+        // Room UI state
         // --------------------
         case "backgroundChange": {
           if (!this.canAccessContent(sender.id)) break;
@@ -563,18 +543,26 @@ export default class Server implements Party.Server {
 
         case "announce": {
           if (!this.canAccessContent(sender.id)) break;
-
           this.broadcastAllowed({ type: "announce", message: data.message });
           break;
         }
+
+        default: {
+          // ★未知typeは落とさない。ログだけ。
+          console.warn("[onMessage] unknown type:", data?.type);
+          break;
+        }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("[onMessage] Error:", e);
+      try {
+        this.send(sender, { type: "error", code: "SRV_ERR_EXCEPTION", message: String(e?.message || e) });
+      } catch {}
     }
   }
 
   // --------------------------
-  // Host Auth（主催者＝解除権限。中身閲覧は別）
+  // Host Auth
   // --------------------------
   handleHostAuth(sender: Party.Connection, password?: string) {
     const expected = this.getHostPassword();
@@ -588,10 +576,8 @@ export default class Server implements Party.Server {
     this.hosts.add(sender.id);
     console.log(`[handleHostAuth] OK ${sender.id}`);
 
-    // ★ここで authed に入れない（抜け道禁止）
     this.send(sender, { type: "hostAuthResult", ok: true, reason: "", isHost: true });
 
-    // secretMode中でも “主催者メニュー” は出せる。中身は auth してから。
     if (this.secretMode) this.sendInitMin(sender);
   }
 

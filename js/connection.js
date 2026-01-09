@@ -1,19 +1,6 @@
 // ============================================
 // connection.js - PartyKit接続・音声通話（秘密会議対応版）
 // ============================================
-//
-// ✅このファイルの責務
-// - PartyKit(WebSocket)接続
-// - Cloudflare Calls を使った publish / subscribe
-// - 登壇リクエスト / 主催者操作
-// - 秘密会議（secretMode / 入室認証 auth / 主催者 hostAuth）
-//
-// ✅注意（仕様の整合）
-// - サーバ(server.ts)が「secretMode中でも host を isAuthed 扱いにする」実装なら、
-//   initMin で isAuthed=true が返るので、このクライアントも host を中身アクセス可にします。
-// - もし「主催者は解除だけ可（中身不可）」にしたいなら、server.ts の isAuthed() を
-//   host救済しない設計に揃えるのが正解です（クライアントだけで縛ってもズレます）。
-//
 
 import {
   debugLog,
@@ -29,6 +16,13 @@ import { setHostAuthResult } from './settings.js';
 // --------------------------------------------
 const PARTYKIT_HOST = 'kimurameta.kimura-jane.partykit.dev';
 const ROOM_ID = 'main-stage';
+
+/**
+ * partykit.json で "parties" を使っている場合は PARTY_NAME を設定
+ * - 使ってない（デフォルト構成）なら null のまま → /party/<room>
+ * - 使ってるなら "metaverse" 等 → /parties/<party>/<room>
+ */
+const PARTY_NAME = null;
 
 // --------------------------------------------
 // 状態
@@ -177,7 +171,7 @@ function createSharedAudioContext() {
     debugLog(`SharedAudioContext作成: state=${sharedAudioContext.state}`, 'info');
     return sharedAudioContext;
   } catch (e) {
-    debugLog(`SharedAudioContext作成失敗: ${e.message}`, 'error');
+    debugLog(`SharedAudioContext作成失敗: ${e?.message || e}`, 'error');
     return null;
   }
 }
@@ -212,7 +206,7 @@ async function unlockAudioContext() {
     debugLog(`AudioContextがrunningにならない: ${sharedAudioContext.state}`, 'error');
     return false;
   } catch (e) {
-    debugLog(`AudioContext resume失敗: ${e.message}`, 'error');
+    debugLog(`AudioContext resume失敗: ${e?.message || e}`, 'error');
     return false;
   }
 }
@@ -229,9 +223,7 @@ function connectPendingStreams() {
 
 // iOSはaudio要素優先
 function connectStreamPlayback(stream, trackName, odUserId) {
-  if (isIOS()) {
-    return connectStreamToAudioElement(stream, trackName, odUserId);
-  }
+  if (isIOS()) return connectStreamToAudioElement(stream, trackName, odUserId);
   return connectStreamToAudioContext(stream, trackName, odUserId);
 }
 
@@ -265,7 +257,7 @@ function connectStreamToAudioContext(stream, trackName, odUserId) {
 
     return true;
   } catch (e) {
-    debugLog(`ストリーム接続(WebAudio)失敗: ${e.message}`, 'error');
+    debugLog(`ストリーム接続(WebAudio)失敗: ${e?.message || e}`, 'error');
     return false;
   }
 }
@@ -319,9 +311,7 @@ function tryPlayPendingAudioEls() {
     el.play().then(() => {
       pendingAudioPlays.delete(trackName);
       debugLog(`pending audio.play成功: ${trackName}`, 'success');
-    }).catch(() => {
-      // 放置（次のユーザー操作でまた試す）
-    });
+    }).catch(() => {});
   }
 }
 
@@ -363,7 +353,13 @@ function showAudioUnlockButton() {
   document.body.appendChild(btn);
 }
 
-function setupAudioUnlock() {
+// ★重要：再接続でイベントリスナー増殖させない
+let audioUnlockSetupDone = false;
+
+function setupAudioUnlockOnce() {
+  if (audioUnlockSetupDone) return;
+  audioUnlockSetupDone = true;
+
   createSharedAudioContext();
 
   const handleUserGesture = async () => {
@@ -380,10 +376,89 @@ function setupAudioUnlock() {
 }
 
 // --------------------------------------------
+// WebSocket URL（/party と /parties 両対応）
+// --------------------------------------------
+function buildWsUrl(userName) {
+  const base = `wss://${PARTYKIT_HOST}`;
+  const room = encodeURIComponent(ROOM_ID);
+  const name = encodeURIComponent(userName);
+
+  const path = PARTY_NAME
+    ? `/parties/${encodeURIComponent(PARTY_NAME)}/${room}`
+    : `/party/${room}`;
+
+  return `${base}${path}?name=${name}`;
+}
+
+// --------------------------------------------
+// 再接続制御（多重接続防止＋バックオフ）
+// --------------------------------------------
+let reconnectTimer = null;
+let reconnectAttempt = 0;
+let wantReconnect = true;
+
+function clearReconnectTimer() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function scheduleReconnect() {
+  if (!wantReconnect) return;
+  if (reconnectTimer) return;
+
+  const base = 800; // ms
+  const max = 8000;
+  const jitter = Math.floor(Math.random() * 250);
+
+  const delay = Math.min(max, base * Math.pow(2, Math.min(5, reconnectAttempt))) + jitter;
+  reconnectAttempt++;
+
+  debugLog(`再接続予約: ${delay}ms (attempt=${reconnectAttempt})`, 'warn');
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectToPartyKit(currentUserName);
+  }, delay);
+}
+
+function cleanupSubscriptions() {
+  subscribedTracks.forEach((obj) => {
+    if (obj.source) { try { obj.source.disconnect(); } catch(_) {} }
+    if (obj.gainNode) { try { obj.gainNode.disconnect(); } catch(_) {} }
+    if (obj.pc) { try { obj.pc.close(); } catch(_) {} }
+    if (obj.audioEl) {
+      try { obj.audioEl.srcObject = null; } catch(_) {}
+    }
+  });
+  subscribedTracks.clear();
+  pendingSubscriptions.clear();
+  pendingStreams.length = 0;
+
+  // iOS audio要素掃除
+  for (const [trackName, el] of remoteAudioEls) {
+    try { el.srcObject = null; } catch(_) {}
+    try { el.remove(); } catch(_) {}
+    remoteAudioEls.delete(trackName);
+    pendingAudioPlays.delete(trackName);
+  }
+}
+
+// --------------------------------------------
 // PartyKit接続
 // --------------------------------------------
 export function connectToPartyKit(userName) {
   currentUserName = userName;
+
+  // 多重接続防止：既存socketが生きてたら閉じる
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    try { socket.close(1000, 'reconnect'); } catch(_) {}
+  }
+  socket = null;
+
+  wantReconnect = true;
+  clearReconnectTimer();
 
   // 接続ごとに default deny + host状態も初期化（安全）
   isAuthed = false;
@@ -394,20 +469,22 @@ export function connectToPartyKit(userName) {
   hostAuthPending = false;
   setHostAuthResult(false, '未接続のため主催者状態を解除しました');
 
-  const wsUrl = `wss://${PARTYKIT_HOST}/party/${ROOM_ID}?name=${encodeURIComponent(userName)}`;
-  debugLog(`接続開始: ${PARTYKIT_HOST}`, 'info');
+  const wsUrl = buildWsUrl(userName);
+  debugLog(`接続開始: ${wsUrl}`, 'info');
 
-  setupAudioUnlock();
+  setupAudioUnlockOnce();
 
   try {
     socket = new WebSocket(wsUrl);
   } catch (e) {
-    debugLog(`WebSocket作成エラー: ${e}`, 'error');
+    debugLog(`WebSocket作成エラー: ${e?.message || e}`, 'error');
+    scheduleReconnect();
     return;
   }
 
   socket.onopen = () => {
     connected = true;
+    reconnectAttempt = 0; // 成功したら戻す
     debugLog('PartyKit接続成功', 'success');
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
   };
@@ -418,28 +495,17 @@ export function connectToPartyKit(userName) {
       if (data.type !== 'position') debugLog(`受信: ${data.type}`, 'info');
       handleServerMessage(data);
     } catch (e) {
-      debugLog(`メッセージ解析エラー: ${e}`, 'error');
+      debugLog(`メッセージ解析エラー: ${e?.message || e}`, 'error');
     }
   };
 
-  socket.onclose = () => {
-    debugLog('接続切断 - 3秒後再接続', 'warn');
+  socket.onclose = (ev) => {
+    debugLog(`接続切断 code=${ev.code} reason=${ev.reason || '(none)'} wasClean=${ev.wasClean}`, 'warn');
 
     connected = false;
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(false);
 
-    // 状態リセット（購読も全破棄）
-    subscribedTracks.forEach((obj) => {
-      if (obj.source) { try { obj.source.disconnect(); } catch(_) {} }
-      if (obj.gainNode) { try { obj.gainNode.disconnect(); } catch(_) {} }
-      if (obj.pc) { try { obj.pc.close(); } catch(_) {} }
-      if (obj.audioEl) {
-        try { obj.audioEl.srcObject = null; } catch(_) {}
-      }
-    });
-    subscribedTracks.clear();
-    pendingSubscriptions.clear();
-    pendingStreams.length = 0;
+    cleanupSubscriptions();
 
     // 秘密会議：接続単位で無効
     isAuthed = false;
@@ -451,12 +517,28 @@ export function connectToPartyKit(userName) {
     hostAuthPending = false;
     setHostAuthResult(false, '接続が切れたため主催者状態を解除しました');
 
-    setTimeout(() => connectToPartyKit(currentUserName), 3000);
+    // 1000/1001 は通常終了扱い：必要なら再接続しない
+    if (ev.code === 1000 || ev.code === 1001) return;
+
+    scheduleReconnect();
   };
 
   socket.onerror = () => {
-    debugLog('WebSocketエラー', 'error');
+    debugLog('WebSocketエラー（詳細はoncloseのcode/reasonを見る）', 'error');
   };
+}
+
+// 任意：明示切断
+export function disconnectPartyKit() {
+  wantReconnect = false;
+  clearReconnectTimer();
+  if (socket) {
+    try { socket.close(1000, 'manual'); } catch(_) {}
+  }
+  socket = null;
+  connected = false;
+  cleanupSubscriptions();
+  if (callbacks.onConnectedChange) callbacks.onConnectedChange(false);
 }
 
 // --------------------------------------------
@@ -465,14 +547,11 @@ export function connectToPartyKit(userName) {
 function handleServerMessage(data) {
   switch (data.type) {
     // ★秘密会議：最小初期化（未認証向け）
-    // 例: { type:'initMin', yourId:'..', secretMode:true, isHost:false, isAuthed:false, authRequired:true }
     case 'initMin': {
       myServerConnectionId = data.yourId;
 
       secretMode = !!data.secretMode;
       isHost = !!data.isHost;
-
-      // サーバが返す真実を尊重（未指定なら false 維持）
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
       debugLog(`initMin: ID=${myServerConnectionId}, secretMode=${secretMode}, isHost=${isHost}, isAuthed=${isAuthed}`, 'success');
@@ -491,8 +570,7 @@ function handleServerMessage(data) {
     case 'init': {
       myServerConnectionId = data.yourId;
 
-      // init が来た時点で「中身アクセス許可された」とみなす（サーバ設計前提）
-      if (secretMode) isAuthed = true;
+      // ★サーバの真実を同期
       if (data.secretMode !== undefined) secretMode = !!data.secretMode;
       if (data.isHost !== undefined) isHost = !!data.isHost;
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
@@ -518,8 +596,6 @@ function handleServerMessage(data) {
           setTimeout(() => callbacks.onAvatarChange(odUserId, user.avatarUrl), 200);
         }
       });
-
-      if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
 
       updateSpeakerList(data.speakers || []);
 
@@ -559,8 +635,6 @@ function handleServerMessage(data) {
       isAuthed = true;
       debugLog('authOk: 入室認証OK', 'success');
       if (callbacks.onAuthOk) callbacks.onAuthOk();
-
-      // 認証OK後に full init を要求（サーバが自動で送るなら不要だが保険）
       safeSend({ type: 'requestInit' });
       break;
     }
@@ -575,14 +649,35 @@ function handleServerMessage(data) {
     // ★秘密会議のON/OFF変更
     case 'secretModeChanged': {
       secretMode = !!data.value;
-
-      // サーバ真実が来るなら同期（来ないなら現状維持）
       if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
 
       debugLog(`secretModeChanged: ${secretMode} (isAuthed=${isAuthed})`, 'info');
       if (callbacks.onSecretModeChanged) callbacks.onSecretModeChanged(secretMode);
 
-      // 状態変化後は必ずサーバへ init 再要求（min/full をサーバが判断）
+      safeSend({ type: 'requestInit' });
+      break;
+    }
+
+    // ✅主催者認証結果（サーバから）※これは未認証でも受けてOK
+    case 'hostAuthResult': {
+      const ok = !!data.ok;
+      const reason = data.reason || '';
+      hostAuthed = ok;
+      hostAuthPending = false;
+
+      if (data.isHost !== undefined) isHost = !!data.isHost;
+
+      setHostAuthResult(ok, reason);
+      debugLog(`hostAuthResult: ${ok ? 'OK' : 'NG'} ${reason}`, ok ? 'success' : 'warn');
+
+      if (callbacks.onInitMin) {
+        callbacks.onInitMin({
+          secretMode,
+          isHost,
+          authRequired: secretMode
+        });
+      }
+
       safeSend({ type: 'requestInit' });
       break;
     }
@@ -784,35 +879,14 @@ function handleServerMessage(data) {
       break;
     }
 
-    // ✅主催者認証結果（サーバから）※これは未認証でも受けてOK
-    case 'hostAuthResult': {
-      const ok = !!data.ok;
-      const reason = data.reason || '';
-      hostAuthed = ok;
-      hostAuthPending = false;
-
-      // server が isHost も返すなら同期
-      if (data.isHost !== undefined) isHost = !!data.isHost;
-
-      setHostAuthResult(ok, reason);
-      debugLog(`hostAuthResult: ${ok ? 'OK' : 'NG'} ${reason}`, ok ? 'success' : 'warn');
-
-      // initMin の host表示更新用に通知（mainが使う）
-      if (callbacks.onInitMin) {
-        callbacks.onInitMin({
-          secretMode,
-          isHost,
-          authRequired: secretMode
-        });
-      }
-
-      // host状態が変わったら状態を再取得（min/fullをサーバが判断）
-      safeSend({ type: 'requestInit' });
+    case 'error': {
+      debugLog(`サーバーエラー: ${data.code || data.message} ${data.message ? `(${data.message})` : ''}`, 'error');
       break;
     }
 
-    case 'error': {
-      debugLog(`サーバーエラー: ${data.code || data.message}`, 'error');
+    default: {
+      // ★未知typeは握りつぶす（落とさない）
+      if (data?.type) debugLog(`未知メッセージ: ${data.type}`, 'warn');
       break;
     }
   }
@@ -867,7 +941,6 @@ function updateSpeakerList(speakers) {
 export function requestSpeak() {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
-  // ★秘密会議：未認証ブロック
   if (!canAccessContent()) {
     debugLog('未認証のため requestSpeak をブロック', 'warn');
     return;
@@ -912,7 +985,6 @@ export function stopSpeaking() {
 }
 
 async function startPublishing() {
-  // ★秘密会議：未認証でpublishさせない
   if (!canAccessContent()) {
     debugLog('未認証のため publish をブロック', 'warn');
     stopSpeaking();
@@ -977,7 +1049,7 @@ async function startPublishing() {
     }));
 
   } catch (error) {
-    debugLog(`publishエラー: ${error.message}`, 'error');
+    debugLog(`publishエラー: ${error?.message || error}`, 'error');
     stopSpeaking();
   }
 }
@@ -989,14 +1061,13 @@ async function handleTrackPublished(data) {
     await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
     debugLog('トラック公開完了', 'success');
   } catch (e) {
-    debugLog(`setRemoteDescriptionエラー: ${e.message}`, 'error');
+    debugLog(`setRemoteDescriptionエラー: ${e?.message || e}`, 'error');
   }
 }
 
 async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
-  // ★秘密会議：未認証ブロック
   if (!canAccessContent()) {
     debugLog('未認証のため subscribeToTrack をブロック', 'warn');
     return;
@@ -1022,9 +1093,7 @@ function waitIceGatheringComplete(pc, timeoutMs = 1500) {
   return new Promise((resolve) => {
     if (pc.iceGatheringState === 'complete') { resolve(); return; }
 
-    const timeout = setTimeout(() => {
-      resolve();
-    }, timeoutMs);
+    const timeout = setTimeout(() => resolve(), timeoutMs);
 
     pc.onicegatheringstatechange = () => {
       if (pc.iceGatheringState === 'complete') {
@@ -1043,9 +1112,7 @@ function waitIceGatheringComplete(pc, timeoutMs = 1500) {
 }
 
 async function handleSubscribed(data) {
-  // ★秘密会議：未認証なら来ない想定だが保険
   if (!canAccessContent()) return;
-
   if (!data.offer) return;
 
   const trackName = data.trackName;
@@ -1104,7 +1171,7 @@ async function handleSubscribed(data) {
     debugLog(`購読完了: ${trackName}`, 'success');
 
   } catch (e) {
-    debugLog(`handleSubscribedエラー: ${e.message}`, 'error');
+    debugLog(`handleSubscribedエラー: ${e?.message || e}`, 'error');
     pendingSubscriptions.delete(trackName);
   }
 }
@@ -1186,11 +1253,10 @@ function safeSend(obj) {
 // ★秘密会議：入室認証
 export function sendAuth(password) {
   if (!password) return false;
-  // これ自体は未認証でも送れる
   return safeSend({ type: 'auth', password });
 }
 
-// ★主催者：秘密会議解除（※クライアント側でも hostAuthed を必須にして無駄送信防止）
+// ★主催者：秘密会議解除
 export function disableSecretMode() {
   if (!hostAuthed) {
     debugLog('主催者未認証のため disableSecretMode をブロック', 'warn');
@@ -1199,7 +1265,7 @@ export function disableSecretMode() {
   return safeSend({ type: 'disableSecretMode' });
 }
 
-// ★主催者：秘密会議 ON/OFF（server.ts に setSecretMode 実装済みなら使える）
+// ★主催者：秘密会議 ON/OFF
 export function setSecretMode(value) {
   if (!hostAuthed) {
     debugLog('主催者未認証のため setSecretMode をブロック', 'warn');
@@ -1230,10 +1296,7 @@ export function sendChat(message) {
 
 export function sendNameChange(newName) {
   currentUserName = newName;
-
-  // 名前変更も中身扱い
   if (!canAccessContent()) return;
-
   safeSend({ type: 'nameChange', name: newName });
 }
 
@@ -1285,7 +1348,7 @@ export function hostLogout() {
 }
 
 // --------------------------------------------
-// 主催者操作（サーバでも必ず検証する想定）
+// 主催者操作
 // --------------------------------------------
 export function approveSpeak(userId) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;

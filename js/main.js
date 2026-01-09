@@ -68,28 +68,8 @@ function isContentAllowed() {
 }
 
 // -----------------------------
-// ★ 認証リクエストの種類
-// -----------------------------
-let lastAuthRequestKind = null;
-
-function requestAuth(kind, pass) {
-  lastAuthRequestKind = kind;
-  const p = (pass || '').trim();
-  if (!p) return;
-
-  try {
-    if (kind === 'host') {
-      hostLogin(p);
-    } else {
-      sendAuth(p);
-    }
-  } catch (e) {
-    debugLog('Auth send failed', 'error');
-    setAuthOverlayMessage('認証送信に失敗しました');
-  }
-}
-
 // ★ 秘密会議ON/未認証時にクライアント状態を掃除
+// -----------------------------
 function purgeSensitiveClientState(reason = '') {
   const hasScene = !!scene;
 
@@ -340,7 +320,7 @@ function ensureAuthOverlay() {
   `;
 
   hostOverlayLoginBtn = document.createElement('button');
-  hostOverlayLoginBtn.textContent = '認証中...';
+  hostOverlayLoginBtn.textContent = '認証';
   hostOverlayLoginBtn.style.cssText = `
     width: 100%;
     padding: 12px 10px;
@@ -351,7 +331,6 @@ function ensureAuthOverlay() {
     background: linear-gradient(135deg, #ffaa00, #ff5500);
     color: white;
   `;
-  hostOverlayLoginBtn.textContent = '認証';
 
   const foot = document.createElement('div');
   foot.style.cssText = `margin-top: 12px; font-size: 12px; opacity: 0.8; line-height: 1.45;`;
@@ -380,7 +359,8 @@ function ensureAuthOverlay() {
       return;
     }
     setAuthOverlayMessage('認証中...');
-    requestAuth('room', pass);
+    debugLog(`[AuthOverlay] 入室認証送信`, 'info');
+    sendAuth(pass);
   }
 
   // 主催者ログイン
@@ -393,6 +373,7 @@ function ensureAuthOverlay() {
     setAuthOverlayMessage('認証中...');
     hostOverlayLoginBtn.textContent = '認証中...';
     hostOverlayLoginBtn.disabled = true;
+    debugLog(`[AuthOverlay] 主催者ログイン送信`, 'info');
     hostLogin(pass);
   }
 
@@ -438,6 +419,13 @@ function setAuthOverlayMessage(text) {
   if (authOverlayMsg) authOverlayMsg.textContent = text || '';
 }
 
+function resetHostOverlayButton() {
+  if (hostOverlayLoginBtn) {
+    hostOverlayLoginBtn.textContent = '認証';
+    hostOverlayLoginBtn.disabled = false;
+  }
+}
+
 function showAuthOverlay() {
   ensureAuthOverlay();
   authOverlay.style.display = 'flex';
@@ -450,11 +438,7 @@ function showAuthOverlay() {
     hostOverlayWrap.style.display = secretMode ? 'block' : 'none';
   }
 
-  // ボタン状態リセット
-  if (hostOverlayLoginBtn) {
-    hostOverlayLoginBtn.textContent = '認証';
-    hostOverlayLoginBtn.disabled = false;
-  }
+  resetHostOverlayButton();
 
   setTimeout(() => {
     if (authOverlayInput) authOverlayInput.focus();
@@ -467,10 +451,7 @@ function hideAuthOverlay() {
   setAuthOverlayMessage('');
   if (authOverlayInput) authOverlayInput.value = '';
   if (hostOverlayInput) hostOverlayInput.value = '';
-  if (hostOverlayLoginBtn) {
-    hostOverlayLoginBtn.textContent = '認証';
-    hostOverlayLoginBtn.disabled = false;
-  }
+  resetHostOverlayButton();
 }
 
 function refreshSecretGateUI() {
@@ -546,19 +527,22 @@ function ensureNameTagLayer() {
 
 function upsertNameTag(odUserId, userName) {
   ensureNameTagLayer();
+  const displayName = userName || 'ゲスト';
   const existing = nameTags.get(odUserId);
   if (existing) {
-    if (existing.lastText !== userName) {
-      existing.el.textContent = userName || 'ゲスト';
-      existing.lastText = userName;
+    if (existing.lastText !== displayName) {
+      existing.el.textContent = displayName;
+      existing.lastText = displayName;
+      debugLog(`[NameTag] 更新: ${odUserId} -> ${displayName}`, 'info');
     }
     return;
   }
   const el = document.createElement('div');
   el.className = 'name-tag';
-  el.textContent = userName || 'ゲスト';
+  el.textContent = displayName;
   nameTagLayer.appendChild(el);
-  nameTags.set(odUserId, { el, lastText: userName });
+  nameTags.set(odUserId, { el, lastText: displayName });
+  debugLog(`[NameTag] 作成: ${odUserId} -> ${displayName}`, 'info');
 }
 
 function removeNameTag(odUserId) {
@@ -644,11 +628,16 @@ async function init() {
 
   initSettings(myUserName, {
     onNameChange: (newName) => {
+      const oldName = myUserName;
       myUserName = newName;
       sendNameChange(newName);
-      showNotification(`名前を「${newName}」に変更しました`, 'success');
+      
+      // ネームタグを即座に更新
       const myId = getMyConnectionId() || myUserId;
-      upsertNameTag(myId, myUserName);
+      upsertNameTag(myId, newName);
+      
+      debugLog(`[Settings] 名前変更: ${oldName} -> ${newName}`, 'info');
+      showNotification(`名前を「${newName}」に変更しました`, 'success');
     },
     onAvatarChange: (avatarName) => {
       const ext = CHARA_EXTENSIONS[avatarName] || 'png';
@@ -694,14 +683,17 @@ async function init() {
       showNotification('カメラをリセットしました', 'info');
     },
     onHostLogin: (pass) => {
+      debugLog(`[Settings] onHostLogin called`, 'info');
       const p = (pass || '').trim();
       if (!p) {
         showNotification('主催者パスワードを入力してください', 'warn');
         return;
       }
+      debugLog(`[Settings] hostLogin 呼び出し`, 'info');
       hostLogin(p);
     },
     onHostLogout: () => {
+      debugLog(`[Settings] onHostLogout called`, 'info');
       hostLogout();
     },
     onDisableSecretMode: () => {
@@ -742,9 +734,9 @@ function setupConnection() {
     onInitMin: (data) => {
       secretMode = !!data?.secretMode;
       isHost = !!data?.isHost;
-      isAuthed = false;
+      isAuthed = !!data?.isAuthed;
 
-      if (secretMode) purgeSensitiveClientState('onInitMin secretMode=ON');
+      if (secretMode && !isAuthed) purgeSensitiveClientState('onInitMin secretMode=ON');
 
       const myId = getMyConnectionId();
       if (myId && myId !== myUserId) {
@@ -752,13 +744,14 @@ function setupConnection() {
         upsertNameTag(myId, myUserName);
       }
 
-      debugLog(`InitMin: secretMode=${secretMode} isHost=${isHost}`, 'info');
+      debugLog(`[Callback] InitMin: secretMode=${secretMode} isHost=${isHost} isAuthed=${isAuthed}`, 'info');
       refreshSecretGateUI();
     },
 
     onAuthOk: () => {
       isAuthed = true;
       setAuthOverlayMessage('');
+      debugLog(`[Callback] authOk: 入室認証OK`, 'success');
       showNotification('入室パスワード認証OK', 'success');
       refreshSecretGateUI();
     },
@@ -766,7 +759,25 @@ function setupConnection() {
     onAuthNg: () => {
       purgeSensitiveClientState('onAuthNg');
       setAuthOverlayMessage('パスワードが違います');
+      debugLog(`[Callback] authNg: 入室認証NG`, 'warn');
       showNotification('入室パスワードが違います', 'warn');
+      refreshSecretGateUI();
+    },
+
+    onHostAuthResult: (data) => {
+      debugLog(`[Callback] onHostAuthResult: ok=${data?.ok} isHost=${data?.isHost} isAuthed=${data?.isAuthed}`, data?.ok ? 'success' : 'warn');
+      
+      if (data?.ok) {
+        isHost = true;
+        if (data.isAuthed !== undefined) isAuthed = !!data.isAuthed;
+        setAuthOverlayMessage('');
+        showNotification('主催者ログインOK', 'success');
+      } else {
+        setAuthOverlayMessage(`主催者認証NG: ${data?.reason || ''}`);
+        showNotification(`主催者認証NG: ${data?.reason || ''}`, 'warn');
+      }
+      
+      resetHostOverlayButton();
       refreshSecretGateUI();
     },
 
@@ -778,6 +789,7 @@ function setupConnection() {
         purgeSensitiveClientState('onSecretModeChanged -> ON');
       }
 
+      debugLog(`[Callback] secretModeChanged: ${secretMode}`, 'info');
       refreshSecretGateUI();
       showNotification(secretMode ? '秘密会議モード ON' : '秘密会議モード OFF', 'info');
     },
@@ -785,7 +797,7 @@ function setupConnection() {
     onUserJoin: (odUserId, userName) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`User joined: ${odUserId} (${userName})`);
+      debugLog(`[Callback] User joined: ${odUserId} (${userName})`);
       if (!remoteAvatars.has(odUserId)) {
         const avatarColor = Math.random() * 0xffffff;
         const avatar = createAvatar(odUserId, userName, avatarColor);
@@ -801,7 +813,7 @@ function setupConnection() {
     onUserLeave: (odUserId) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`User left: ${odUserId}`);
+      debugLog(`[Callback] User left: ${odUserId}`);
       const userData = remoteAvatars.get(odUserId);
       if (userData) {
         if (userData.avatar) scene.remove(userData.avatar);
@@ -828,7 +840,7 @@ function setupConnection() {
     onAvatarChange: (odUserId, imageUrl) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`Avatar change received: ${odUserId} -> ${imageUrl}`);
+      debugLog(`[Callback] Avatar change: ${odUserId} -> ${imageUrl}`);
       const userData = remoteAvatars.get(odUserId);
       if (userData && userData.avatar) setAvatarImage(userData.avatar, imageUrl);
     },
@@ -836,7 +848,7 @@ function setupConnection() {
     onNameChange: (odUserId, newName) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`Name change received: ${odUserId} -> ${newName}`);
+      debugLog(`[Callback] Name change: ${odUserId} -> ${newName}`);
       const userData = remoteAvatars.get(odUserId);
       if (userData) userData.userName = newName;
       upsertNameTag(odUserId, newName || 'ゲスト');
@@ -845,7 +857,7 @@ function setupConnection() {
     onReaction: (odUserId, reactionType, color) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`Reaction from ${odUserId}: ${reactionType}`, 'info');
+      debugLog(`[Callback] Reaction from ${odUserId}: ${reactionType}`, 'info');
       const userData = remoteAvatars.get(odUserId);
       if (userData && userData.avatar) {
         if (reactionType === 'penlight') {
@@ -894,7 +906,7 @@ function setupConnection() {
     onSpeakApproved: () => {
       if (!isContentAllowed()) return;
 
-      debugLog('Speak approved!');
+      debugLog('[Callback] Speak approved!');
       isOnStage = true;
       if (isOtageiActive) {
         isOtageiActive = false;
@@ -908,7 +920,7 @@ function setupConnection() {
     onSpeakerJoined: (odUserId, userName) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`Speaker joined: ${odUserId} (${userName})`);
+      debugLog(`[Callback] Speaker joined: ${odUserId} (${userName})`);
       const userData = remoteAvatars.get(odUserId);
       if (userData && userData.avatar) setAvatarSpotlight(userData.avatar, true);
       showNotification(`${userName || 'ゲスト'} が登壇しました`, 'info');
@@ -917,7 +929,7 @@ function setupConnection() {
     onSpeakerLeft: (odUserId) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`Speaker left: ${odUserId}`);
+      debugLog(`[Callback] Speaker left: ${odUserId}`);
       const userData = remoteAvatars.get(odUserId);
       if (userData && userData.avatar) setAvatarSpotlight(userData.avatar, false);
     },
@@ -925,14 +937,14 @@ function setupConnection() {
     onSpeakRequestsUpdate: (requests) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`Speak requests updated: ${requests.length} requests`, 'info');
+      debugLog(`[Callback] Speak requests updated: ${requests.length} requests`, 'info');
       updateSpeakRequests(requests);
     },
 
     onCurrentSpeakersUpdate: (speakers) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`Current speakers updated: ${speakers.length} speakers`, 'info');
+      debugLog(`[Callback] Current speakers updated: ${speakers.length} speakers`, 'info');
       updateCurrentSpeakers(speakers);
       updateSpeakerCount(speakers.length);
     },
@@ -940,7 +952,7 @@ function setupConnection() {
     onKicked: () => {
       if (!isContentAllowed()) return;
 
-      debugLog('Kicked from stage');
+      debugLog('[Callback] Kicked from stage');
       isOnStage = false;
       moveToAudience();
       showSpeakerControls(false);
@@ -960,6 +972,13 @@ function setupConnection() {
     onBrightnessChange: (value) => {
       if (!isContentAllowed()) return;
       setRoomBrightness(value);
+    },
+
+    onConnectedChange: (connected) => {
+      debugLog(`[Callback] Connection changed: ${connected}`, connected ? 'success' : 'warn');
+      if (!connected) {
+        resetHostOverlayButton();
+      }
     },
 
     remoteAvatars: remoteAvatars

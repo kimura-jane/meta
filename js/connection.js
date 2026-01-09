@@ -1,5 +1,5 @@
 // ============================================
-// connection.js - PartyKit接続・音声通話（秘密会議対応版）
+// connection.js - PartyKit接続・音声通話（修正版）
 // ============================================
 
 import {
@@ -429,10 +429,22 @@ function cleanupSubscriptions() {
 }
 
 // --------------------------------------------
+// 送信ヘルパー（先に定義）
+// --------------------------------------------
+function safeSend(obj) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(obj));
+    return true;
+  }
+  debugLog(`[Connection] safeSend失敗: socket not open`, 'warn');
+  return false;
+}
+
+// --------------------------------------------
 // PartyKit接続
 // --------------------------------------------
 export function connectToPartyKit(userName) {
-  currentUserName = userName;
+  currentUserName = userName || 'ゲスト';
 
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     try { socket.close(1000, 'reconnect'); } catch(_) {}
@@ -450,7 +462,7 @@ export function connectToPartyKit(userName) {
   hostAuthPending = false;
   myServerConnectionId = null;
 
-  const wsUrl = buildWsUrl(userName);
+  const wsUrl = buildWsUrl(currentUserName);
   debugLog(`[Connection] 接続開始: ${wsUrl}`, 'info');
 
   setupAudioUnlockOnce();
@@ -468,6 +480,10 @@ export function connectToPartyKit(userName) {
     reconnectAttempt = 0;
     debugLog('[Connection] PartyKit接続成功', 'success');
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
+
+    // ★ 接続直後に requestInit を送信
+    debugLog('[Connection] requestInit 送信', 'info');
+    safeSend({ type: 'requestInit', userName: currentUserName });
   };
 
   socket.onmessage = (event) => {
@@ -501,8 +517,8 @@ export function connectToPartyKit(userName) {
     scheduleReconnect();
   };
 
-  socket.onerror = () => {
-    debugLog('[Connection] WebSocketエラー', 'error');
+  socket.onerror = (err) => {
+    debugLog(`[Connection] WebSocketエラー: ${err}`, 'error');
   };
 }
 
@@ -619,7 +635,7 @@ function handleServerMessage(data) {
       isAuthed = true;
       debugLog('[Connection] authOk: 入室認証OK', 'success');
       if (callbacks.onAuthOk) callbacks.onAuthOk();
-      safeSend({ type: 'requestInit' });
+      safeSend({ type: 'requestInit', userName: currentUserName });
       break;
     }
 
@@ -637,7 +653,7 @@ function handleServerMessage(data) {
       debugLog(`[Connection] secretModeChanged: ${secretMode} (isAuthed=${isAuthed})`, 'info');
       if (callbacks.onSecretModeChanged) callbacks.onSecretModeChanged(secretMode);
 
-      safeSend({ type: 'requestInit' });
+      safeSend({ type: 'requestInit', userName: currentUserName });
       break;
     }
 
@@ -1227,15 +1243,6 @@ export function toggleMic() {
 // --------------------------------------------
 // 送信（共通）
 // --------------------------------------------
-function safeSend(obj) {
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(obj));
-    return true;
-  }
-  debugLog(`[Connection] safeSend失敗: socket not open`, 'warn');
-  return false;
-}
-
 export function sendAuth(password) {
   if (!password) {
     debugLog('[Connection] sendAuth: パスワードが空', 'warn');
@@ -1333,7 +1340,7 @@ export function hostLogin(password) {
 
   hostAuthPending = true;
   debugLog('[Connection] hostLogin: hostAuth送信', 'info');
-  socket.send(JSON.stringify({ type: 'hostAuth', password }));
+  safeSend({ type: 'hostAuth', password });
 }
 
 export function hostLogout() {
@@ -1342,9 +1349,7 @@ export function hostLogout() {
   hostAuthPending = false;
   isHost = false;
   setHostAuthResult(false, 'ログアウトしました');
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'hostLogout' }));
-  }
+  safeSend({ type: 'hostLogout' });
 }
 
 // --------------------------------------------
@@ -1360,7 +1365,7 @@ export function approveSpeak(userId) {
     debugLog('[Connection] 未認証のため approveSpeak をブロック', 'warn');
     return;
   }
-  socket.send(JSON.stringify({ type: 'approveSpeak', userId }));
+  safeSend({ type: 'approveSpeak', userId });
 }
 
 export function denySpeak(userId) {
@@ -1373,7 +1378,7 @@ export function denySpeak(userId) {
     debugLog('[Connection] 未認証のため denySpeak をブロック', 'warn');
     return;
   }
-  socket.send(JSON.stringify({ type: 'denySpeak', userId }));
+  safeSend({ type: 'denySpeak', userId });
 }
 
 export function kickSpeaker(userId) {
@@ -1386,7 +1391,7 @@ export function kickSpeaker(userId) {
     debugLog('[Connection] 未認証のため kickSpeaker をブロック', 'warn');
     return;
   }
-  socket.send(JSON.stringify({ type: 'kickSpeaker', userId }));
+  safeSend({ type: 'kickSpeaker', userId });
 }
 
 export function getSpeakRequests() {

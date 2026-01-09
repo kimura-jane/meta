@@ -110,11 +110,6 @@ function purgeSensitiveClientState(reason = '') {
   try { updateUserCount(); } catch (_) {}
 
   try {
-    const myId = getMyConnectionId() || myUserId;
-    upsertNameTag(myId, myUserName);
-  } catch (_) {}
-
-  try {
     const existing = document.getElementById('announcement-overlay');
     if (existing) existing.remove();
   } catch (_) {}
@@ -127,6 +122,9 @@ function purgeSensitiveClientState(reason = '') {
 // -----------------------------
 const nameTags = new Map();
 let nameTagLayer = null;
+
+// 自分の初期ID（接続前に生成したローカルID）
+let myLocalId = 'user_' + Math.random().toString(36).substr(2, 9);
 
 // アバター設定
 const CHARA_LIST = ['12444', '12555', 'IMG_1677', 'IMG_1861', 'IMG_1889', 'IMG_2958', 'IMG_3264', 'IMG_3267', 'IMG_3269', 'IMG_3325', 'IMG_3326', 'IMG_3327', 'IMG_3328', 'IMG_7483', 'onigiriya_kanatake_512'];
@@ -151,7 +149,6 @@ const STAGE_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/
 const ROOT_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/';
 
 // ローカルユーザー
-let myUserId = 'user_' + Math.random().toString(36).substr(2, 9);
 let myUserName = 'ゲスト' + Math.floor(Math.random() * 1000);
 let myAvatar = null;
 let myPenlight = null;
@@ -188,6 +185,13 @@ const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 
 
 // ペンライトアニメーション用
 let penlightTime = 0;
+
+// -----------------------------
+// ★ 自分のIDを取得（サーバーIDがあればそれ、なければローカルID）
+// -----------------------------
+function getMyId() {
+  return getMyConnectionId() || myLocalId;
+}
 
 // -----------------------------
 // ★ 秘密会議 UI（オーバーレイ）
@@ -351,7 +355,6 @@ function ensureAuthOverlay() {
   authOverlay.appendChild(card);
   document.body.appendChild(authOverlay);
 
-  // 入室認証
   function tryRoomAuth() {
     const pass = (authOverlayInput.value || '').trim();
     if (!pass) {
@@ -363,7 +366,6 @@ function ensureAuthOverlay() {
     sendAuth(pass);
   }
 
-  // 主催者ログイン
   function tryHostAuth() {
     const pass = (hostOverlayInput.value || '').trim();
     if (!pass) {
@@ -533,7 +535,6 @@ function upsertNameTag(odUserId, userName) {
     if (existing.lastText !== displayName) {
       existing.el.textContent = displayName;
       existing.lastText = displayName;
-      debugLog(`[NameTag] 更新: ${odUserId} -> ${displayName}`, 'info');
     }
     return;
   }
@@ -542,7 +543,6 @@ function upsertNameTag(odUserId, userName) {
   el.textContent = displayName;
   nameTagLayer.appendChild(el);
   nameTags.set(odUserId, { el, lastText: displayName });
-  debugLog(`[NameTag] 作成: ${odUserId} -> ${displayName}`, 'info');
 }
 
 function removeNameTag(odUserId) {
@@ -583,7 +583,7 @@ function updateNameTags() {
     t.el.style.top = `${y}px`;
   }
 
-  if (myAvatar) placeTag(getMyConnectionId() || myUserId, myAvatar);
+  if (myAvatar) placeTag(getMyId(), myAvatar);
 
   remoteAvatars.forEach((userData, odUserId) => {
     if (userData?.avatar) placeTag(odUserId, userData.avatar);
@@ -615,11 +615,12 @@ async function init() {
   createAllVenue();
 
   const avatarColor = Math.random() * 0xffffff;
-  myAvatar = createAvatar(myUserId, myUserName, avatarColor);
+  myAvatar = createAvatar(myLocalId, myUserName, avatarColor);
   myAvatar.position.set((Math.random() - 0.5) * 10, 0, 5 + Math.random() * 5);
   scene.add(myAvatar);
 
-  upsertNameTag(myUserId, myUserName);
+  // 初期ネームタグはローカルIDで作成（接続後にサーバーIDに置き換わる）
+  upsertNameTag(myLocalId, myUserName);
 
   myPenlight = createPenlight(0xff00ff);
   myPenlight.visible = false;
@@ -632,9 +633,8 @@ async function init() {
       myUserName = newName;
       sendNameChange(newName);
       
-      // ネームタグを即座に更新
-      const myId = getMyConnectionId() || myUserId;
-      upsertNameTag(myId, newName);
+      // ネームタグを即座に更新（現在のIDで）
+      upsertNameTag(getMyId(), newName);
       
       debugLog(`[Settings] 名前変更: ${oldName} -> ${newName}`, 'info');
       showNotification(`名前を「${newName}」に変更しました`, 'success');
@@ -689,7 +689,7 @@ async function init() {
         showNotification('主催者パスワードを入力してください', 'warn');
         return;
       }
-      debugLog(`[Settings] hostLogin 呼び出し`, 'info');
+      debugLog(`[Settings] hostLogin呼び出し`, 'info');
       hostLogin(p);
     },
     onHostLogout: () => {
@@ -731,6 +731,23 @@ async function init() {
 // 接続セットアップ
 function setupConnection() {
   setCallbacks({
+    // サーバーから自分のIDが確定/変更された時
+    onMyIdChanged: (oldId, newId) => {
+      debugLog(`[Callback] MyId変更: ${oldId} -> ${newId}`, 'info');
+      
+      // 古いIDのネームタグを削除
+      if (oldId) {
+        removeNameTag(oldId);
+      }
+      // ローカルIDのネームタグも削除（初回接続時）
+      if (myLocalId && myLocalId !== newId) {
+        removeNameTag(myLocalId);
+      }
+      
+      // 新しいIDでネームタグを作成
+      upsertNameTag(newId, myUserName);
+    },
+
     onInitMin: (data) => {
       secretMode = !!data?.secretMode;
       isHost = !!data?.isHost;
@@ -738,11 +755,8 @@ function setupConnection() {
 
       if (secretMode && !isAuthed) purgeSensitiveClientState('onInitMin secretMode=ON');
 
-      const myId = getMyConnectionId();
-      if (myId && myId !== myUserId) {
-        removeNameTag(myUserId);
-        upsertNameTag(myId, myUserName);
-      }
+      // 自分のネームタグを現在のIDで更新
+      upsertNameTag(getMyId(), myUserName);
 
       debugLog(`[Callback] InitMin: secretMode=${secretMode} isHost=${isHost} isAuthed=${isAuthed}`, 'info');
       refreshSecretGateUI();
@@ -899,7 +913,7 @@ function setupConnection() {
     onChat: (odUserId, userName, message) => {
       if (!isContentAllowed()) return;
 
-      const myId = getMyConnectionId();
+      const myId = getMyId();
       if (odUserId !== myId) addChatMessage(userName, message);
     },
 

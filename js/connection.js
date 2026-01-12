@@ -46,6 +46,8 @@ let isHost = false;
 let agoraClient = null;
 let localAudioTrack = null;
 let remoteUsers = new Map();
+let isAgoraJoinedAsListener = false;  // 視聴者としてAgora参加中か
+let audioUnlocked = false;  // 音声再生許可済みか
 
 function canAccessContent() {
   return !secretMode || isAuthed;
@@ -158,6 +160,43 @@ function safeSend(obj) {
 }
 
 // --------------------------------------------
+// 音声再生オーバーレイ制御
+// --------------------------------------------
+function showAudioUnlockOverlay() {
+  const overlay = document.getElementById('audio-unlock-overlay');
+  if (overlay) {
+    overlay.classList.add('show');
+    debugLog('[Audio] タップして視聴オーバーレイを表示', 'info');
+  }
+}
+
+function hideAudioUnlockOverlay() {
+  const overlay = document.getElementById('audio-unlock-overlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+    debugLog('[Audio] タップして視聴オーバーレイを非表示', 'info');
+  }
+}
+
+// オーバーレイクリック時の処理を初期化
+function initAudioUnlockOverlay() {
+  const overlay = document.getElementById('audio-unlock-overlay');
+  if (overlay && !overlay.dataset.initialized) {
+    overlay.dataset.initialized = 'true';
+    overlay.addEventListener('click', async () => {
+      debugLog('[Audio] オーバーレイがクリックされました', 'info');
+      audioUnlocked = true;
+      hideAudioUnlockOverlay();
+      
+      // 登壇者がいる場合、視聴者としてAgoraに参加
+      if (speakerCount > 0 && !isSpeaker && !isAgoraJoinedAsListener) {
+        await joinAgoraAsListener();
+      }
+    });
+  }
+}
+
+// --------------------------------------------
 // PartyKit接続
 // --------------------------------------------
 export function connectToPartyKit(userName) {
@@ -177,6 +216,7 @@ export function connectToPartyKit(userName) {
   hostAuthed = false;
   hostAuthPending = false;
   myServerConnectionId = null;
+  audioUnlocked = false;
 
   const wsUrl = buildWsUrl(currentUserName);
   debugLog(`[Connection] 接続開始: ${wsUrl}`, 'info');
@@ -194,6 +234,9 @@ export function connectToPartyKit(userName) {
     reconnectAttempt = 0;
     debugLog('[Connection] PartyKit接続成功', 'success');
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
+
+    // オーバーレイ初期化
+    initAudioUnlockOverlay();
 
     debugLog('[Connection] requestInit 送信', 'info');
     safeSend({ type: 'requestInit', userName: currentUserName });
@@ -318,6 +361,9 @@ function handleServerMessage(data) {
       if (data.backgroundUrl && callbacks.onBackgroundChange) {
         callbacks.onBackgroundChange(data.backgroundUrl);
       }
+
+      // 登壇者がいる場合、オーバーレイを表示
+      checkAndShowAudioOverlay();
 
       break;
     }
@@ -473,8 +519,16 @@ function handleServerMessage(data) {
 
       if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
 
+      // 視聴者モードで参加していた場合は退出
+      if (isAgoraJoinedAsListener) {
+        await leaveAgoraChannel();
+      }
+
       // Agoraチャンネルに参加して音声配信開始
       joinAgoraChannel();
+
+      // オーバーレイを非表示
+      hideAudioUnlockOverlay();
 
       if (callbacks.onSpeakApproved) callbacks.onSpeakApproved();
       break;
@@ -499,6 +553,9 @@ function handleServerMessage(data) {
       if (data.speakers) updateSpeakerList(data.speakers);
       if (callbacks.onSpeakerJoined) callbacks.onSpeakerJoined(speakerJoinedId, speakerJoinedName);
       if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
+
+      // 登壇者が参加したら、視聴者にオーバーレイを表示
+      checkAndShowAudioOverlay();
       break;
     }
 
@@ -511,6 +568,14 @@ function handleServerMessage(data) {
       if (data.speakers) updateSpeakerList(data.speakers);
       if (callbacks.onSpeakerLeft) callbacks.onSpeakerLeft(leftUserId);
       if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
+
+      // 登壇者がいなくなったらオーバーレイを非表示＆視聴者モード退出
+      if (speakerCount === 0) {
+        hideAudioUnlockOverlay();
+        if (isAgoraJoinedAsListener) {
+          leaveAgoraChannel();
+        }
+      }
       break;
     }
 
@@ -550,6 +615,16 @@ function handleServerMessage(data) {
       if (data?.type) debugLog(`[Connection] 未知メッセージ: ${data.type}`, 'warn');
       break;
     }
+  }
+}
+
+// --------------------------------------------
+// 音声オーバーレイ表示チェック
+// --------------------------------------------
+function checkAndShowAudioOverlay() {
+  // 登壇者がいて、自分が登壇者でなく、まだ音声許可していない場合
+  if (speakerCount > 0 && !isSpeaker && !audioUnlocked && !isAgoraJoinedAsListener) {
+    showAudioUnlockOverlay();
   }
 }
 
@@ -594,13 +669,18 @@ function updateSpeakerList(speakers) {
       }
     });
   }
+
+  // 登壇者がいなくなった場合
+  if (speakerCount === 0 && isAgoraJoinedAsListener) {
+    leaveAgoraChannel();
+  }
 }
 
 // --------------------------------------------
-// Agora音声通話
+// Agora音声通話（登壇者用）
 // --------------------------------------------
 async function joinAgoraChannel() {
-  debugLog('[Agora] チャンネル参加開始...', 'info');
+  debugLog('[Agora] チャンネル参加開始（登壇者）...', 'info');
 
   try {
     const AgoraRTC = window.AgoraRTC;
@@ -649,12 +729,72 @@ async function joinAgoraChannel() {
     await agoraClient.publish([localAudioTrack]);
     debugLog('[Agora] 音声配信開始', 'success');
 
+    isAgoraJoinedAsListener = false;
+
   } catch (e) {
     debugLog(`[Agora] エラー: ${e?.message || e}`, 'error');
     console.error('[Agora] 詳細エラー:', e);
   }
 }
 
+// --------------------------------------------
+// Agora音声受信（視聴者用）
+// --------------------------------------------
+async function joinAgoraAsListener() {
+  if (isAgoraJoinedAsListener || isSpeaker) return;
+
+  debugLog('[Agora] チャンネル参加開始（視聴者）...', 'info');
+
+  try {
+    const AgoraRTC = window.AgoraRTC;
+    if (!AgoraRTC) {
+      debugLog('[Agora] AgoraRTC SDKが読み込まれていません', 'error');
+      return;
+    }
+
+    // クライアント作成
+    agoraClient = AgoraRTC.createClient({ 
+      mode: 'rtc', 
+      codec: 'vp8' 
+    });
+
+    // リモートユーザーの音声を受信
+    agoraClient.on('user-published', async (user, mediaType) => {
+      if (mediaType === 'audio') {
+        await agoraClient.subscribe(user, mediaType);
+        user.audioTrack?.play();
+        remoteUsers.set(user.uid, user);
+        debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
+      }
+    });
+
+    agoraClient.on('user-unpublished', (user, mediaType) => {
+      if (mediaType === 'audio') {
+        remoteUsers.delete(user.uid);
+        debugLog(`[Agora] ${user.uid} の音声が停止`, 'info');
+      }
+    });
+
+    agoraClient.on('user-left', (user) => {
+      remoteUsers.delete(user.uid);
+      debugLog(`[Agora] ${user.uid} が退出`, 'info');
+    });
+
+    // チャンネルに参加（視聴のみ、マイクなし）
+    const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
+    debugLog(`[Agora] 視聴者としてチャンネル参加成功: uid=${uid}`, 'success');
+
+    isAgoraJoinedAsListener = true;
+
+  } catch (e) {
+    debugLog(`[Agora] 視聴者参加エラー: ${e?.message || e}`, 'error');
+    console.error('[Agora] 詳細エラー:', e);
+  }
+}
+
+// --------------------------------------------
+// Agoraチャンネル退出
+// --------------------------------------------
 async function leaveAgoraChannel() {
   debugLog('[Agora] チャンネル退出', 'info');
 
@@ -671,6 +811,7 @@ async function leaveAgoraChannel() {
     }
 
     remoteUsers.clear();
+    isAgoraJoinedAsListener = false;
     debugLog('[Agora] 退出完了', 'success');
 
   } catch (e) {

@@ -30,7 +30,8 @@ import {
   hostLogin,
   hostLogout,
   sendAuth,
-  disableSecretMode
+  disableSecretMode,
+  setSecretMode
 } from './connection.js';
 
 import {
@@ -39,7 +40,8 @@ import {
   showNotification,
   updateSpeakRequests,
   updateCurrentSpeakers,
-  setHostAuthResult
+  setHostAuthResult,
+  setSecretModeUI
 } from './settings.js';
 
 import {
@@ -457,6 +459,9 @@ function hideAuthOverlay() {
 }
 
 function refreshSecretGateUI() {
+  // settings.js のトグルも同期
+  setSecretModeUI(secretMode);
+
   if (!secretMode) {
     hideAuthOverlay();
     enableContentUI(true);
@@ -619,7 +624,6 @@ async function init() {
   myAvatar.position.set((Math.random() - 0.5) * 10, 0, 5 + Math.random() * 5);
   scene.add(myAvatar);
 
-  // 初期ネームタグはローカルIDで作成（接続後にサーバーIDに置き換わる）
   upsertNameTag(myLocalId, myUserName);
 
   myPenlight = createPenlight(0xff00ff);
@@ -632,10 +636,7 @@ async function init() {
       const oldName = myUserName;
       myUserName = newName;
       sendNameChange(newName);
-      
-      // ネームタグを即座に更新（現在のIDで）
       upsertNameTag(getMyId(), newName);
-      
       debugLog(`[Settings] 名前変更: ${oldName} -> ${newName}`, 'info');
       showNotification(`名前を「${newName}」に変更しました`, 'success');
     },
@@ -696,6 +697,14 @@ async function init() {
       debugLog(`[Settings] onHostLogout called`, 'info');
       hostLogout();
     },
+    onSetSecretMode: (enabled) => {
+      debugLog(`[Settings] onSetSecretMode: ${enabled}`, 'info');
+      if (!isHost) {
+        showNotification('主催者ログインが必要です', 'warn');
+        return;
+      }
+      setSecretMode(enabled);
+    },
     onDisableSecretMode: () => {
       if (!isHost) {
         showNotification('主催者ログインが必要です', 'warn');
@@ -731,20 +740,10 @@ async function init() {
 // 接続セットアップ
 function setupConnection() {
   setCallbacks({
-    // サーバーから自分のIDが確定/変更された時
     onMyIdChanged: (oldId, newId) => {
       debugLog(`[Callback] MyId変更: ${oldId} -> ${newId}`, 'info');
-      
-      // 古いIDのネームタグを削除
-      if (oldId) {
-        removeNameTag(oldId);
-      }
-      // ローカルIDのネームタグも削除（初回接続時）
-      if (myLocalId && myLocalId !== newId) {
-        removeNameTag(myLocalId);
-      }
-      
-      // 新しいIDでネームタグを作成
+      if (oldId) removeNameTag(oldId);
+      if (myLocalId && myLocalId !== newId) removeNameTag(myLocalId);
       upsertNameTag(newId, myUserName);
     },
 
@@ -755,7 +754,6 @@ function setupConnection() {
 
       if (secretMode && !isAuthed) purgeSensitiveClientState('onInitMin secretMode=ON');
 
-      // 自分のネームタグを現在のIDで更新
       upsertNameTag(getMyId(), myUserName);
 
       debugLog(`[Callback] InitMin: secretMode=${secretMode} isHost=${isHost} isAuthed=${isAuthed}`, 'info');

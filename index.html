@@ -50,6 +50,13 @@
 
         <!-- 左下: チャットエリア -->
         <div id="chat-container">
+            <!-- ピン留めコメント表示エリア -->
+            <div id="pinned-comment" class="hidden">
+                <span class="pin-icon">📌</span>
+                <span class="pin-name"></span>
+                <span class="pin-text"></span>
+                <button id="unpin-btn" class="hidden">✕</button>
+            </div>
             <div id="chat-messages"></div>
             <form id="chat-form">
                 <input type="text" id="chat-input" placeholder="メッセージを入力..." autocomplete="off">
@@ -66,6 +73,7 @@
             </div>
             <div id="action-buttons">
                 <button id="penlight-btn" type="button">🔦</button>
+                <button id="emoji-btn" type="button">🎉</button>
                 <button id="otagei-btn" type="button">🙌</button>
             </div>
         </div>
@@ -79,7 +87,25 @@
             <button class="color-btn" type="button" data-color="#ffff00" style="background:#ffff00"></button>
             <button class="color-btn" type="button" data-color="#ffffff" style="background:#ffffff"></button>
         </div>
+
+        <!-- 絵文字選択パネル -->
+        <div id="emoji-panel" class="hidden">
+            <div class="emoji-tabs">
+                <button class="emoji-tab active" data-category="cheer">応援</button>
+                <button class="emoji-tab" data-category="heart">ハート</button>
+                <button class="emoji-tab" data-category="celebrate">お祝い</button>
+                <button class="emoji-tab" data-category="funny">おもしろ</button>
+                <button class="emoji-tab" data-category="sports">スポーツ</button>
+                <button class="emoji-tab" data-category="food">飲食</button>
+            </div>
+            <div class="emoji-grid" id="emoji-grid">
+                <!-- JSで動的に生成 -->
+            </div>
+        </div>
     </div>
+
+    <!-- 絵文字アニメーション用コンテナ -->
+    <div id="emoji-animation-container"></div>
 
     <!-- 音声再生許可オーバーレイ -->
     <div id="audio-unlock-overlay">

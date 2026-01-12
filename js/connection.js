@@ -20,6 +20,16 @@ const ROOM_ID = 'main-stage';
 const AGORA_APP_ID = 'be3dfbd19aea4850bb9564c05248f3f9';
 const AGORA_CHANNEL = 'metaverse_room';
 
+// 絵文字カテゴリ
+const EMOJI_CATEGORIES = {
+  cheer: ['🙌', '👏', '🔥', '✨', '🥇'],
+  heart: ['🩷', '❤️', '❤️‍🔥'],
+  celebrate: ['🎉', '🎊', '🎁', '👼'],
+  funny: ['💩', '🧠', '💢', '🐼'],
+  sports: ['⚾️', '🏀', '⚽️', '🏇'],
+  food: ['🍙', '🍌', '🍻', '🍾']
+};
+
 // --------------------------------------------
 // 状態
 // --------------------------------------------
@@ -48,6 +58,9 @@ let localAudioTrack = null;
 let remoteUsers = new Map();
 let isAgoraJoinedAsListener = false;
 let audioUnlocked = false;
+
+// ピン留め
+let pinnedComment = null;
 
 function canAccessContent() {
   return !secretMode || isAuthed;
@@ -78,7 +91,9 @@ let callbacks = {
   onAuthNg: null,
   onSecretModeChanged: null,
   onHostAuthResult: null,
-  onMyIdChanged: null
+  onMyIdChanged: null,
+  onEmojiThrow: null,
+  onPinnedComment: null
 };
 
 export function setCallbacks(cbs) {
@@ -97,12 +112,17 @@ export function getState() {
     hostAuthed,
     secretMode,
     isAuthed,
-    isHost
+    isHost,
+    pinnedComment
   };
 }
 
 export function getMyConnectionId() {
   return myServerConnectionId;
+}
+
+export function getEmojiCategories() {
+  return EMOJI_CATEGORIES;
 }
 
 // --------------------------------------------
@@ -359,6 +379,12 @@ function handleServerMessage(data) {
         callbacks.onBackgroundChange(data.backgroundUrl);
       }
 
+      // ピン留めコメントを復元
+      if (data.pinnedComment) {
+        pinnedComment = data.pinnedComment;
+        if (callbacks.onPinnedComment) callbacks.onPinnedComment(pinnedComment);
+      }
+
       checkAndShowAudioOverlay();
 
       break;
@@ -472,6 +498,31 @@ function handleServerMessage(data) {
         const senderId = data.senderId || data.odUserId || data.userId;
         callbacks.onChat(senderId, data.name, data.message);
       }
+      break;
+    }
+
+    case 'emojiThrow': {
+      if (!canAccessContent()) return;
+      debugLog(`[Connection] emojiThrow受信: ${data.emoji}`, 'info');
+      if (callbacks.onEmojiThrow) {
+        callbacks.onEmojiThrow(data.emoji, data.senderId, data.senderName);
+      }
+      break;
+    }
+
+    case 'pinComment': {
+      if (!canAccessContent()) return;
+      pinnedComment = data.comment;
+      debugLog(`[Connection] pinComment受信: ${JSON.stringify(pinnedComment)}`, 'info');
+      if (callbacks.onPinnedComment) callbacks.onPinnedComment(pinnedComment);
+      break;
+    }
+
+    case 'unpinComment': {
+      if (!canAccessContent()) return;
+      pinnedComment = null;
+      debugLog('[Connection] unpinComment受信', 'info');
+      if (callbacks.onPinnedComment) callbacks.onPinnedComment(null);
       break;
     }
 
@@ -875,6 +926,44 @@ export function toggleMic() {
     return newEnabled;
   }
   return false;
+}
+
+// --------------------------------------------
+// 絵文字投げ
+// --------------------------------------------
+export function sendEmojiThrow(emoji) {
+  if (!canAccessContent()) return;
+  debugLog(`[Connection] 絵文字投げ送信: ${emoji}`, 'info');
+  safeSend({ 
+    type: 'emojiThrow', 
+    emoji,
+    senderId: myServerConnectionId,
+    senderName: currentUserName
+  });
+}
+
+// --------------------------------------------
+// ピン留め
+// --------------------------------------------
+export function pinComment(senderId, senderName, message) {
+  if (!hostAuthed) {
+    debugLog('[Connection] 主催者未認証のため pinComment をブロック', 'warn');
+    return;
+  }
+  debugLog(`[Connection] ピン留め送信: ${senderName}: ${message}`, 'info');
+  safeSend({
+    type: 'pinComment',
+    comment: { senderId, senderName, message }
+  });
+}
+
+export function unpinComment() {
+  if (!hostAuthed) {
+    debugLog('[Connection] 主催者未認証のため unpinComment をブロック', 'warn');
+    return;
+  }
+  debugLog('[Connection] ピン留め解除送信', 'info');
+  safeSend({ type: 'unpinComment' });
 }
 
 // --------------------------------------------

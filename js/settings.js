@@ -44,6 +44,7 @@ const CHARA_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/
 // 状態
 // --------------------
 let isHost = false;
+let currentSecretMode = false;
 
 let currentSettings = {
   userName: 'ゲスト',
@@ -106,6 +107,20 @@ function setHostModeUI(enabled) {
   if (!isHost) {
     const pw = document.getElementById('host-password');
     if (pw) pw.value = '';
+  }
+}
+
+// 秘密会議モードのUI更新（外部から呼ばれる）
+function setSecretModeUI(enabled) {
+  currentSecretMode = !!enabled;
+  const toggle = document.getElementById('secret-mode-toggle');
+  if (toggle) {
+    toggle.checked = currentSecretMode;
+  }
+  const statusText = document.getElementById('secret-mode-status');
+  if (statusText) {
+    statusText.textContent = currentSecretMode ? '🔒 ON' : '🔓 OFF';
+    statusText.style.color = currentSecretMode ? '#ff6666' : '#66ff66';
   }
 }
 
@@ -374,6 +389,23 @@ function createSettingsUI() {
           <span style="color:#ffaa00; font-weight:bold;">👑 主催者モード有効</span>
         </div>
 
+        <div style="margin-bottom: 15px; padding:12px; background:rgba(255,0,0,0.1); border:1px solid rgba(255,100,100,0.3); border-radius:8px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+            <span style="font-size:14px; font-weight:bold; color:#ff6666;">🔒 秘密会議モード</span>
+            <span id="secret-mode-status" style="font-size:12px; color:#66ff66;">🔓 OFF</span>
+          </div>
+          <div style="font-size:11px; color:#aaa; margin-bottom:10px;">
+            ONにすると全員がログアウトされ、入室パスワードが必要になります
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:12px; color:#ccc;">有効にする</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="secret-mode-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
         <div style="margin-bottom: 15px;">
           <label style="font-size:12px; color:#aaa;">🔆 部屋の明るさ</label>
           <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
@@ -584,6 +616,15 @@ function createSettingsUI() {
     showNotification('ログアウトしました', 'info');
   };
 
+  // --- 秘密会議モード
+  document.getElementById('secret-mode-toggle').onchange = (e) => {
+    const enabled = e.target.checked;
+    if (callbacks.onSetSecretMode) {
+      callbacks.onSetSecretMode(enabled);
+      showNotification(enabled ? '秘密会議モードをONにしました' : '秘密会議モードをOFFにしました', 'info');
+    }
+  };
+
   document.getElementById('brightness-slider').oninput = (e) => {
     const value = Number(e.target.value);
     document.getElementById('brightness-value').textContent = `${value}%`;
@@ -647,5 +688,6 @@ export {
   updateCurrentSpeakers,
   updateUserCount,
   isHostMode,
-  setHostAuthResult
+  setHostAuthResult,
+  setSecretModeUI
 };

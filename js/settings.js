@@ -84,7 +84,6 @@ function setHostAuthResult(ok, reason = '') {
     else showNotification('主催者認証が解除されました', 'info');
   }
 
-  // 入力欄/ボタン状態を復帰
   const btn = document.getElementById('host-login-btn');
   if (btn) {
     btn.disabled = false;
@@ -93,7 +92,6 @@ function setHostAuthResult(ok, reason = '') {
   }
 }
 
-// UIだけ切替（状態の真実はsetHostAuthResultが決める）
 function setHostModeUI(enabled) {
   isHost = !!enabled;
 
@@ -145,13 +143,8 @@ function showNotification(message, type = 'info') {
 }
 
 function updateSpeakRequests(requests) {
-  console.log('[Settings] updateSpeakRequests called:', JSON.stringify(requests));
-  
   const container = document.getElementById('speak-requests-list');
-  if (!container) {
-    console.log('[Settings] speak-requests-list container not found!');
-    return;
-  }
+  if (!container) return;
 
   if (!requests || requests.length === 0) {
     container.innerHTML = '<div style="color: #888; font-size: 12px;">リクエストなし</div>';
@@ -159,15 +152,8 @@ function updateSpeakRequests(requests) {
   }
 
   container.innerHTML = requests.map(req => {
-    // デバッグ: 各リクエストの内容を確認
-    console.log('[Settings] Processing request:', req);
-    console.log('[Settings] userId:', req.userId, 'userName:', req.userName);
-    
-    // userIdが無い場合のフォールバック
     const odUserId = req.userId || req.odUserId || req.id || '';
     const userName = req.userName || req.name || 'ゲスト';
-    
-    console.log('[Settings] Using odUserId:', odUserId, 'userName:', userName);
     
     return `
       <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:rgba(255,255,255,0.1); border-radius:4px; margin-bottom:4px;">
@@ -182,8 +168,6 @@ function updateSpeakRequests(requests) {
 }
 
 function updateCurrentSpeakers(speakers) {
-  console.log('[Settings] updateCurrentSpeakers called:', JSON.stringify(speakers));
-  
   const container = document.getElementById('current-speakers-list');
   if (!container) return;
 
@@ -193,7 +177,6 @@ function updateCurrentSpeakers(speakers) {
   }
 
   container.innerHTML = speakers.map(speaker => {
-    // userIdが無い場合のフォールバック
     const odUserId = speaker.userId || speaker.odUserId || speaker.id || '';
     const userName = speaker.userName || speaker.name || 'ゲスト';
     
@@ -207,7 +190,7 @@ function updateCurrentSpeakers(speakers) {
 }
 
 function updateUserCount(count) {
-  // main.js側で更新するなら空でOK
+  // main.js側で更新
 }
 
 function createSettingsUI() {
@@ -511,10 +494,26 @@ function createSettingsUI() {
     bgSelection.appendChild(bgOption);
   });
 
-  // --- 開閉
-  settingsBtn.onclick = () => { overlay.style.display = 'block'; panel.style.right = '0'; };
-  overlay.onclick = () => { overlay.style.display = 'none'; panel.style.right = '-350px'; };
-  document.getElementById('close-settings').onclick = () => { overlay.style.display = 'none'; panel.style.right = '-350px'; };
+  // --- 開閉（名前タグの表示/非表示も制御）
+  const nameTagLayer = document.getElementById('name-tag-layer');
+
+  settingsBtn.onclick = () => {
+    overlay.style.display = 'block';
+    panel.style.right = '0';
+    if (nameTagLayer) nameTagLayer.style.display = 'none';
+  };
+
+  overlay.onclick = () => {
+    overlay.style.display = 'none';
+    panel.style.right = '-350px';
+    if (nameTagLayer) nameTagLayer.style.display = 'block';
+  };
+
+  document.getElementById('close-settings').onclick = () => {
+    overlay.style.display = 'none';
+    panel.style.right = '-350px';
+    if (nameTagLayer) nameTagLayer.style.display = 'block';
+  };
 
   // --- 一般UI
   document.getElementById('request-speak-btn').onclick = () => { if (callbacks.onRequestSpeak) callbacks.onRequestSpeak(); };
@@ -541,7 +540,7 @@ function createSettingsUI() {
     if (callbacks.onResetCamera) callbacks.onResetCamera();
   };
 
-  // --- 主催者ログイン（サーバへ投げるだけ。合否はsetHostAuthResultで確定）
+  // --- 主催者ログイン
   document.getElementById('host-login-btn').onclick = async () => {
     if (hostLoginPending) return;
 
@@ -551,7 +550,7 @@ function createSettingsUI() {
       return;
     }
     if (!callbacks.onHostLogin) {
-      showNotification('主催者ログイン処理が未接続です（main.js側の連携が必要）', 'error');
+      showNotification('主催者ログイン処理が未接続です', 'error');
       return;
     }
 
@@ -565,7 +564,6 @@ function createSettingsUI() {
     }
 
     try {
-      // ここでは結果を決めない（サーバ返答を待つ）
       callbacks.onHostLogin(password);
     } catch (e) {
       hostLoginPending = false;
@@ -625,36 +623,20 @@ function createSettingsUI() {
   `;
   document.head.appendChild(style);
 
-  // 初期は主催者OFF
   setHostModeUI(false);
 }
 
 // main.js 経由のボタンに繋ぐ
 window.approveSpeak = (userId) => {
-  console.log('[Settings] window.approveSpeak called with userId:', userId);
-  if (callbacks.onApproveSpeak) {
-    callbacks.onApproveSpeak(userId);
-  } else {
-    console.log('[Settings] callbacks.onApproveSpeak is not set!');
-  }
+  if (callbacks.onApproveSpeak) callbacks.onApproveSpeak(userId);
 };
 
 window.denySpeak = (userId) => {
-  console.log('[Settings] window.denySpeak called with userId:', userId);
-  if (callbacks.onDenySpeak) {
-    callbacks.onDenySpeak(userId);
-  } else {
-    console.log('[Settings] callbacks.onDenySpeak is not set!');
-  }
+  if (callbacks.onDenySpeak) callbacks.onDenySpeak(userId);
 };
 
 window.kickSpeaker = (userId) => {
-  console.log('[Settings] window.kickSpeaker called with userId:', userId);
-  if (callbacks.onKickSpeaker) {
-    callbacks.onKickSpeaker(userId);
-  } else {
-    console.log('[Settings] callbacks.onKickSpeaker is not set!');
-  }
+  if (callbacks.onKickSpeaker) callbacks.onKickSpeaker(userId);
 };
 
 export {

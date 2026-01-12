@@ -145,26 +145,45 @@ function showNotification(message, type = 'info') {
 }
 
 function updateSpeakRequests(requests) {
+  console.log('[Settings] updateSpeakRequests called:', JSON.stringify(requests));
+  
   const container = document.getElementById('speak-requests-list');
-  if (!container) return;
+  if (!container) {
+    console.log('[Settings] speak-requests-list container not found!');
+    return;
+  }
 
   if (!requests || requests.length === 0) {
     container.innerHTML = '<div style="color: #888; font-size: 12px;">リクエストなし</div>';
     return;
   }
 
-  container.innerHTML = requests.map(req => `
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:rgba(255,255,255,0.1); border-radius:4px; margin-bottom:4px;">
-      <span>${req.userName || 'ゲスト'}</span>
-      <div>
-        <button onclick="window.approveSpeak('${req.userId}')" style="background:#4CAF50; border:none; color:white; padding:4px 8px; border-radius:4px; margin-right:4px; cursor:pointer;">許可</button>
-        <button onclick="window.denySpeak('${req.userId}')" style="background:#f44336; border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer;">拒否</button>
+  container.innerHTML = requests.map(req => {
+    // デバッグ: 各リクエストの内容を確認
+    console.log('[Settings] Processing request:', req);
+    console.log('[Settings] userId:', req.userId, 'userName:', req.userName);
+    
+    // userIdが無い場合のフォールバック
+    const odUserId = req.userId || req.odUserId || req.id || '';
+    const userName = req.userName || req.name || 'ゲスト';
+    
+    console.log('[Settings] Using odUserId:', odUserId, 'userName:', userName);
+    
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:rgba(255,255,255,0.1); border-radius:4px; margin-bottom:4px;">
+        <span>${userName}</span>
+        <div>
+          <button onclick="window.approveSpeak('${odUserId}')" style="background:#4CAF50; border:none; color:white; padding:4px 8px; border-radius:4px; margin-right:4px; cursor:pointer;">許可</button>
+          <button onclick="window.denySpeak('${odUserId}')" style="background:#f44336; border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer;">拒否</button>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 function updateCurrentSpeakers(speakers) {
+  console.log('[Settings] updateCurrentSpeakers called:', JSON.stringify(speakers));
+  
   const container = document.getElementById('current-speakers-list');
   if (!container) return;
 
@@ -173,12 +192,18 @@ function updateCurrentSpeakers(speakers) {
     return;
   }
 
-  container.innerHTML = speakers.map(speaker => `
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:rgba(255,255,255,0.1); border-radius:4px; margin-bottom:4px;">
-      <span>🎤 ${speaker.userName || 'ゲスト'}</span>
-      <button onclick="window.kickSpeaker('${speaker.userId}')" style="background:#ff9800; border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer;">降壇</button>
-    </div>
-  `).join('');
+  container.innerHTML = speakers.map(speaker => {
+    // userIdが無い場合のフォールバック
+    const odUserId = speaker.userId || speaker.odUserId || speaker.id || '';
+    const userName = speaker.userName || speaker.name || 'ゲスト';
+    
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:rgba(255,255,255,0.1); border-radius:4px; margin-bottom:4px;">
+        <span>🎤 ${userName}</span>
+        <button onclick="window.kickSpeaker('${odUserId}')" style="background:#ff9800; border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer;">降壇</button>
+      </div>
+    `;
+  }).join('');
 }
 
 function updateUserCount(count) {
@@ -605,9 +630,32 @@ function createSettingsUI() {
 }
 
 // main.js 経由のボタンに繋ぐ
-window.approveSpeak = (userId) => { if (callbacks.onApproveSpeak) callbacks.onApproveSpeak(userId); };
-window.denySpeak    = (userId) => { if (callbacks.onDenySpeak) callbacks.onDenySpeak(userId); };
-window.kickSpeaker  = (userId) => { if (callbacks.onKickSpeaker) callbacks.onKickSpeaker(userId); };
+window.approveSpeak = (userId) => {
+  console.log('[Settings] window.approveSpeak called with userId:', userId);
+  if (callbacks.onApproveSpeak) {
+    callbacks.onApproveSpeak(userId);
+  } else {
+    console.log('[Settings] callbacks.onApproveSpeak is not set!');
+  }
+};
+
+window.denySpeak = (userId) => {
+  console.log('[Settings] window.denySpeak called with userId:', userId);
+  if (callbacks.onDenySpeak) {
+    callbacks.onDenySpeak(userId);
+  } else {
+    console.log('[Settings] callbacks.onDenySpeak is not set!');
+  }
+};
+
+window.kickSpeaker = (userId) => {
+  console.log('[Settings] window.kickSpeaker called with userId:', userId);
+  if (callbacks.onKickSpeaker) {
+    callbacks.onKickSpeaker(userId);
+  } else {
+    console.log('[Settings] callbacks.onKickSpeaker is not set!');
+  }
+};
 
 export {
   initSettings,

@@ -108,6 +108,13 @@ function setHostModeUI(enabled) {
     const pw = document.getElementById('host-password');
     if (pw) pw.value = '';
   }
+
+  // bodyクラスの更新（ピン留めボタン表示用）
+  if (isHost) {
+    document.body.classList.add('host-mode');
+  } else {
+    document.body.classList.remove('host-mode');
+  }
 }
 
 // 秘密会議モードのUI更新（外部から呼ばれる）

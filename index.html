@@ -43,23 +43,18 @@
         </div>
 
         <!-- 右上: 設定ボタン -->
-        <button id="settings-btn">⚙️</button>
+        <button id="settings-btn" class="settings-toggle-btn">⚙️</button>
 
         <!-- 右上: スピーカーコントロール -->
         <div id="speaker-controls" class="hidden">
-            <button id="mic-toggle-btn">🎙️ マイク ON</button>
+            <button id="mic-toggle-btn">🎙️</button>
             <button id="leave-stage-btn">降壇する</button>
         </div>
 
         <!-- 左下: チャットエリア -->
         <div id="chat-container">
             <!-- ピン留めコメント表示エリア -->
-            <div id="pinned-comment" class="hidden">
-                <span class="pin-icon">📌</span>
-                <span class="pin-name"></span>
-                <span class="pin-text"></span>
-                <button id="unpin-btn" class="hidden">✕</button>
-            </div>
+            <div id="pinned-comment" class="hidden"></div>
             <div id="chat-messages"></div>
             <form id="chat-form">
                 <input type="text" id="chat-input" placeholder="メッセージを入力..." autocomplete="off">
@@ -75,13 +70,13 @@
         </div>
 
         <!-- 左下: オタ芸ボタン -->
-        <button id="otagei-btn" class="action-btn action-btn-left">🙌</button>
+        <button id="otagei-btn" class="action-btn">🙌</button>
 
         <!-- 右下: ペンライトボタン -->
-        <button id="penlight-btn" class="action-btn action-btn-right">🔦</button>
+        <button id="penlight-btn" class="action-btn">🔦</button>
 
-        <!-- 右上（ジョイスティックの上）: 絵文字ボタン -->
-        <button id="emoji-btn" class="action-btn action-btn-emoji">🎉</button>
+        <!-- 右: 絵文字ボタン -->
+        <button id="emoji-btn" class="action-btn">🎉</button>
 
         <!-- ペンライト色選択 -->
         <div id="penlight-colors" class="hidden">
@@ -94,26 +89,16 @@
         </div>
 
         <!-- 絵文字選択パネル -->
-        <div id="emoji-panel" class="hidden">
-            <div class="emoji-tabs">
-                <button class="emoji-tab active" data-category="cheer">応援</button>
-                <button class="emoji-tab" data-category="heart">ハート</button>
-                <button class="emoji-tab" data-category="celebrate">お祝い</button>
-                <button class="emoji-tab" data-category="funny">おもしろ</button>
-                <button class="emoji-tab" data-category="sports">スポーツ</button>
-                <button class="emoji-tab" data-category="food">飲食</button>
-            </div>
-            <div class="emoji-grid" id="emoji-grid"></div>
-        </div>
+        <div id="emoji-panel" class="hidden"></div>
     </div>
 
     <!-- 絵文字アニメーション用コンテナ -->
     <div id="emoji-animation-container"></div>
 
-    <!-- 音声再生許可オーバーレイ -->
-    <div id="audio-unlock-overlay">
+    <!-- 音声再生許可オーバーレイ（タップで消える） -->
+    <div id="audio-unlock-overlay" onclick="this.classList.add('hidden')">
         <div class="audio-unlock-content">
-            <div class="audio-unlock-icon">🔊</div>
+            <div class="audio-unlock-icon">🎧</div>
             <div class="audio-unlock-title">タップして視聴</div>
             <div class="audio-unlock-subtitle">音声を再生するにはタップしてください</div>
         </div>

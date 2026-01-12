@@ -42,6 +42,9 @@
             </div>
         </div>
 
+        <!-- 右上: 設定ボタン -->
+        <button id="settings-btn">⚙️</button>
+
         <!-- 右上: スピーカーコントロール -->
         <div id="speaker-controls" class="hidden">
             <button id="mic-toggle-btn">🎙️ マイク ON</button>
@@ -64,19 +67,21 @@
             </form>
         </div>
 
-        <!-- 右下: ジョイスティック＆アクションボタン -->
-        <div id="right-controls">
-            <div id="joystick-container">
-                <div id="joystick-base">
-                    <div id="joystick-stick"></div>
-                </div>
-            </div>
-            <div id="action-buttons">
-                <button id="penlight-btn" type="button">🔦</button>
-                <button id="emoji-btn" type="button">🎉</button>
-                <button id="otagei-btn" type="button">🙌</button>
+        <!-- 中央下: ジョイスティック -->
+        <div id="joystick-container">
+            <div id="joystick-base">
+                <div id="joystick-stick"></div>
             </div>
         </div>
+
+        <!-- 左下: オタ芸ボタン -->
+        <button id="otagei-btn" class="action-btn action-btn-left">🙌</button>
+
+        <!-- 右下: ペンライトボタン -->
+        <button id="penlight-btn" class="action-btn action-btn-right">🔦</button>
+
+        <!-- 右上（ジョイスティックの上）: 絵文字ボタン -->
+        <button id="emoji-btn" class="action-btn action-btn-emoji">🎉</button>
 
         <!-- ペンライト色選択 -->
         <div id="penlight-colors" class="hidden">

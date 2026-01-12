@@ -1,9 +1,6 @@
-// server.ts - PartyKit サーバー（修正版）
+// server.ts - PartyKit サーバー（Agora対応版）
 
 import type * as Party from "partykit/server";
-
-const CLOUDFLARE_APP_ID = "137f0c04cc0e0dca2c59ecf740e8cb60";
-const CLOUDFLARE_API_URL = "https://rtc.live.cloudflare.com/v1/apps";
 
 // 開発用フォールバック（本番では party.json の vars/secrets を使う）
 const DEV_FALLBACK_HOST_PASSWORD = "jomon2026";
@@ -21,14 +18,6 @@ interface User {
 interface Speaker {
   id: string;
   name: string;
-  sessionId: string;
-}
-
-interface Track {
-  odUserId: string;
-  userName: string;
-  trackName: string;
-  sessionId: string;
 }
 
 interface SpeakRequest {
@@ -41,9 +30,6 @@ export default class Server implements Party.Server {
   // ユーザー・登壇者
   users: Map<string, User> = new Map();
   speakers: Map<string, Speaker> = new Map();
-  tracks: Map<string, Track> = new Map();
-  sessions: Map<string, string> = new Map();
-  subscriberSessions: Map<string, string> = new Map();
   speakRequests: Map<string, SpeakRequest> = new Map();
 
   // 主催者・認証
@@ -59,13 +45,7 @@ export default class Server implements Party.Server {
 
   constructor(readonly room: Party.Room) {}
 
-  // === トークン・パスワード取得 ===
-  getToken(): string {
-    return (this.room as any).env?.CLOUDFLARE_API_TOKEN
-      || (this.room as any).CLOUDFLARE_API_TOKEN
-      || "";
-  }
-
+  // === パスワード取得 ===
   getHostPassword(): string {
     return (this.room as any).env?.HOST_PASSWORD
       || (this.room as any).HOST_PASSWORD
@@ -129,15 +109,6 @@ export default class Server implements Party.Server {
 
     const speakersArray = Array.from(this.speakers.keys());
 
-    const tracksArray: [string, string][] = [];
-    const sessionsArray: [string, string][] = [];
-    this.tracks.forEach((track, trackName) => {
-      tracksArray.push([track.odUserId, trackName]);
-    });
-    this.sessions.forEach((sessionId, odUserId) => {
-      sessionsArray.push([odUserId, sessionId]);
-    });
-
     const speakRequestsArray = this.isHost(conn.id)
       ? Array.from(this.speakRequests.values())
       : [];
@@ -150,8 +121,6 @@ export default class Server implements Party.Server {
       isHost: this.isHost(conn.id),
       users: usersObj,
       speakers: speakersArray,
-      tracks: tracksArray,
-      sessions: sessionsArray,
       speakRequests: speakRequestsArray,
       brightness: this.brightness,
       backgroundUrl: this.backgroundUrl
@@ -201,12 +170,6 @@ export default class Server implements Party.Server {
       });
     }
 
-    for (const [trackName, track] of this.tracks) {
-      if (track.odUserId === conn.id) {
-        this.tracks.delete(trackName);
-      }
-    }
-
     this.speakRequests.delete(conn.id);
 
     if (user) {
@@ -219,8 +182,6 @@ export default class Server implements Party.Server {
       });
     }
 
-    this.sessions.delete(conn.id);
-    this.subscriberSessions.delete(conn.id);
     this.authed.delete(conn.id);
     this.joined.delete(conn.id);
     this.hosts.delete(conn.id);
@@ -341,18 +302,6 @@ export default class Server implements Party.Server {
 
       case "stopSpeak":
         this.handleStopSpeak(sender);
-        break;
-
-      case "publishTrack":
-        await this.handlePublishTrack(data, sender);
-        break;
-
-      case "subscribeTrack":
-        await this.handleSubscribeTrack(data, sender);
-        break;
-
-      case "subscribeAnswer":
-        await this.handleSubscribeAnswer(data, sender);
         break;
 
       case "announce":
@@ -614,8 +563,8 @@ export default class Server implements Party.Server {
     this.send(sender, { type: "speakRequestSent" });
   }
 
-  // === 登壇承認 ===
-  async handleApproveSpeak(data: any, sender: Party.Connection) {
+  // === 登壇承認（Agora版：サーバーは登壇者管理のみ、音声はクライアントで処理） ===
+  handleApproveSpeak(data: any, sender: Party.Connection) {
     if (!this.isHost(sender.id)) {
       this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
       return;
@@ -632,28 +581,19 @@ export default class Server implements Party.Server {
 
     this.speakRequests.delete(targetId);
 
-    // Cloudflare Calls セッション作成
-    const sessionId = await this.createSession();
-    if (!sessionId) {
-      this.send(sender, { type: "error", code: "SESSION_ERROR", message: "セッション作成に失敗しました" });
-      return;
-    }
-
-    this.sessions.set(targetId, sessionId);
-
     // 登壇者として登録
     this.speakers.set(targetId, {
       id: targetId,
-      name: request.userName,
-      sessionId: sessionId
+      name: request.userName
     });
 
-    // 対象者に通知
+    // 対象者に通知（Agoraチャンネルに参加するよう指示）
     const targetConn = this.getConnection(targetId);
     if (targetConn) {
       this.send(targetConn, {
         type: "speakApproved",
-        sessionId: sessionId
+        odUserId: targetId,
+        userName: request.userName
       });
     }
 
@@ -723,15 +663,8 @@ export default class Server implements Party.Server {
     console.log(`[Server] Kicking speaker ${targetId}`);
 
     this.speakers.delete(targetId);
-    this.sessions.delete(targetId);
 
-    for (const [trackName, track] of this.tracks) {
-      if (track.odUserId === targetId) {
-        this.tracks.delete(trackName);
-      }
-    }
-
-    // 対象者に通知
+    // 対象者に通知（Agoraチャンネルから退出するよう指示）
     const targetConn = this.getConnection(targetId);
     if (targetConn) {
       this.send(targetConn, { type: "kicked" });
@@ -752,265 +685,12 @@ export default class Server implements Party.Server {
     console.log(`[Server] Speaker ${sender.id} stopping`);
 
     this.speakers.delete(sender.id);
-    this.sessions.delete(sender.id);
-
-    for (const [trackName, track] of this.tracks) {
-      if (track.odUserId === sender.id) {
-        this.tracks.delete(trackName);
-      }
-    }
 
     this.broadcastAllowed({
       type: "speakerLeft",
       odUserId: sender.id,
       speakers: Array.from(this.speakers.keys())
     });
-  }
-
-  // === Cloudflare Calls API ===
-  async handlePublishTrack(data: any, sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
-
-    const sessionId = this.sessions.get(sender.id);
-    if (!sessionId) {
-      this.send(sender, { type: "error", code: "NO_SESSION", message: "セッションがありません" });
-      return;
-    }
-
-    const user = this.users.get(sender.id);
-    const userName = user?.name || "Unknown";
-
-    console.log(`[Server] Publishing track for ${sender.id}`);
-
-    const result = await this.publishTrack(sessionId, data.offer?.sdp || data.offer);
-    if (!result) {
-      this.send(sender, { type: "error", code: "PUBLISH_ERROR", message: "トラック公開に失敗しました" });
-      return;
-    }
-
-    const { answer, trackName } = result;
-
-    // トラック登録
-    this.tracks.set(trackName, {
-      odUserId: sender.id,
-      userName: userName,
-      trackName: trackName,
-      sessionId: sessionId
-    });
-
-    // 公開者に応答
-    this.send(sender, {
-      type: "trackPublished",
-      answer: { type: "answer", sdp: answer },
-      trackName: trackName
-    });
-
-    // 全員にトラック通知
-    this.broadcastAllowed({
-      type: "newTrack",
-      odUserId: sender.id,
-      userName: userName,
-      trackName: trackName,
-      sessionId: sessionId
-    }, sender.id);
-  }
-
-  async handleSubscribeTrack(data: any, sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
-
-    const trackName = data.trackName;
-    const track = this.tracks.get(trackName);
-    if (!track) {
-      this.send(sender, { type: "error", code: "TRACK_NOT_FOUND", message: "トラックが見つかりません" });
-      return;
-    }
-
-    console.log(`[Server] Subscribing to track ${trackName} for ${sender.id}`);
-
-    let subSessionId = this.subscriberSessions.get(sender.id);
-    if (!subSessionId) {
-      subSessionId = await this.createSession();
-      if (!subSessionId) {
-        this.send(sender, { type: "error", code: "SESSION_ERROR", message: "セッション作成に失敗しました" });
-        return;
-      }
-      this.subscriberSessions.set(sender.id, subSessionId);
-    }
-
-    const result = await this.pullTrack(subSessionId, track.sessionId, trackName);
-    if (!result) {
-      this.send(sender, { type: "error", code: "SUBSCRIBE_ERROR", message: "購読に失敗しました" });
-      return;
-    }
-
-    this.send(sender, {
-      type: "subscribed",
-      trackName: trackName,
-      offer: result.offer,
-      sessionId: subSessionId
-    });
-  }
-
-  async handleSubscribeAnswer(data: any, sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
-
-    const subSessionId = this.subscriberSessions.get(sender.id);
-    if (!subSessionId) {
-      this.send(sender, { type: "error", code: "NO_SESSION", message: "セッションがありません" });
-      return;
-    }
-
-    const answerSdp = data.answer?.sdp || data.answer;
-    const ok = await this.sendAnswer(subSessionId, answerSdp);
-
-    this.send(sender, {
-      type: "subscribeAnswerAck",
-      trackName: data.trackName,
-      ok: ok
-    });
-  }
-
-  // === Cloudflare API 呼び出し ===
-  async createSession(): Promise<string | null> {
-    const token = this.getToken();
-    if (!token) {
-      console.error("[Server] No Cloudflare API token");
-      return null;
-    }
-
-    try {
-      const res = await fetch(`${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/new`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({})
-      });
-
-      if (!res.ok) {
-        console.error("[Server] createSession failed:", res.status, await res.text());
-        return null;
-      }
-
-      const json = await res.json() as any;
-      console.log(`[Server] Session created: ${json.sessionId}`);
-      return json.sessionId || null;
-    } catch (e) {
-      console.error("[Server] createSession error:", e);
-      return null;
-    }
-  }
-
-  async publishTrack(sessionId: string, offerSdp: string): Promise<{ answer: string; trackName: string } | null> {
-    const token = this.getToken();
-    if (!token) return null;
-
-    try {
-      const res = await fetch(`${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/tracks/new`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          sessionDescription: {
-            type: "offer",
-            sdp: offerSdp
-          },
-          tracks: [{
-            location: "local",
-            trackName: `audio-${sessionId}-${Date.now()}`
-          }]
-        })
-      });
-
-      if (!res.ok) {
-        console.error("[Server] publishTrack failed:", res.status, await res.text());
-        return null;
-      }
-
-      const json = await res.json() as any;
-      const track = json.tracks?.[0];
-      if (!track) {
-        console.error("[Server] publishTrack: no track in response");
-        return null;
-      }
-
-      return {
-        answer: json.sessionDescription?.sdp || "",
-        trackName: track.trackName
-      };
-    } catch (e) {
-      console.error("[Server] publishTrack error:", e);
-      return null;
-    }
-  }
-
-  async pullTrack(subscriberSessionId: string, publisherSessionId: string, trackName: string): Promise<{ offer: string } | null> {
-    const token = this.getToken();
-    if (!token) return null;
-
-    try {
-      const res = await fetch(`${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${subscriberSessionId}/tracks/new`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          tracks: [{
-            location: "remote",
-            sessionId: publisherSessionId,
-            trackName: trackName
-          }]
-        })
-      });
-
-      if (!res.ok) {
-        console.error("[Server] pullTrack failed:", res.status, await res.text());
-        return null;
-      }
-
-      const json = await res.json() as any;
-      return {
-        offer: json.sessionDescription?.sdp || ""
-      };
-    } catch (e) {
-      console.error("[Server] pullTrack error:", e);
-      return null;
-    }
-  }
-
-  async sendAnswer(sessionId: string, answerSdp: string): Promise<boolean> {
-    const token = this.getToken();
-    if (!token) return false;
-
-    try {
-      const res = await fetch(`${CLOUDFLARE_API_URL}/${CLOUDFLARE_APP_ID}/sessions/${sessionId}/renegotiate`, {
-        method: "PUT",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          sessionDescription: {
-            type: "answer",
-            sdp: answerSdp
-          }
-        })
-      });
-
-      if (!res.ok) {
-        console.error("[Server] sendAnswer failed:", res.status, await res.text());
-        return false;
-      }
-
-      return true;
-    } catch (e) {
-      console.error("[Server] sendAnswer error:", e);
-      return false;
-    }
   }
 
   // === アナウンス ===

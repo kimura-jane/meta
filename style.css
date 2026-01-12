@@ -514,3 +514,54 @@ body {
     background: rgba(255,102,255,0.5);
     color: #fff;
 }
+/* 音声再生許可オーバーレイ */
+#audio-unlock-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 10000;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+}
+
+#audio-unlock-overlay.show {
+    display: flex;
+}
+
+.audio-unlock-content {
+    text-align: center;
+    color: white;
+    padding: 50px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    border: 2px solid rgba(255, 102, 255, 0.5);
+    backdrop-filter: blur(10px);
+    animation: audioUnlockPulse 2s ease-in-out infinite;
+}
+
+.audio-unlock-icon {
+    font-size: 80px;
+    margin-bottom: 20px;
+}
+
+.audio-unlock-title {
+    font-size: 28px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    text-shadow: 0 0 10px rgba(255, 102, 255, 0.8);
+}
+
+.audio-unlock-subtitle {
+    font-size: 14px;
+    color: #aaa;
+}
+
+@keyframes audioUnlockPulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(255, 102, 255, 0.3); }
+    50% { transform: scale(1.02); box-shadow: 0 0 40px rgba(255, 102, 255, 0.5); }
+}

@@ -165,6 +165,71 @@ body {
     z-index: 50;
 }
 
+/* ピン留めコメント */
+#pinned-comment {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, rgba(255,102,255,0.2), rgba(102,255,255,0.2));
+    border: 1px solid rgba(255,102,255,0.5);
+    border-radius: 12px;
+    margin-bottom: 10px;
+    backdrop-filter: blur(10px);
+    animation: pinGlow 2s ease-in-out infinite;
+}
+
+#pinned-comment.hidden {
+    display: none;
+}
+
+@keyframes pinGlow {
+    0%, 100% { box-shadow: 0 0 10px rgba(255,102,255,0.3); }
+    50% { box-shadow: 0 0 20px rgba(255,102,255,0.5); }
+}
+
+#pinned-comment .pin-icon {
+    font-size: 16px;
+}
+
+#pinned-comment .pin-name {
+    color: #ff66ff;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+#pinned-comment .pin-text {
+    color: #fff;
+    font-size: 13px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#unpin-btn {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: #fff;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+#unpin-btn:hover {
+    background: rgba(255,68,68,0.5);
+}
+
+#unpin-btn.hidden {
+    display: none;
+}
+
 #chat-messages {
     max-height: 120px;
     overflow-y: auto;
@@ -180,6 +245,9 @@ body {
     font-size: 13px;
     line-height: 1.4;
     animation: fadeIn 0.3s ease;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
 }
 
 @keyframes fadeIn {
@@ -190,11 +258,39 @@ body {
 .chat-message .name {
     color: #ff66ff;
     font-weight: 500;
-    margin-right: 8px;
+    flex-shrink: 0;
 }
 
 .chat-message .text {
     color: #fff;
+    flex: 1;
+}
+
+.chat-message .pin-btn {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    display: none;
+}
+
+.chat-message .pin-btn:hover {
+    color: #ff66ff;
+    background: rgba(255,102,255,0.2);
+}
+
+.chat-message .pin-btn.pinned {
+    color: #ff66ff;
+}
+
+/* 主催者モード時のみピンボタン表示 */
+body.host-mode .chat-message .pin-btn {
+    display: block;
 }
 
 #chat-form {
@@ -298,6 +394,7 @@ body {
 }
 
 #penlight-btn,
+#emoji-btn,
 #otagei-btn {
     width: 50px;
     height: 50px;
@@ -311,6 +408,7 @@ body {
 }
 
 #penlight-btn:hover,
+#emoji-btn:hover,
 #otagei-btn:hover {
     border-color: rgba(255,102,255,0.6);
     transform: scale(1.1);
@@ -318,6 +416,12 @@ body {
 
 #penlight-btn.active {
     background: linear-gradient(145deg, #ff66ff, #aa44aa);
+    border-color: #ff66ff;
+    box-shadow: 0 0 20px rgba(255,102,255,0.6);
+}
+
+#emoji-btn.active {
+    background: linear-gradient(145deg, #ff66ff, #66ffff);
     border-color: #ff66ff;
     box-shadow: 0 0 20px rgba(255,102,255,0.6);
 }
@@ -371,6 +475,119 @@ body {
     border-color: #fff;
     box-shadow: 0 0 15px currentColor;
     transform: scale(1.15);
+}
+
+/* 絵文字パネル */
+#emoji-panel {
+    position: absolute;
+    right: 16px;
+    bottom: 200px;
+    width: 280px;
+    background: rgba(0,0,0,0.95);
+    border-radius: 16px;
+    border: 1px solid rgba(255,102,255,0.3);
+    backdrop-filter: blur(15px);
+    z-index: 60;
+    overflow: hidden;
+}
+
+#emoji-panel.hidden {
+    display: none;
+}
+
+.emoji-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.emoji-tab {
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.1);
+    border: none;
+    border-radius: 12px;
+    color: rgba(255,255,255,0.7);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.emoji-tab:hover {
+    background: rgba(255,102,255,0.3);
+    color: #fff;
+}
+
+.emoji-tab.active {
+    background: linear-gradient(135deg, #ff66ff, #66ffff);
+    color: #fff;
+}
+
+.emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    padding: 12px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.emoji-item {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    background: rgba(255,255,255,0.05);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.emoji-item:hover {
+    background: rgba(255,102,255,0.3);
+    transform: scale(1.15);
+}
+
+.emoji-item:active {
+    transform: scale(0.95);
+}
+
+/* 絵文字アニメーションコンテナ */
+#emoji-animation-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 500;
+    overflow: hidden;
+}
+
+.flying-emoji {
+    position: absolute;
+    font-size: 40px;
+    animation: flyEmoji 2s ease-out forwards;
+    pointer-events: none;
+}
+
+@keyframes flyEmoji {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1) rotate(0deg);
+    }
+    50% {
+        opacity: 1;
+        transform: translateY(-200px) scale(1.2) rotate(180deg);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-400px) scale(0.8) rotate(360deg);
+    }
 }
 
 /* スピーカーコントロール（右上・設定の下） */
@@ -486,34 +703,6 @@ body {
     box-shadow: 0 0 20px rgba(102,255,255,0.3);
 }
 
-/* ユーティリティ */
-.hidden {
-    display: none !important;
-}
-
-/* スクロールバー */
-::-webkit-scrollbar {
-    width: 6px;
-}
-
-::-webkit-scrollbar-track {
-    background: rgba(0,0,0,0.3);
-    border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb {
-    background: rgba(255,102,255,0.5);
-    border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: rgba(255,102,255,0.8);
-}
-
-::selection {
-    background: rgba(255,102,255,0.5);
-    color: #fff;
-}
 /* 音声再生許可オーバーレイ */
 #audio-unlock-overlay {
     display: none;
@@ -523,7 +712,7 @@ body {
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.85);
-    z-index: 10000;
+    z-index: 99999;
     justify-content: center;
     align-items: center;
     cursor: pointer;
@@ -564,4 +753,33 @@ body {
 @keyframes audioUnlockPulse {
     0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(255, 102, 255, 0.3); }
     50% { transform: scale(1.02); box-shadow: 0 0 40px rgba(255, 102, 255, 0.5); }
+}
+
+/* ユーティリティ */
+.hidden {
+    display: none !important;
+}
+
+/* スクロールバー */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.3);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255,102,255,0.5);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,102,255,0.8);
+}
+
+::selection {
+    background: rgba(255,102,255,0.5);
+    color: #fff;
 }

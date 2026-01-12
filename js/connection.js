@@ -1,5 +1,5 @@
 // ============================================
-// connection.js - PartyKit接続・音声通話（修正版）
+// connection.js - PartyKit接続（Agora対応版）
 // ============================================
 
 import {
@@ -16,7 +16,9 @@ import { setHostAuthResult } from './settings.js';
 // --------------------------------------------
 const PARTYKIT_HOST = 'kimurameta.kimura-jane.partykit.dev';
 const ROOM_ID = 'main-stage';
-const PARTY_NAME = null;
+
+// Agora設定（後で正式なものに置き換え）
+const AGORA_APP_ID = 'YOUR_AGORA_APP_ID'; // TODO: 本番のApp IDに変更
 
 // --------------------------------------------
 // 状態
@@ -24,29 +26,12 @@ const PARTY_NAME = null;
 let socket = null;
 let connected = false;
 let myServerConnectionId = null;
-let turnCredentials = null;
 let currentUserName = '';
 
-let localStream = null;
-let peerConnection = null;
-let mySessionId = null;
 let isSpeaker = false;
 let isMicMuted = false;
-let myPublishedTrackName = null;
-
-const subscribedTracks = new Map();
-const pendingSubscriptions = new Map();
-const pendingStreams = [];
 
 let speakerCount = 0;
-let audioUnlocked = false;
-
-let sharedAudioContext = null;
-let masterGainNode = null;
-
-const remoteAudioEls = new Map();
-const pendingAudioPlays = new Set();
-
 let speakRequests = [];
 let currentSpeakers = [];
 
@@ -56,6 +41,10 @@ let hostAuthPending = false;
 let secretMode = false;
 let isAuthed = false;
 let isHost = false;
+
+// Agora関連（後で実装）
+let agoraClient = null;
+let localAudioTrack = null;
 
 function canAccessContent() {
   return !secretMode || isAuthed;
@@ -100,7 +89,6 @@ export function getState() {
     isMicMuted,
     speakerCount,
     myServerConnectionId,
-    subscribedTracks,
     speakRequests,
     currentSpeakers,
     hostAuthed,
@@ -115,263 +103,13 @@ export function getMyConnectionId() {
 }
 
 // --------------------------------------------
-// ICE サーバー設定
-// --------------------------------------------
-function getIceServers() {
-  const servers = [{ urls: 'stun:stun.cloudflare.com:3478' }];
-
-  if (turnCredentials) {
-    servers.push({
-      urls: 'turn:turn.cloudflare.com:3478?transport=udp',
-      username: turnCredentials.username,
-      credential: turnCredentials.credential
-    });
-    servers.push({
-      urls: 'turn:turn.cloudflare.com:3478?transport=tcp',
-      username: turnCredentials.username,
-      credential: turnCredentials.credential
-    });
-  }
-
-  return servers;
-}
-
-// --------------------------------------------
-// 共有AudioContext管理
-// --------------------------------------------
-function createSharedAudioContext() {
-  if (sharedAudioContext && sharedAudioContext.state !== 'closed') {
-    return sharedAudioContext;
-  }
-
-  try {
-    sharedAudioContext = new (window.AudioContext || window.webkitAudioContext)({
-      latencyHint: 'interactive',
-      sampleRate: 48000
-    });
-
-    masterGainNode = sharedAudioContext.createGain();
-    masterGainNode.gain.value = 1.0;
-    masterGainNode.connect(sharedAudioContext.destination);
-
-    debugLog(`SharedAudioContext作成: state=${sharedAudioContext.state}`, 'info');
-    return sharedAudioContext;
-  } catch (e) {
-    debugLog(`SharedAudioContext作成失敗: ${e?.message || e}`, 'error');
-    return null;
-  }
-}
-
-async function unlockAudioContext() {
-  if (audioUnlocked && sharedAudioContext && sharedAudioContext.state === 'running') {
-    return true;
-  }
-
-  if (!sharedAudioContext) createSharedAudioContext();
-  if (!sharedAudioContext) return false;
-
-  try {
-    if (sharedAudioContext.state === 'suspended') {
-      debugLog('AudioContext resume試行...', 'info');
-      await sharedAudioContext.resume();
-      debugLog(`AudioContext resume完了: state=${sharedAudioContext.state}`, 'success');
-    }
-
-    if (sharedAudioContext.state === 'running') {
-      audioUnlocked = true;
-      debugLog('AudioContextアンロック成功', 'success');
-
-      connectPendingStreams();
-      tryPlayPendingAudioEls();
-
-      const btn = document.getElementById('audio-unlock-btn');
-      if (btn) btn.remove();
-
-      return true;
-    }
-    debugLog(`AudioContextがrunningにならない: ${sharedAudioContext.state}`, 'error');
-    return false;
-  } catch (e) {
-    debugLog(`AudioContext resume失敗: ${e?.message || e}`, 'error');
-    return false;
-  }
-}
-
-function connectPendingStreams() {
-  if (!sharedAudioContext || sharedAudioContext.state !== 'running') return;
-
-  debugLog(`待機中ストリーム接続: ${pendingStreams.length}件`, 'info');
-  while (pendingStreams.length > 0) {
-    const { stream, trackName, odUserId } = pendingStreams.shift();
-    connectStreamPlayback(stream, trackName, odUserId);
-  }
-}
-
-function connectStreamPlayback(stream, trackName, odUserId) {
-  if (isIOS()) return connectStreamToAudioElement(stream, trackName, odUserId);
-  return connectStreamToAudioContext(stream, trackName, odUserId);
-}
-
-function connectStreamToAudioContext(stream, trackName, odUserId) {
-  if (!sharedAudioContext || sharedAudioContext.state !== 'running') {
-    pendingStreams.push({ stream, trackName, odUserId });
-    showAudioUnlockButton();
-    return false;
-  }
-
-  try {
-    const source = sharedAudioContext.createMediaStreamSource(stream);
-    const gainNode = sharedAudioContext.createGain();
-    gainNode.gain.value = 1.0;
-
-    source.connect(gainNode);
-    gainNode.connect(masterGainNode);
-
-    const trackInfo = subscribedTracks.get(trackName);
-    if (trackInfo) {
-      trackInfo.source = source;
-      trackInfo.gainNode = gainNode;
-    }
-
-    debugLog(`ストリーム接続(WebAudio)成功: ${trackName}`, 'success');
-
-    if (callbacks.remoteAvatars && odUserId) {
-      const userData = callbacks.remoteAvatars.get(odUserId);
-      if (userData && userData.avatar) addSpeakerIndicator(userData.avatar);
-    }
-
-    return true;
-  } catch (e) {
-    debugLog(`ストリーム接続(WebAudio)失敗: ${e?.message || e}`, 'error');
-    return false;
-  }
-}
-
-function ensureRemoteAudioEl(trackName) {
-  let el = remoteAudioEls.get(trackName);
-  if (el) return el;
-
-  el = document.createElement('audio');
-  el.autoplay = true;
-  el.playsInline = true;
-  el.muted = false;
-  el.controls = false;
-  el.style.cssText = 'position:fixed; left:-9999px; top:-9999px; width:1px; height:1px; opacity:0;';
-
-  document.body.appendChild(el);
-  remoteAudioEls.set(trackName, el);
-  return el;
-}
-
-function connectStreamToAudioElement(stream, trackName, odUserId) {
-  const el = ensureRemoteAudioEl(trackName);
-  el.srcObject = stream;
-  el.volume = 1.0;
-
-  const trackInfo = subscribedTracks.get(trackName);
-  if (trackInfo) trackInfo.audioEl = el;
-
-  el.play().then(() => {
-    pendingAudioPlays.delete(trackName);
-    debugLog(`ストリーム接続(<audio>)成功: ${trackName}`, 'success');
-  }).catch((e) => {
-    pendingAudioPlays.add(trackName);
-    debugLog(`audio.play失敗: ${trackName} / ${e?.message || e}`, 'warn');
-    showAudioUnlockButton();
-  });
-
-  if (callbacks.remoteAvatars && odUserId) {
-    const userData = callbacks.remoteAvatars.get(odUserId);
-    if (userData && userData.avatar) addSpeakerIndicator(userData.avatar);
-  }
-
-  return true;
-}
-
-function tryPlayPendingAudioEls() {
-  if (pendingAudioPlays.size === 0) return;
-  for (const trackName of Array.from(pendingAudioPlays)) {
-    const el = remoteAudioEls.get(trackName);
-    if (!el) continue;
-    el.play().then(() => {
-      pendingAudioPlays.delete(trackName);
-      debugLog(`pending audio.play成功: ${trackName}`, 'success');
-    }).catch(() => {});
-  }
-}
-
-// --------------------------------------------
-// 音声アンロックボタン（iOS Safari用）
-// --------------------------------------------
-function showAudioUnlockButton() {
-  if (audioUnlocked && sharedAudioContext && sharedAudioContext.state === 'running') return;
-
-  const existing = document.getElementById('audio-unlock-btn');
-  if (existing) return;
-
-  const btn = document.createElement('button');
-  btn.id = 'audio-unlock-btn';
-  btn.textContent = '🔊 タップして音声を有効化';
-  btn.style.cssText = `
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    padding: 20px 40px;
-    font-size: 18px;
-    background: linear-gradient(135deg, #ff66ff, #9966ff);
-    color: white;
-    border: none;
-    border-radius: 20px;
-    z-index: 20000;
-    cursor: pointer;
-    box-shadow: 0 4px 30px rgba(255, 102, 255, 0.5);
-  `;
-
-  btn.onclick = async () => {
-    debugLog('音声アンロックボタン押下', 'info');
-    const ok = await unlockAudioContext();
-    if (ok) debugLog('音声アンロック完了', 'success');
-    else debugLog('音声アンロック失敗', 'error');
-  };
-
-  document.body.appendChild(btn);
-}
-
-let audioUnlockSetupDone = false;
-
-function setupAudioUnlockOnce() {
-  if (audioUnlockSetupDone) return;
-  audioUnlockSetupDone = true;
-
-  createSharedAudioContext();
-
-  const handleUserGesture = async () => {
-    if (!audioUnlocked || !sharedAudioContext || sharedAudioContext.state !== 'running') {
-      await unlockAudioContext();
-    } else {
-      tryPlayPendingAudioEls();
-    }
-  };
-
-  document.addEventListener('touchstart', handleUserGesture, { passive: true });
-  document.addEventListener('touchend', handleUserGesture, { passive: true });
-  document.addEventListener('click', handleUserGesture);
-}
-
-// --------------------------------------------
 // WebSocket URL
 // --------------------------------------------
 function buildWsUrl(userName) {
   const base = `wss://${PARTYKIT_HOST}`;
   const room = encodeURIComponent(ROOM_ID);
   const name = encodeURIComponent(userName);
-
-  const path = PARTY_NAME
-    ? `/parties/${encodeURIComponent(PARTY_NAME)}/${room}`
-    : `/party/${room}`;
-
-  return `${base}${path}?name=${name}`;
+  return `${base}/party/${room}?name=${name}`;
 }
 
 // --------------------------------------------
@@ -395,7 +133,6 @@ function scheduleReconnect() {
   const base = 800;
   const max = 8000;
   const jitter = Math.floor(Math.random() * 250);
-
   const delay = Math.min(max, base * Math.pow(2, Math.min(5, reconnectAttempt))) + jitter;
   reconnectAttempt++;
 
@@ -407,29 +144,8 @@ function scheduleReconnect() {
   }, delay);
 }
 
-function cleanupSubscriptions() {
-  subscribedTracks.forEach((obj) => {
-    if (obj.source) { try { obj.source.disconnect(); } catch(_) {} }
-    if (obj.gainNode) { try { obj.gainNode.disconnect(); } catch(_) {} }
-    if (obj.pc) { try { obj.pc.close(); } catch(_) {} }
-    if (obj.audioEl) {
-      try { obj.audioEl.srcObject = null; } catch(_) {}
-    }
-  });
-  subscribedTracks.clear();
-  pendingSubscriptions.clear();
-  pendingStreams.length = 0;
-
-  for (const [trackName, el] of remoteAudioEls) {
-    try { el.srcObject = null; } catch(_) {}
-    try { el.remove(); } catch(_) {}
-    remoteAudioEls.delete(trackName);
-    pendingAudioPlays.delete(trackName);
-  }
-}
-
 // --------------------------------------------
-// 送信ヘルパー（先に定義）
+// 送信ヘルパー
 // --------------------------------------------
 function safeSend(obj) {
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -447,7 +163,7 @@ export function connectToPartyKit(userName) {
   currentUserName = userName || 'ゲスト';
 
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-    try { socket.close(1000, 'reconnect'); } catch(_) {}
+    try { socket.close(1000, 'reconnect'); } catch (_) {}
   }
   socket = null;
 
@@ -465,8 +181,6 @@ export function connectToPartyKit(userName) {
   const wsUrl = buildWsUrl(currentUserName);
   debugLog(`[Connection] 接続開始: ${wsUrl}`, 'info');
 
-  setupAudioUnlockOnce();
-
   try {
     socket = new WebSocket(wsUrl);
   } catch (e) {
@@ -481,7 +195,6 @@ export function connectToPartyKit(userName) {
     debugLog('[Connection] PartyKit接続成功', 'success');
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
 
-    // ★ 接続直後に requestInit を送信
     debugLog('[Connection] requestInit 送信', 'info');
     safeSend({ type: 'requestInit', userName: currentUserName });
   };
@@ -502,18 +215,18 @@ export function connectToPartyKit(userName) {
     connected = false;
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(false);
 
-    cleanupSubscriptions();
-
     isAuthed = false;
     secretMode = false;
     isHost = false;
     hostAuthed = false;
     hostAuthPending = false;
 
+    // Agora切断
+    leaveAgoraChannel();
+
     setHostAuthResult(false, '接続が切れたため主催者状態を解除しました');
 
     if (ev.code === 1000 || ev.code === 1001) return;
-
     scheduleReconnect();
   };
 
@@ -526,11 +239,11 @@ export function disconnectPartyKit() {
   wantReconnect = false;
   clearReconnectTimer();
   if (socket) {
-    try { socket.close(1000, 'manual'); } catch(_) {}
+    try { socket.close(1000, 'manual'); } catch (_) {}
   }
   socket = null;
   connected = false;
-  cleanupSubscriptions();
+  leaveAgoraChannel();
   if (callbacks.onConnectedChange) callbacks.onConnectedChange(false);
 }
 
@@ -549,7 +262,6 @@ function handleServerMessage(data) {
 
       debugLog(`[Connection] initMin: ID=${myServerConnectionId}, secretMode=${secretMode}, isHost=${isHost}, isAuthed=${isAuthed}`, 'success');
 
-      // IDが変わったことを通知
       if (callbacks.onMyIdChanged && oldId !== myServerConnectionId) {
         callbacks.onMyIdChanged(oldId, myServerConnectionId);
       }
@@ -575,14 +287,8 @@ function handleServerMessage(data) {
 
       debugLog(`[Connection] init: ID=${myServerConnectionId}, ${Object.keys(data.users || {}).length}人, secretMode=${secretMode}, isAuthed=${isAuthed}`, 'success');
 
-      // IDが変わったことを通知
       if (callbacks.onMyIdChanged && oldId !== myServerConnectionId) {
         callbacks.onMyIdChanged(oldId, myServerConnectionId);
-      }
-
-      if (data.turnCredentials) {
-        turnCredentials = data.turnCredentials;
-        debugLog('[Connection] TURN認証情報取得', 'success');
       }
 
       Object.entries(data.users || {}).forEach(([odUserId, user]) => {
@@ -612,20 +318,6 @@ function handleServerMessage(data) {
 
       if (data.backgroundUrl && callbacks.onBackgroundChange) {
         callbacks.onBackgroundChange(data.backgroundUrl);
-      }
-
-      if (data.tracks && data.sessions) {
-        const tracksArray = Array.isArray(data.tracks) ? data.tracks : [];
-        const sessionsArray = Array.isArray(data.sessions) ? data.sessions : [];
-        const sessionsMap = new Map(sessionsArray);
-
-        setTimeout(() => {
-          tracksArray.forEach(([odUserId, trackName]) => {
-            if (odUserId === myServerConnectionId) return;
-            const speakerSessionId = sessionsMap.get(odUserId);
-            if (speakerSessionId) subscribeToTrack(odUserId, speakerSessionId, trackName);
-          });
-        }, 500);
       }
 
       break;
@@ -699,7 +391,6 @@ function handleServerMessage(data) {
       if (!canAccessContent()) return;
       const leaveUserId = data.odUserId || data.userId;
       if (callbacks.onUserLeave) callbacks.onUserLeave(leaveUserId);
-      removeRemoteAudio(leaveUserId);
       if (data.speakers) updateSpeakerList(data.speakers);
       speakRequests = speakRequests.filter((r) => r.userId !== leaveUserId);
       if (callbacks.onSpeakRequestsUpdate) callbacks.onSpeakRequestsUpdate(speakRequests);
@@ -762,9 +453,15 @@ function handleServerMessage(data) {
       break;
     }
 
+    case 'speakRequestSent': {
+      debugLog('[Connection] 登壇リクエスト送信完了', 'success');
+      break;
+    }
+
     case 'speakApproved': {
       if (!canAccessContent()) return;
-      mySessionId = data.sessionId;
+      debugLog('[Connection] 登壇が承認されました', 'success');
+
       isSpeaker = true;
 
       if (!currentSpeakers.find((s) => s.userId === myServerConnectionId)) {
@@ -777,7 +474,9 @@ function handleServerMessage(data) {
 
       if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
 
-      startPublishing();
+      // Agoraチャンネルに参加（音声配信開始）
+      joinAgoraChannel();
+
       if (callbacks.onSpeakApproved) callbacks.onSpeakApproved();
       break;
     }
@@ -811,46 +510,8 @@ function handleServerMessage(data) {
       currentSpeakers = currentSpeakers.filter((s) => s.userId !== leftUserId);
 
       if (data.speakers) updateSpeakerList(data.speakers);
-      removeRemoteAudio(leftUserId);
       if (callbacks.onSpeakerLeft) callbacks.onSpeakerLeft(leftUserId);
       if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
-      break;
-    }
-
-    case 'trackPublished': {
-      if (!canAccessContent()) return;
-      handleTrackPublished(data);
-      break;
-    }
-
-    case 'newTrack': {
-      if (!canAccessContent()) return;
-
-      const trackUserId = data.odUserId || data.userId;
-      const newTrackName = data.trackName;
-
-      if (trackUserId === myServerConnectionId) return;
-      if (myPublishedTrackName && newTrackName === myPublishedTrackName) return;
-
-      if (!audioUnlocked || !sharedAudioContext || sharedAudioContext.state !== 'running') {
-        showAudioUnlockButton();
-      }
-
-      setTimeout(() => {
-        subscribeToTrack(trackUserId, data.sessionId, newTrackName);
-      }, 250);
-      break;
-    }
-
-    case 'subscribed': {
-      if (!canAccessContent()) return;
-      handleSubscribed(data);
-      break;
-    }
-
-    case 'subscribeAnswerAck': {
-      if (!canAccessContent()) return;
-      debugLog('[Connection] Answer確認OK', 'success');
       break;
     }
 
@@ -937,6 +598,72 @@ function updateSpeakerList(speakers) {
 }
 
 // --------------------------------------------
+// Agora関連（音声通話）
+// --------------------------------------------
+async function joinAgoraChannel() {
+  debugLog('[Agora] チャンネル参加開始...', 'info');
+
+  // TODO: Agora SDKを使って音声チャンネルに参加
+  // 今はプレースホルダー
+  
+  /*
+  // Agora実装例（後で有効化）:
+  try {
+    const AgoraRTC = window.AgoraRTC;
+    if (!AgoraRTC) {
+      debugLog('[Agora] AgoraRTC SDKが読み込まれていません', 'error');
+      return;
+    }
+
+    agoraClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+    
+    await agoraClient.join(AGORA_APP_ID, ROOM_ID, null, myServerConnectionId);
+    debugLog('[Agora] チャンネル参加成功', 'success');
+
+    // マイク取得
+    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+    await agoraClient.publish([localAudioTrack]);
+    debugLog('[Agora] 音声配信開始', 'success');
+
+    // リモートユーザーの音声を受信
+    agoraClient.on('user-published', async (user, mediaType) => {
+      if (mediaType === 'audio') {
+        await agoraClient.subscribe(user, mediaType);
+        user.audioTrack?.play();
+        debugLog(`[Agora] ${user.uid} の音声を受信`, 'success');
+      }
+    });
+
+  } catch (e) {
+    debugLog(`[Agora] エラー: ${e?.message || e}`, 'error');
+  }
+  */
+
+  debugLog('[Agora] 音声機能は後で実装予定', 'info');
+}
+
+async function leaveAgoraChannel() {
+  debugLog('[Agora] チャンネル退出', 'info');
+
+  /*
+  // Agora実装例（後で有効化）:
+  try {
+    if (localAudioTrack) {
+      localAudioTrack.stop();
+      localAudioTrack.close();
+      localAudioTrack = null;
+    }
+    if (agoraClient) {
+      await agoraClient.leave();
+      agoraClient = null;
+    }
+  } catch (e) {
+    debugLog(`[Agora] 退出エラー: ${e?.message || e}`, 'error');
+  }
+  */
+}
+
+// --------------------------------------------
 // 音声通話
 // --------------------------------------------
 export function requestSpeak() {
@@ -951,20 +678,12 @@ export function requestSpeak() {
     stopSpeaking();
     return;
   }
+
   debugLog('[Connection] 登壇リクエスト送信', 'info');
   socket.send(JSON.stringify({ type: 'requestSpeak' }));
 }
 
 export function stopSpeaking() {
-  if (localStream) {
-    localStream.getTracks().forEach((track) => track.stop());
-    localStream = null;
-  }
-  if (peerConnection) {
-    peerConnection.close();
-    peerConnection = null;
-  }
-
   if (isSpeaker) {
     currentSpeakers = currentSpeakers.filter((s) => s.userId !== myServerConnectionId);
     speakerCount = Math.max(0, currentSpeakers.length);
@@ -974,236 +693,16 @@ export function stopSpeaking() {
 
   isSpeaker = false;
   isMicMuted = false;
-  mySessionId = null;
-  myPublishedTrackName = null;
   updateSpeakerButton();
+
+  // Agoraチャンネルから退出
+  leaveAgoraChannel();
 
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'stopSpeak' }));
   }
 
   if (callbacks.onSpeakerLeft) callbacks.onSpeakerLeft(myServerConnectionId);
-}
-
-async function startPublishing() {
-  if (!canAccessContent()) {
-    debugLog('[Connection] 未認証のため publish をブロック', 'warn');
-    stopSpeaking();
-    return;
-  }
-
-  try {
-    debugLog('[Connection] マイク取得開始...', 'info');
-
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: false,
-        autoGainControl: false,
-        latency: 0.01,
-        sampleRate: 48000,
-        channelCount: 1
-      },
-      video: false
-    });
-
-    debugLog('[Connection] マイク取得成功', 'success');
-
-    await unlockAudioContext();
-
-    peerConnection = new RTCPeerConnection({
-      iceServers: getIceServers(),
-      bundlePolicy: 'max-bundle',
-      rtcpMuxPolicy: 'require'
-    });
-
-    const audioTrack = localStream.getAudioTracks()[0];
-    if (!audioTrack) throw new Error('No audio track');
-
-    const transceiver = peerConnection.addTransceiver(audioTrack, {
-      direction: 'sendonly',
-      sendEncodings: [{ maxBitrate: 128000, priority: 'high' }]
-    });
-
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-
-    let mid = transceiver.mid;
-    if (!mid) {
-      const sdp = peerConnection.localDescription?.sdp || '';
-      const midMatch = sdp.match(/a=mid:(\S+)/);
-      mid = midMatch ? midMatch[1] : '0';
-    }
-
-    const trackName = `audio-${myServerConnectionId}`;
-    myPublishedTrackName = trackName;
-
-    debugLog(`[Connection] トラック公開: ${trackName}`, 'info');
-
-    if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error('Socket not open');
-
-    socket.send(JSON.stringify({
-      type: 'publishTrack',
-      sessionId: mySessionId,
-      offer: { sdp: peerConnection.localDescription.sdp, type: 'offer' },
-      tracks: [{ location: 'local', mid: mid, trackName: trackName }]
-    }));
-
-  } catch (error) {
-    debugLog(`[Connection] publishエラー: ${error?.message || error}`, 'error');
-    stopSpeaking();
-  }
-}
-
-async function handleTrackPublished(data) {
-  if (!peerConnection || !data.answer) return;
-
-  try {
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-    debugLog('[Connection] トラック公開完了', 'success');
-  } catch (e) {
-    debugLog(`[Connection] setRemoteDescriptionエラー: ${e?.message || e}`, 'error');
-  }
-}
-
-async function subscribeToTrack(odUserId, remoteSessionId, trackName) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) return;
-
-  if (!canAccessContent()) {
-    debugLog('[Connection] 未認証のため subscribeToTrack をブロック', 'warn');
-    return;
-  }
-
-  if (odUserId === myServerConnectionId) return;
-  if (trackName === myPublishedTrackName) return;
-  if (subscribedTracks.has(trackName)) return;
-  if (pendingSubscriptions.has(trackName)) return;
-
-  debugLog(`[Connection] トラック購読開始: ${trackName}`, 'info');
-
-  pendingSubscriptions.set(trackName, { odUserId, remoteSessionId });
-
-  socket.send(JSON.stringify({
-    type: 'subscribeTrack',
-    remoteSessionId: remoteSessionId,
-    trackName: trackName
-  }));
-}
-
-function waitIceGatheringComplete(pc, timeoutMs = 1500) {
-  return new Promise((resolve) => {
-    if (pc.iceGatheringState === 'complete') { resolve(); return; }
-
-    const timeout = setTimeout(() => resolve(), timeoutMs);
-
-    pc.onicegatheringstatechange = () => {
-      if (pc.iceGatheringState === 'complete') {
-        clearTimeout(timeout);
-        resolve();
-      }
-    };
-
-    pc.onicecandidate = (e) => {
-      if (!e.candidate) {
-        clearTimeout(timeout);
-        resolve();
-      }
-    };
-  });
-}
-
-async function handleSubscribed(data) {
-  if (!canAccessContent()) return;
-  if (!data.offer) return;
-
-  const trackName = data.trackName;
-  const pendingInfo = pendingSubscriptions.get(trackName);
-  if (!pendingInfo) return;
-
-  debugLog(`[Connection] 購読処理: ${trackName}`, 'info');
-
-  try {
-    const pc = new RTCPeerConnection({
-      iceServers: getIceServers(),
-      bundlePolicy: 'max-bundle',
-      rtcpMuxPolicy: 'require'
-    });
-
-    try { pc.addTransceiver('audio', { direction: 'recvonly' }); } catch (_) {}
-
-    pc.ontrack = (event) => {
-      debugLog(`[Connection] 音声トラック受信: ${trackName}`, 'success');
-
-      const stream = event.streams?.[0] || new MediaStream([event.track]);
-
-      if (!audioUnlocked || !sharedAudioContext || sharedAudioContext.state !== 'running') {
-        showAudioUnlockButton();
-      }
-      connectStreamPlayback(stream, trackName, pendingInfo.odUserId);
-    };
-
-    const offerSdp = typeof data.offer === 'string' ? data.offer : data.offer.sdp;
-    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    await waitIceGatheringComplete(pc, 1500);
-
-    if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error('Socket not open');
-
-    socket.send(JSON.stringify({
-      type: 'subscribeAnswer',
-      sessionId: data.sessionId,
-      answer: { type: 'answer', sdp: pc.localDescription.sdp }
-    }));
-
-    pendingSubscriptions.delete(trackName);
-
-    subscribedTracks.set(trackName, {
-      odUserId: pendingInfo.odUserId,
-      pc: pc,
-      sessionId: data.sessionId,
-      source: null,
-      gainNode: null,
-      audioEl: null
-    });
-
-    debugLog(`[Connection] 購読完了: ${trackName}`, 'success');
-
-  } catch (e) {
-    debugLog(`[Connection] handleSubscribedエラー: ${e?.message || e}`, 'error');
-    pendingSubscriptions.delete(trackName);
-  }
-}
-
-function removeRemoteAudio(odUserId) {
-  for (const [trackName, obj] of subscribedTracks) {
-    if (obj.odUserId === odUserId) {
-      debugLog(`[Connection] 音声削除: ${trackName}`, 'info');
-
-      if (obj.source) { try { obj.source.disconnect(); } catch(_) {} }
-      if (obj.gainNode) { try { obj.gainNode.disconnect(); } catch(_) {} }
-      if (obj.pc) { try { obj.pc.close(); } catch(_) {} }
-
-      if (obj.audioEl) {
-        try { obj.audioEl.srcObject = null; } catch(_) {}
-        try { obj.audioEl.remove(); } catch(_) {}
-        remoteAudioEls.delete(trackName);
-        pendingAudioPlays.delete(trackName);
-      }
-
-      subscribedTracks.delete(trackName);
-    }
-  }
-
-  for (const [trackName, obj] of pendingSubscriptions) {
-    if (obj.odUserId === odUserId) pendingSubscriptions.delete(trackName);
-  }
-
-  for (let i = pendingStreams.length - 1; i >= 0; i--) {
-    if (pendingStreams[i].odUserId === odUserId) pendingStreams.splice(i, 1);
-  }
 }
 
 function updateSpeakerButton() {
@@ -1228,14 +727,13 @@ function updateSpeakerButton() {
 export function toggleMic() {
   if (!canAccessContent()) return false;
 
-  if (isSpeaker && localStream) {
-    const audioTrack = localStream.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = !audioTrack.enabled;
-      isMicMuted = !audioTrack.enabled;
-      debugLog(`[Connection] マイク: ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
-      return !isMicMuted;
-    }
+  if (isSpeaker && localAudioTrack) {
+    // TODO: Agora実装後に有効化
+    // localAudioTrack.setEnabled(!localAudioTrack.enabled);
+    // isMicMuted = !localAudioTrack.enabled;
+    isMicMuted = !isMicMuted;
+    debugLog(`[Connection] マイク: ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
+    return !isMicMuted;
   }
   return false;
 }
@@ -1361,10 +859,7 @@ export function approveSpeak(userId) {
     debugLog('[Connection] 主催者未認証のため approveSpeak をブロック', 'warn');
     return;
   }
-  if (!canAccessContent()) {
-    debugLog('[Connection] 未認証のため approveSpeak をブロック', 'warn');
-    return;
-  }
+  debugLog(`[Connection] approveSpeak: ${userId}`, 'info');
   safeSend({ type: 'approveSpeak', userId });
 }
 
@@ -1374,10 +869,7 @@ export function denySpeak(userId) {
     debugLog('[Connection] 主催者未認証のため denySpeak をブロック', 'warn');
     return;
   }
-  if (!canAccessContent()) {
-    debugLog('[Connection] 未認証のため denySpeak をブロック', 'warn');
-    return;
-  }
+  debugLog(`[Connection] denySpeak: ${userId}`, 'info');
   safeSend({ type: 'denySpeak', userId });
 }
 
@@ -1387,10 +879,7 @@ export function kickSpeaker(userId) {
     debugLog('[Connection] 主催者未認証のため kickSpeaker をブロック', 'warn');
     return;
   }
-  if (!canAccessContent()) {
-    debugLog('[Connection] 未認証のため kickSpeaker をブロック', 'warn');
-    return;
-  }
+  debugLog(`[Connection] kickSpeaker: ${userId}`, 'info');
   safeSend({ type: 'kickSpeaker', userId });
 }
 

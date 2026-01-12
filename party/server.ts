@@ -1,18 +1,25 @@
-// server.ts - PartyKit サーバー（Agora対応版・Cloudflare削除）
+// ============================================
+// server.ts - PartyKit サーバー（Agora対応版）
+// ============================================
 
 import type * as Party from "partykit/server";
 
-// 開発用フォールバック（本番では party.json の vars/secrets を使う）
+// --------------------------------------------
+// 定数
+// --------------------------------------------
 const DEV_FALLBACK_HOST_PASSWORD = "jomon2026";
 const DEV_FALLBACK_ROOM_PASSWORD = "jomon2026";
 
+// --------------------------------------------
+// 型定義
+// --------------------------------------------
 interface User {
   id: string;
   name: string;
   x: number;
   y: number;
   z: number;
-  avatarUrl: string | null;
+  avatarUrl?: string;
 }
 
 interface Speaker {
@@ -26,39 +33,50 @@ interface SpeakRequest {
   timestamp: number;
 }
 
+interface PinnedComment {
+  senderId: string;
+  senderName: string;
+  message: string;
+}
+
+// --------------------------------------------
+// サーバークラス
+// --------------------------------------------
 export default class Server implements Party.Server {
-  // ユーザー・登壇者
+  constructor(readonly room: Party.Room) {}
+
+  // 状態
   users: Map<string, User> = new Map();
   speakers: Map<string, Speaker> = new Map();
   speakRequests: Map<string, SpeakRequest> = new Map();
-
-  // 主催者・認証
+  
   hosts: Set<string> = new Set();
   secretMode: boolean = false;
   authed: Set<string> = new Set();
   joined: Set<string> = new Set();
   authFail: Map<string, number> = new Map();
-
-  // 背景・明るさ
+  
   brightness: number = 0.6;
   backgroundUrl: string = "";
+  
+  pinnedComment: PinnedComment | null = null;
 
-  constructor(readonly room: Party.Room) {}
-
-  // === パスワード取得 ===
+  // --------------------------------------------
+  // パスワード取得
+  // --------------------------------------------
   getHostPassword(): string {
-    return (this.room as any).env?.HOST_PASSWORD
-      || (this.room as any).HOST_PASSWORD
-      || DEV_FALLBACK_HOST_PASSWORD;
+    const env = this.room.env as Record<string, string | undefined>;
+    return env.HOST_PASSWORD || env["HOST_PASSWORD"] || DEV_FALLBACK_HOST_PASSWORD;
   }
 
   getRoomPassword(): string {
-    return (this.room as any).env?.ROOM_PASSWORD
-      || (this.room as any).ROOM_PASSWORD
-      || DEV_FALLBACK_ROOM_PASSWORD;
+    const env = this.room.env as Record<string, string | undefined>;
+    return env.ROOM_PASSWORD || env["ROOM_PASSWORD"] || DEV_FALLBACK_ROOM_PASSWORD;
   }
 
-  // === 認証判定 ===
+  // --------------------------------------------
+  // 認証ヘルパー
+  // --------------------------------------------
   isHost(id: string): boolean {
     return this.hosts.has(id);
   }
@@ -69,183 +87,179 @@ export default class Server implements Party.Server {
 
   canAccessContent(id: string): boolean {
     if (!this.secretMode) return true;
-    return this.isAuthed(id) || this.isHost(id);
+    return this.isAuthed(id);
   }
 
-  // === 送信ヘルパー ===
+  // --------------------------------------------
+  // メッセージ送信
+  // --------------------------------------------
   send(conn: Party.Connection, data: object) {
     conn.send(JSON.stringify(data));
   }
 
-  sendInitMin(conn: Party.Connection, isAuthed: boolean = false) {
+  sendInitMin(conn: Party.Connection) {
     this.send(conn, {
       type: "initMin",
       yourId: conn.id,
       secretMode: this.secretMode,
-      isAuthed: isAuthed,
       isHost: this.isHost(conn.id),
-      authRequired: this.secretMode && !isAuthed && !this.isHost(conn.id),
-      brightness: this.brightness,
-      backgroundUrl: this.backgroundUrl
+      isAuthed: this.isAuthed(conn.id),
+      authRequired: this.secretMode && !this.isAuthed(conn.id)
     });
   }
 
-  sendFullInit(conn: Party.Connection, isAuthed: boolean = false) {
-    const usersObj: Record<string, any> = {};
-    this.users.forEach((user, odUserId) => {
-      if (odUserId !== conn.id) {
-        usersObj[odUserId] = {
-          name: user.name,
-          userName: user.name,
-          x: user.x,
-          y: user.y,
-          z: user.z,
-          avatarUrl: user.avatarUrl
-        };
-      }
-    });
+  sendFullInit(conn: Party.Connection) {
+    const usersObj: Record<string, User> = {};
+    this.users.forEach((u, id) => { usersObj[id] = u; });
 
     const speakersArray = Array.from(this.speakers.keys());
-
-    const speakRequestsArray = this.isHost(conn.id)
-      ? Array.from(this.speakRequests.values())
-      : [];
+    const speakRequestsArray = Array.from(this.speakRequests.values());
 
     this.send(conn, {
       type: "init",
       yourId: conn.id,
-      secretMode: this.secretMode,
-      isAuthed: isAuthed,
-      isHost: this.isHost(conn.id),
       users: usersObj,
       speakers: speakersArray,
-      speakRequests: speakRequestsArray,
+      speakRequests: this.isHost(conn.id) ? speakRequestsArray : [],
       brightness: this.brightness,
-      backgroundUrl: this.backgroundUrl
+      backgroundUrl: this.backgroundUrl,
+      secretMode: this.secretMode,
+      isHost: this.isHost(conn.id),
+      isAuthed: this.isAuthed(conn.id),
+      pinnedComment: this.pinnedComment
     });
   }
 
-  // === ブロードキャスト ===
+  // --------------------------------------------
+  // ブロードキャスト
+  // --------------------------------------------
   broadcastAllowed(data: object, excludeId?: string) {
+    const msg = JSON.stringify(data);
     for (const conn of this.room.getConnections()) {
-      if (excludeId && conn.id === excludeId) continue;
-      if (this.canAccessContent(conn.id)) {
-        this.send(conn, data);
-      }
+      if (conn.id === excludeId) continue;
+      if (!this.canAccessContent(conn.id)) continue;
+      conn.send(msg);
     }
   }
 
   broadcastPublic(data: object, excludeId?: string) {
+    const msg = JSON.stringify(data);
     for (const conn of this.room.getConnections()) {
-      if (excludeId && conn.id === excludeId) continue;
-      this.send(conn, data);
+      if (conn.id === excludeId) continue;
+      conn.send(msg);
     }
   }
 
   broadcastToHosts(data: object) {
+    const msg = JSON.stringify(data);
     for (const conn of this.room.getConnections()) {
       if (this.isHost(conn.id)) {
-        this.send(conn, data);
+        conn.send(msg);
       }
     }
   }
 
-  // === 接続ライフサイクル ===
-  onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
-    console.log(`[Server] onConnect: ${conn.id}`);
+  // --------------------------------------------
+  // 接続ヘルパー
+  // --------------------------------------------
+  getConnection(id: string): Party.Connection | undefined {
+    for (const conn of this.room.getConnections()) {
+      if (conn.id === id) return conn;
+    }
+    return undefined;
   }
 
-  onClose(conn: Party.Connection) {
-    console.log(`[Server] onClose: ${conn.id}`);
-    const user = this.users.get(conn.id);
-
-    if (this.speakers.has(conn.id)) {
-      this.speakers.delete(conn.id);
-      this.broadcastAllowed({
-        type: "speakerLeft",
-        odUserId: conn.id,
-        speakers: Array.from(this.speakers.keys())
-      });
-    }
-
-    this.speakRequests.delete(conn.id);
-
-    if (user) {
-      this.users.delete(conn.id);
-      this.broadcastAllowed({
-        type: "userLeave",
-        odUserId: conn.id,
-        userName: user.name,
-        speakers: Array.from(this.speakers.keys())
-      });
-    }
-
-    this.authed.delete(conn.id);
-    this.joined.delete(conn.id);
-    this.hosts.delete(conn.id);
-    this.authFail.delete(conn.id);
-  }
-
-  // === 入室完了 ===
-  completeJoin(conn: Party.Connection, userName?: string) {
-    console.log(`[Server] completeJoin: ${conn.id}, name=${userName}`);
-
+  // --------------------------------------------
+  // 参加処理
+  // --------------------------------------------
+  completeJoin(conn: Party.Connection, userName: string) {
     if (this.joined.has(conn.id)) {
-      this.sendFullInit(conn, this.isAuthed(conn.id) || this.isHost(conn.id));
+      this.sendFullInit(conn);
       return;
     }
 
-    this.joined.add(conn.id);
-
-    const name = userName || "ゲスト";
     const user: User = {
       id: conn.id,
-      name: name,
-      x: (Math.random() - 0.5) * 10,
+      name: userName || "ゲスト",
+      x: Math.random() * 10 - 5,
       y: 0,
-      z: 5 + Math.random() * 5,
-      avatarUrl: null
+      z: Math.random() * 10 - 5
     };
-    this.users.set(conn.id, user);
 
-    this.sendFullInit(conn, this.isAuthed(conn.id) || this.isHost(conn.id));
+    this.users.set(conn.id, user);
+    this.joined.add(conn.id);
+
+    this.sendFullInit(conn);
 
     this.broadcastAllowed({
       type: "userJoin",
       odUserId: conn.id,
-      userName: name,
-      x: user.x,
-      y: user.y,
-      z: user.z,
-      avatarUrl: user.avatarUrl
+      userName: user.name
     }, conn.id);
   }
 
-  // === メッセージハンドラ ===
-  async onMessage(message: string, sender: Party.Connection) {
+  // --------------------------------------------
+  // ライフサイクル
+  // --------------------------------------------
+  onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
+    const url = new URL(ctx.request.url);
+    const userName = url.searchParams.get("name") || "ゲスト";
+
+    console.log(`[Server] 接続: ${conn.id} (${userName})`);
+
+    this.sendInitMin(conn);
+
+    if (!this.secretMode) {
+      this.authed.add(conn.id);
+      this.completeJoin(conn, userName);
+    }
+  }
+
+  onClose(conn: Party.Connection) {
+    console.log(`[Server] 切断: ${conn.id}`);
+
+    const user = this.users.get(conn.id);
+    this.users.delete(conn.id);
+    this.speakers.delete(conn.id);
+    this.speakRequests.delete(conn.id);
+    this.authed.delete(conn.id);
+    this.joined.delete(conn.id);
+    this.hosts.delete(conn.id);
+    this.authFail.delete(conn.id);
+
+    if (user) {
+      this.broadcastAllowed({
+        type: "userLeave",
+        odUserId: conn.id,
+        speakers: Array.from(this.speakers.keys())
+      });
+    }
+  }
+
+  // --------------------------------------------
+  // メッセージ受信
+  // --------------------------------------------
+  onMessage(message: string, sender: Party.Connection) {
     let data: any;
     try {
       data = JSON.parse(message);
     } catch {
-      console.error("[Server] Invalid JSON:", message);
+      console.error("[Server] JSON解析エラー");
       return;
     }
 
     const type = data.type;
-    if (type !== "position") {
-      console.log(`[Server] onMessage: ${type} from ${sender.id}`);
-    }
 
     switch (type) {
       case "requestInit":
-        this.handleRequestInit(data, sender);
+        this.handleRequestInit(sender, data);
         break;
       case "auth":
-        this.handleAuth(data, sender);
+        this.handleAuth(sender, data);
         break;
       case "hostAuth":
       case "hostLogin":
-        this.handleHostAuth(data, sender);
+        this.handleHostAuth(sender, data);
         break;
       case "hostLogout":
         this.handleHostLogout(sender);
@@ -254,391 +268,561 @@ export default class Server implements Party.Server {
         this.handleDisableSecretMode(sender);
         break;
       case "setSecretMode":
-        this.handleSetSecretMode(data, sender);
+        this.handleSetSecretMode(sender, data);
         break;
       case "position":
-        this.handlePosition(data, sender);
+        this.handlePosition(sender, data);
         break;
       case "avatarChange":
-        this.handleAvatarChange(data, sender);
+        this.handleAvatarChange(sender, data);
         break;
       case "nameChange":
-        this.handleNameChange(data, sender);
+        this.handleNameChange(sender, data);
         break;
       case "reaction":
-        this.handleReaction(data, sender);
+        this.handleReaction(sender, data);
         break;
       case "chat":
-        this.handleChat(data, sender);
+        this.handleChat(sender, data);
+        break;
+      case "emojiThrow":
+        this.handleEmojiThrow(sender, data);
+        break;
+      case "pinComment":
+        this.handlePinComment(sender, data);
+        break;
+      case "unpinComment":
+        this.handleUnpinComment(sender);
         break;
       case "requestSpeak":
         this.handleRequestSpeak(sender);
         break;
       case "approveSpeak":
-        this.handleApproveSpeak(data, sender);
+        this.handleApproveSpeak(sender, data);
         break;
       case "denySpeak":
-        this.handleDenySpeak(data, sender);
+        this.handleDenySpeak(sender, data);
         break;
       case "kickSpeaker":
-        this.handleKickSpeaker(data, sender);
+        this.handleKickSpeaker(sender, data);
         break;
       case "stopSpeak":
         this.handleStopSpeak(sender);
         break;
       case "announce":
-        this.handleAnnounce(data, sender);
+        this.handleAnnounce(sender, data);
         break;
       case "backgroundChange":
-        this.handleBackgroundChange(data, sender);
+        this.handleBackgroundChange(sender, data);
         break;
       case "brightnessChange":
-        this.handleBrightnessChange(data, sender);
+        this.handleBrightnessChange(sender, data);
         break;
       default:
-        console.log(`[Server] Unknown message type: ${type}`);
+        console.log(`[Server] 未知のメッセージタイプ: ${type}`);
     }
   }
 
-  handleRequestInit(data: any, sender: Party.Connection) {
-    console.log(`[Server] handleRequestInit: secretMode=${this.secretMode}, isHost=${this.isHost(sender.id)}, isAuthed=${this.isAuthed(sender.id)}`);
-    if (this.secretMode && !this.canAccessContent(sender.id)) {
-      this.sendInitMin(sender, false);
-    } else {
-      this.completeJoin(sender, data.userName);
+  // --------------------------------------------
+  // ハンドラー: 初期化リクエスト
+  // --------------------------------------------
+  handleRequestInit(conn: Party.Connection, data: any) {
+    const userName = data.userName || "ゲスト";
+
+    if (this.secretMode && !this.isAuthed(conn.id)) {
+      this.sendInitMin(conn);
+      return;
     }
+
+    this.completeJoin(conn, userName);
   }
 
-  handleAuth(data: any, sender: Party.Connection) {
+  // --------------------------------------------
+  // ハンドラー: 入室認証
+  // --------------------------------------------
+  handleAuth(conn: Party.Connection, data: any) {
     const password = data.password || "";
     const roomPassword = this.getRoomPassword();
-    console.log(`[Server] handleAuth: sender=${sender.id}`);
+
     if (password === roomPassword) {
-      this.authed.add(sender.id);
-      this.authFail.delete(sender.id);
-      this.send(sender, { type: "authOk" });
-      this.completeJoin(sender, data.userName);
+      this.authed.add(conn.id);
+      this.send(conn, { type: "authOk" });
+      console.log(`[Server] 入室認証成功: ${conn.id}`);
     } else {
-      const fails = (this.authFail.get(sender.id) || 0) + 1;
-      this.authFail.set(sender.id, fails);
-      this.send(sender, { type: "authNg", reason: "パスワードが違います", fails });
+      this.send(conn, { type: "authNg" });
+      console.log(`[Server] 入室認証失敗: ${conn.id}`);
     }
   }
 
-  handleHostAuth(data: any, sender: Party.Connection) {
+  // --------------------------------------------
+  // ハンドラー: 主催者認証
+  // --------------------------------------------
+  handleHostAuth(conn: Party.Connection, data: any) {
     const password = data.password || "";
     const hostPassword = this.getHostPassword();
-    console.log(`[Server] handleHostAuth: sender=${sender.id}`);
+
+    const fails = this.authFail.get(conn.id) || 0;
+
     if (password === hostPassword) {
-      this.hosts.add(sender.id);
-      this.authed.add(sender.id);
-      this.authFail.delete(sender.id);
-      console.log(`[Server] Host auth SUCCESS for ${sender.id}`);
-      this.send(sender, {
+      this.hosts.add(conn.id);
+      this.authed.add(conn.id);
+      this.authFail.delete(conn.id);
+
+      this.send(conn, {
         type: "hostAuthResult",
         ok: true,
         isHost: true,
         isAuthed: true
       });
-      this.completeJoin(sender, data.userName);
+
+      console.log(`[Server] 主催者認証成功: ${conn.id}`);
+
+      const url = new URL("https://dummy.com");
+      const userName = this.users.get(conn.id)?.name || "主催者";
+      this.completeJoin(conn, userName);
+
     } else {
-      const fails = (this.authFail.get(sender.id) || 0) + 1;
-      this.authFail.set(sender.id, fails);
-      console.log(`[Server] Host auth FAILED for ${sender.id}, fails=${fails}`);
-      this.send(sender, {
+      const newFails = fails + 1;
+      this.authFail.set(conn.id, newFails);
+
+      this.send(conn, {
         type: "hostAuthResult",
         ok: false,
-        reason: "主催者パスワードが違います",
-        fails: fails,
+        reason: "パスワードが違います",
+        fails: newFails,
         isHost: false,
-        isAuthed: this.isAuthed(sender.id)
+        isAuthed: this.isAuthed(conn.id)
       });
+
+      console.log(`[Server] 主催者認証失敗: ${conn.id} (${newFails}回目)`);
     }
   }
 
-  handleHostLogout(sender: Party.Connection) {
-    console.log(`[Server] handleHostLogout: ${sender.id}`);
-    this.hosts.delete(sender.id);
-    this.send(sender, {
+  // --------------------------------------------
+  // ハンドラー: 主催者ログアウト
+  // --------------------------------------------
+  handleHostLogout(conn: Party.Connection) {
+    this.hosts.delete(conn.id);
+
+    this.send(conn, {
       type: "hostAuthResult",
       ok: false,
       reason: "ログアウトしました",
       isHost: false,
-      isAuthed: this.isAuthed(sender.id)
+      isAuthed: this.isAuthed(conn.id)
     });
+
+    console.log(`[Server] 主催者ログアウト: ${conn.id}`);
   }
 
-  handleDisableSecretMode(sender: Party.Connection) {
-    if (!this.isHost(sender.id)) {
-      this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
+  // --------------------------------------------
+  // ハンドラー: 秘密会議モード解除
+  // --------------------------------------------
+  handleDisableSecretMode(conn: Party.Connection) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
       return;
     }
-    console.log(`[Server] Disabling secret mode by ${sender.id}`);
+
     this.secretMode = false;
-    this.broadcastPublic({ type: "secretModeChanged", value: false });
-    for (const conn of this.room.getConnections()) {
-      if (!this.joined.has(conn.id)) {
-        this.completeJoin(conn);
+
+    this.broadcastPublic({
+      type: "secretModeChanged",
+      value: false
+    });
+
+    // 未参加者を参加させる
+    for (const c of this.room.getConnections()) {
+      if (!this.joined.has(c.id)) {
+        this.authed.add(c.id);
+        this.completeJoin(c, "ゲスト");
       }
     }
+
+    console.log(`[Server] 秘密会議モード解除: ${conn.id}`);
   }
 
-  handleSetSecretMode(data: any, sender: Party.Connection) {
-    if (!this.isHost(sender.id)) {
-      this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
+  // --------------------------------------------
+  // ハンドラー: 秘密会議モード設定
+  // --------------------------------------------
+  handleSetSecretMode(conn: Party.Connection, data: any) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
       return;
     }
-    const enabled = !!data.value;
-    console.log(`[Server] Setting secret mode: ${enabled} by ${sender.id}`);
-    this.secretMode = enabled;
-    this.broadcastPublic({ type: "secretModeChanged", value: enabled });
+
+    const newValue = !!data.value;
+    this.secretMode = newValue;
+
+    if (newValue) {
+      // 秘密会議モードON: 主催者以外の認証を解除
+      for (const c of this.room.getConnections()) {
+        if (!this.isHost(c.id)) {
+          this.authed.delete(c.id);
+          this.joined.delete(c.id);
+          this.users.delete(c.id);
+        }
+      }
+    }
+
+    this.broadcastPublic({
+      type: "secretModeChanged",
+      value: newValue
+    });
+
+    console.log(`[Server] 秘密会議モード変更: ${newValue}`);
   }
 
-  handlePosition(data: any, sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
-    const user = this.users.get(sender.id);
-    if (!user) return;
-    user.x = data.x;
-    user.y = data.y ?? 0;
-    user.z = data.z;
+  // --------------------------------------------
+  // ハンドラー: 位置更新
+  // --------------------------------------------
+  handlePosition(conn: Party.Connection, data: any) {
+    if (!this.canAccessContent(conn.id)) return;
+
+    const user = this.users.get(conn.id);
+    if (user) {
+      user.x = data.x ?? user.x;
+      user.y = data.y ?? user.y;
+      user.z = data.z ?? user.z;
+    }
+
     this.broadcastAllowed({
       type: "position",
-      odUserId: sender.id,
+      odUserId: conn.id,
       x: data.x,
-      y: data.y ?? 0,
+      y: data.y,
       z: data.z
-    }, sender.id);
+    }, conn.id);
   }
 
-  handleAvatarChange(data: any, sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
-    const user = this.users.get(sender.id);
-    if (!user) return;
-    user.avatarUrl = data.imageUrl;
+  // --------------------------------------------
+  // ハンドラー: アバター変更
+  // --------------------------------------------
+  handleAvatarChange(conn: Party.Connection, data: any) {
+    if (!this.canAccessContent(conn.id)) return;
+
+    const user = this.users.get(conn.id);
+    if (user) {
+      user.avatarUrl = data.imageUrl;
+    }
+
     this.broadcastAllowed({
       type: "avatarChange",
-      odUserId: sender.id,
+      odUserId: conn.id,
       imageUrl: data.imageUrl
-    }, sender.id);
+    }, conn.id);
   }
 
-  handleNameChange(data: any, sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
-    const user = this.users.get(sender.id);
-    if (!user) return;
-    user.name = data.name || "ゲスト";
+  // --------------------------------------------
+  // ハンドラー: 名前変更
+  // --------------------------------------------
+  handleNameChange(conn: Party.Connection, data: any) {
+    if (!this.canAccessContent(conn.id)) return;
+
+    const user = this.users.get(conn.id);
+    if (user) {
+      user.name = data.name || user.name;
+    }
+
     this.broadcastAllowed({
       type: "nameChange",
-      odUserId: sender.id,
-      name: user.name
-    }, sender.id);
+      odUserId: conn.id,
+      name: data.name
+    }, conn.id);
   }
 
-  handleReaction(data: any, sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
+  // --------------------------------------------
+  // ハンドラー: リアクション
+  // --------------------------------------------
+  handleReaction(conn: Party.Connection, data: any) {
+    if (!this.canAccessContent(conn.id)) return;
+
     this.broadcastAllowed({
       type: "reaction",
-      odUserId: sender.id,
+      odUserId: conn.id,
       reaction: data.reaction,
       color: data.color
     });
   }
 
-  handleChat(data: any, sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
-    const user = this.users.get(sender.id);
+  // --------------------------------------------
+  // ハンドラー: チャット
+  // --------------------------------------------
+  handleChat(conn: Party.Connection, data: any) {
+    if (!this.canAccessContent(conn.id)) return;
+
     this.broadcastAllowed({
       type: "chat",
-      senderId: sender.id,
-      odUserId: sender.id,
-      name: data.name || user?.name || "ゲスト",
+      senderId: conn.id,
+      name: data.name,
       message: data.message
     });
   }
 
-  handleRequestSpeak(sender: Party.Connection) {
-    if (!this.canAccessContent(sender.id)) return;
-    const user = this.users.get(sender.id);
-    if (!user) return;
-    if (this.speakers.has(sender.id)) {
-      this.send(sender, { type: "error", code: "ALREADY_SPEAKER", message: "既に登壇中です" });
-      return;
-    }
-    if (this.speakRequests.has(sender.id)) {
-      this.send(sender, { type: "error", code: "ALREADY_REQUESTED", message: "既にリクエスト済みです" });
-      return;
-    }
-    console.log(`[Server] Speak request from ${sender.id} (${user.name})`);
-    this.speakRequests.set(sender.id, {
-      userId: sender.id,
-      userName: user.name,
-      timestamp: Date.now()
+  // --------------------------------------------
+  // ハンドラー: 絵文字投げ
+  // --------------------------------------------
+  handleEmojiThrow(conn: Party.Connection, data: any) {
+    if (!this.canAccessContent(conn.id)) return;
+
+    const user = this.users.get(conn.id);
+    
+    this.broadcastAllowed({
+      type: "emojiThrow",
+      emoji: data.emoji,
+      senderId: conn.id,
+      senderName: user?.name || data.senderName || "ゲスト"
     });
+
+    console.log(`[Server] 絵文字投げ: ${data.emoji} from ${conn.id}`);
+  }
+
+  // --------------------------------------------
+  // ハンドラー: コメントピン留め
+  // --------------------------------------------
+  handlePinComment(conn: Party.Connection, data: any) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
+      return;
+    }
+
+    this.pinnedComment = data.comment;
+
+    this.broadcastAllowed({
+      type: "pinComment",
+      comment: this.pinnedComment
+    });
+
+    console.log(`[Server] ピン留め: ${JSON.stringify(this.pinnedComment)}`);
+  }
+
+  // --------------------------------------------
+  // ハンドラー: ピン留め解除
+  // --------------------------------------------
+  handleUnpinComment(conn: Party.Connection) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
+      return;
+    }
+
+    this.pinnedComment = null;
+
+    this.broadcastAllowed({
+      type: "unpinComment"
+    });
+
+    console.log(`[Server] ピン留め解除`);
+  }
+
+  // --------------------------------------------
+  // ハンドラー: 登壇リクエスト
+  // --------------------------------------------
+  handleRequestSpeak(conn: Party.Connection) {
+    if (!this.canAccessContent(conn.id)) return;
+
+    if (this.speakers.has(conn.id)) {
+      this.send(conn, { type: "error", code: "ALREADY_SPEAKER" });
+      return;
+    }
+
+    if (this.speakRequests.has(conn.id)) {
+      this.send(conn, { type: "error", code: "ALREADY_REQUESTED" });
+      return;
+    }
+
+    const user = this.users.get(conn.id);
+    const request: SpeakRequest = {
+      userId: conn.id,
+      userName: user?.name || "ゲスト",
+      timestamp: Date.now()
+    };
+
+    this.speakRequests.set(conn.id, request);
+
     this.broadcastToHosts({
       type: "speakRequest",
-      userId: sender.id,
-      userName: user.name
+      userId: conn.id,
+      userName: request.userName
     });
+
     this.broadcastToHosts({
       type: "speakRequestsUpdate",
       requests: Array.from(this.speakRequests.values())
     });
-    this.send(sender, { type: "speakRequestSent" });
+
+    this.send(conn, { type: "speakRequestSent" });
+
+    console.log(`[Server] 登壇リクエスト: ${conn.id}`);
   }
 
-  // ★★★ Agora対応版：Cloudflareセッション不要 ★★★
-  handleApproveSpeak(data: any, sender: Party.Connection) {
-    if (!this.isHost(sender.id)) {
-      this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
+  // --------------------------------------------
+  // ハンドラー: 登壇承認
+  // --------------------------------------------
+  handleApproveSpeak(conn: Party.Connection, data: any) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
       return;
     }
 
-    const targetId = data.userId;
-    const request = this.speakRequests.get(targetId);
+    const userId = data.userId;
+    const request = this.speakRequests.get(userId);
+
     if (!request) {
-      this.send(sender, { type: "error", code: "NOT_FOUND", message: "リクエストが見つかりません" });
+      this.send(conn, { type: "error", code: "NOT_FOUND" });
       return;
     }
 
-    console.log(`[Server] Approving speak for ${targetId} (Agora mode)`);
+    this.speakRequests.delete(userId);
 
-    // リクエストを削除
-    this.speakRequests.delete(targetId);
-
-    // 登壇者として登録（Cloudflareセッション不要）
-    this.speakers.set(targetId, {
-      id: targetId,
+    const speaker: Speaker = {
+      id: userId,
       name: request.userName
-    });
+    };
+    this.speakers.set(userId, speaker);
 
-    // 対象者に通知（音声はクライアント側でAgoraを使う）
-    const targetConn = this.getConnection(targetId);
+    const targetConn = this.getConnection(userId);
     if (targetConn) {
-      this.send(targetConn, {
-        type: "speakApproved",
-        odUserId: targetId,
-        userName: request.userName
-      });
+      this.send(targetConn, { type: "speakApproved" });
     }
 
-    // 全員に登壇者参加を通知
     this.broadcastAllowed({
       type: "speakerJoined",
-      odUserId: targetId,
-      userName: request.userName,
+      odUserId: userId,
+      userName: speaker.name,
       speakers: Array.from(this.speakers.keys())
     });
 
-    // 主催者全員にリクエストリスト更新を通知
     this.broadcastToHosts({
       type: "speakRequestsUpdate",
       requests: Array.from(this.speakRequests.values())
     });
+
+    console.log(`[Server] 登壇承認: ${userId}`);
   }
 
-  handleDenySpeak(data: any, sender: Party.Connection) {
-    if (!this.isHost(sender.id)) {
-      this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
+  // --------------------------------------------
+  // ハンドラー: 登壇拒否
+  // --------------------------------------------
+  handleDenySpeak(conn: Party.Connection, data: any) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
       return;
     }
-    const targetId = data.userId;
-    const request = this.speakRequests.get(targetId);
-    if (!request) {
-      this.send(sender, { type: "error", code: "NOT_FOUND", message: "リクエストが見つかりません" });
-      return;
-    }
-    console.log(`[Server] Denying speak for ${targetId}`);
-    this.speakRequests.delete(targetId);
-    const targetConn = this.getConnection(targetId);
+
+    const userId = data.userId;
+    this.speakRequests.delete(userId);
+
+    const targetConn = this.getConnection(userId);
     if (targetConn) {
       this.send(targetConn, {
         type: "speakDenied",
-        reason: "主催者によって却下されました"
+        reason: "主催者により却下されました"
       });
     }
+
     this.broadcastToHosts({
       type: "speakRequestsUpdate",
       requests: Array.from(this.speakRequests.values())
     });
+
+    console.log(`[Server] 登壇拒否: ${userId}`);
   }
 
-  handleKickSpeaker(data: any, sender: Party.Connection) {
-    if (!this.isHost(sender.id)) {
-      this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
+  // --------------------------------------------
+  // ハンドラー: 登壇者キック
+  // --------------------------------------------
+  handleKickSpeaker(conn: Party.Connection, data: any) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
       return;
     }
-    const targetId = data.userId;
-    const speaker = this.speakers.get(targetId);
-    if (!speaker) {
-      this.send(sender, { type: "error", code: "NOT_FOUND", message: "登壇者が見つかりません" });
-      return;
-    }
-    console.log(`[Server] Kicking speaker ${targetId}`);
-    this.speakers.delete(targetId);
-    const targetConn = this.getConnection(targetId);
+
+    const userId = data.userId;
+    this.speakers.delete(userId);
+
+    const targetConn = this.getConnection(userId);
     if (targetConn) {
       this.send(targetConn, { type: "kicked" });
     }
+
     this.broadcastAllowed({
       type: "speakerLeft",
-      odUserId: targetId,
+      odUserId: userId,
       speakers: Array.from(this.speakers.keys())
     });
+
+    console.log(`[Server] 登壇者キック: ${userId}`);
   }
 
-  handleStopSpeak(sender: Party.Connection) {
-    if (!this.speakers.has(sender.id)) return;
-    console.log(`[Server] Speaker ${sender.id} stopping`);
-    this.speakers.delete(sender.id);
+  // --------------------------------------------
+  // ハンドラー: 登壇終了
+  // --------------------------------------------
+  handleStopSpeak(conn: Party.Connection) {
+    if (!this.speakers.has(conn.id)) return;
+
+    this.speakers.delete(conn.id);
+
     this.broadcastAllowed({
       type: "speakerLeft",
-      odUserId: sender.id,
+      odUserId: conn.id,
       speakers: Array.from(this.speakers.keys())
     });
+
+    console.log(`[Server] 登壇終了: ${conn.id}`);
   }
 
-  handleAnnounce(data: any, sender: Party.Connection) {
-    if (!this.isHost(sender.id)) {
-      this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
+  // --------------------------------------------
+  // ハンドラー: アナウンス
+  // --------------------------------------------
+  handleAnnounce(conn: Party.Connection, data: any) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
       return;
     }
-    console.log(`[Server] Announce from ${sender.id}: ${data.message}`);
+
     this.broadcastAllowed({
       type: "announce",
       message: data.message
     });
+
+    console.log(`[Server] アナウンス: ${data.message}`);
   }
 
-  handleBackgroundChange(data: any, sender: Party.Connection) {
-    if (!this.isHost(sender.id)) {
-      this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
+  // --------------------------------------------
+  // ハンドラー: 背景変更
+  // --------------------------------------------
+  handleBackgroundChange(conn: Party.Connection, data: any) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
       return;
     }
+
     this.backgroundUrl = data.url || "";
-    console.log(`[Server] Background changed to: ${this.backgroundUrl}`);
+
     this.broadcastAllowed({
       type: "backgroundChange",
       url: this.backgroundUrl
     });
+
+    console.log(`[Server] 背景変更: ${this.backgroundUrl}`);
   }
 
-  handleBrightnessChange(data: any, sender: Party.Connection) {
-    if (!this.isHost(sender.id)) {
-      this.send(sender, { type: "error", code: "NOT_HOST", message: "権限がありません" });
+  // --------------------------------------------
+  // ハンドラー: 明るさ変更
+  // --------------------------------------------
+  handleBrightnessChange(conn: Party.Connection, data: any) {
+    if (!this.isHost(conn.id)) {
+      this.send(conn, { type: "error", code: "NOT_HOST" });
       return;
     }
+
     this.brightness = data.value ?? 0.6;
-    console.log(`[Server] Brightness changed to: ${this.brightness}`);
+
     this.broadcastAllowed({
       type: "brightnessChange",
       value: this.brightness
     });
-  }
 
-  getConnection(id: string): Party.Connection | null {
-    for (const conn of this.room.getConnections()) {
-      if (conn.id === id) return conn;
-    }
-    return null;
+    console.log(`[Server] 明るさ変更: ${this.brightness}`);
   }
 }

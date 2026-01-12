@@ -41,7 +41,7 @@ body {
 
 /* ルーム情報（左上） */
 #room-info {
-    position: absolute;
+    position: fixed;
     top: 16px;
     left: 16px;
     display: flex;
@@ -128,6 +128,33 @@ body {
     color: rgba(255,255,255,0.6);
 }
 
+/* 設定ボタン（右上） */
+#settings-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.8);
+    border: 2px solid rgba(255,102,255,0.5);
+    color: #fff;
+    font-size: 28px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    box-shadow: 0 0 15px rgba(255,102,255,0.3);
+}
+
+#settings-btn:hover {
+    border-color: rgba(255,102,255,0.8);
+    transform: scale(1.1);
+    box-shadow: 0 0 25px rgba(255,102,255,0.5);
+}
+
 /* 設定ボタン（settings.jsで生成） */
 .settings-toggle-btn {
     position: fixed !important;
@@ -157,11 +184,11 @@ body {
 
 /* チャットエリア（左下） */
 #chat-container {
-    position: absolute;
+    position: fixed;
     bottom: 20px;
     left: 16px;
-    width: calc(100% - 180px);
-    max-width: 400px;
+    width: calc(100% - 200px);
+    max-width: 350px;
     z-index: 50;
 }
 
@@ -344,27 +371,20 @@ body.host-mode .chat-message .pin-btn {
     transform: scale(0.95);
 }
 
-/* 右下コントロール */
-#right-controls {
-    position: absolute;
-    right: 16px;
-    bottom: 30px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    z-index: 100;
-}
-
-/* ジョイスティック */
+/* ========================================
+   ジョイスティック（中央下）
+   ======================================== */
 #joystick-container {
-    width: 100px;
-    height: 100px;
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
 }
 
 #joystick-base {
-    width: 100px;
-    height: 100px;
+    width: 120px;
+    height: 120px;
     background: rgba(255,255,255,0.1);
     border: 2px solid rgba(255,255,255,0.3);
     border-radius: 50%;
@@ -376,8 +396,8 @@ body.host-mode .chat-message .pin-btn {
 }
 
 #joystick-stick {
-    width: 40px;
-    height: 40px;
+    width: 50px;
+    height: 50px;
     background: linear-gradient(145deg, #ff66ff, #66ffff);
     border-radius: 50%;
     box-shadow: 0 0 15px rgba(255,102,255,0.5);
@@ -387,43 +407,47 @@ body.host-mode .chat-message .pin-btn {
     transform: translate(-50%, -50%);
 }
 
-/* アクションボタン */
-#action-buttons {
-    display: flex;
-    gap: 10px;
-}
+/* ========================================
+   アクションボタン
+   ======================================== */
 
-#penlight-btn,
-#emoji-btn,
-#otagei-btn {
-    width: 50px;
-    height: 50px;
+/* 共通スタイル */
+.action-btn {
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
     background: rgba(0,0,0,0.7);
     border: 2px solid rgba(255,255,255,0.3);
     color: #fff;
-    font-size: 20px;
+    font-size: 28px;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
-#penlight-btn:hover,
-#emoji-btn:hover,
-#otagei-btn:hover {
+.action-btn:hover {
     border-color: rgba(255,102,255,0.6);
     transform: scale(1.1);
 }
 
-#penlight-btn.active {
-    background: linear-gradient(145deg, #ff66ff, #aa44aa);
-    border-color: #ff66ff;
+.action-btn:active {
+    transform: scale(0.95);
+}
+
+.action-btn.active {
+    background: linear-gradient(135deg, #ff66ff, #6633ff);
     box-shadow: 0 0 20px rgba(255,102,255,0.6);
 }
 
-#emoji-btn.active {
-    background: linear-gradient(145deg, #ff66ff, #66ffff);
-    border-color: #ff66ff;
-    box-shadow: 0 0 20px rgba(255,102,255,0.6);
+/* 左下: オタ芸ボタン */
+#otagei-btn {
+    position: fixed;
+    bottom: 50px;
+    left: 20px;
+    z-index: 1000;
 }
 
 #otagei-btn.active {
@@ -438,19 +462,55 @@ body.host-mode .chat-message .pin-btn {
     to { transform: scale(1.15); }
 }
 
-/* ペンライトカラー選択 */
+/* 右下: ペンライトボタン */
+#penlight-btn {
+    position: fixed;
+    bottom: 50px;
+    right: 20px;
+    z-index: 1000;
+}
+
+#penlight-btn.active {
+    background: linear-gradient(145deg, #ff66ff, #aa44aa);
+    border-color: #ff66ff;
+    box-shadow: 0 0 20px rgba(255,102,255,0.6);
+}
+
+/* 右上（ジョイスティック上）: 絵文字ボタン */
+#emoji-btn {
+    position: fixed;
+    bottom: 170px;
+    right: 20px;
+    z-index: 1000;
+    background: linear-gradient(135deg, #ff6699, #ff9966);
+}
+
+#emoji-btn:hover {
+    box-shadow: 0 0 20px rgba(255,102,153,0.6);
+}
+
+#emoji-btn.active {
+    background: linear-gradient(145deg, #ff66ff, #66ffff);
+    border-color: #ff66ff;
+    box-shadow: 0 0 20px rgba(255,102,255,0.6);
+}
+
+/* ========================================
+   ペンライトカラー選択
+   ======================================== */
 #penlight-colors {
-    position: absolute;
-    right: 140px;
-    bottom: 30px;
+    position: fixed;
+    bottom: 130px;
+    right: 15px;
     display: flex;
+    flex-direction: column;
     gap: 8px;
-    padding: 10px 14px;
+    padding: 12px;
     background: rgba(0,0,0,0.9);
-    border-radius: 30px;
+    border-radius: 16px;
     border: 1px solid rgba(255,102,255,0.3);
     backdrop-filter: blur(15px);
-    z-index: 60;
+    z-index: 1001;
 }
 
 #penlight-colors.hidden {
@@ -458,8 +518,8 @@ body.host-mode .chat-message .pin-btn {
 }
 
 .color-btn {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.3);
     cursor: pointer;
@@ -477,17 +537,19 @@ body.host-mode .chat-message .pin-btn {
     transform: scale(1.15);
 }
 
-/* 絵文字パネル */
+/* ========================================
+   絵文字パネル
+   ======================================== */
 #emoji-panel {
-    position: absolute;
-    right: 16px;
-    bottom: 200px;
+    position: fixed;
+    bottom: 250px;
+    right: 15px;
     width: 280px;
     background: rgba(0,0,0,0.95);
     border-radius: 16px;
     border: 1px solid rgba(255,102,255,0.3);
     backdrop-filter: blur(15px);
-    z-index: 60;
+    z-index: 1001;
     overflow: hidden;
 }
 
@@ -556,7 +618,9 @@ body.host-mode .chat-message .pin-btn {
     transform: scale(0.95);
 }
 
-/* 絵文字アニメーションコンテナ */
+/* ========================================
+   絵文字アニメーション
+   ======================================== */
 #emoji-animation-container {
     position: fixed;
     top: 0;
@@ -564,36 +628,41 @@ body.host-mode .chat-message .pin-btn {
     width: 100%;
     height: 100%;
     pointer-events: none;
-    z-index: 500;
+    z-index: 15000;
     overflow: hidden;
 }
 
-.flying-emoji {
+.floating-emoji {
     position: absolute;
-    font-size: 40px;
-    animation: flyEmoji 2s ease-out forwards;
+    bottom: -60px;
     pointer-events: none;
+    animation: emojiFloat 2.5s ease-out forwards;
 }
 
-@keyframes flyEmoji {
+@keyframes emojiFloat {
     0% {
+        transform: translateY(0) rotate(0deg) scale(0.5);
+        opacity: 0;
+    }
+    10% {
         opacity: 1;
-        transform: translateY(0) scale(1) rotate(0deg);
+        transform: translateY(-50px) rotate(10deg) scale(1);
     }
     50% {
         opacity: 1;
-        transform: translateY(-200px) scale(1.2) rotate(180deg);
     }
     100% {
+        transform: translateY(-500px) translateX(var(--drift, 0px)) rotate(30deg) scale(0.8);
         opacity: 0;
-        transform: translateY(-400px) scale(0.8) rotate(360deg);
     }
 }
 
-/* スピーカーコントロール（右上・設定の下） */
+/* ========================================
+   スピーカーコントロール（右上）
+   ======================================== */
 #speaker-controls {
-    position: absolute;
-    top: 80px;
+    position: fixed;
+    top: 90px;
     right: 16px;
     display: flex;
     flex-direction: column;
@@ -667,7 +736,9 @@ body.host-mode .chat-message .pin-btn {
     transform: scale(0.98);
 }
 
-/* 通知 */
+/* ========================================
+   通知
+   ======================================== */
 .notification {
     position: fixed;
     top: 20px;
@@ -703,7 +774,9 @@ body.host-mode .chat-message .pin-btn {
     box-shadow: 0 0 20px rgba(102,255,255,0.3);
 }
 
-/* 音声再生許可オーバーレイ */
+/* ========================================
+   音声再生許可オーバーレイ
+   ======================================== */
 #audio-unlock-overlay {
     display: none;
     position: fixed;
@@ -755,7 +828,9 @@ body.host-mode .chat-message .pin-btn {
     50% { transform: scale(1.02); box-shadow: 0 0 40px rgba(255, 102, 255, 0.5); }
 }
 
-/* ユーティリティ */
+/* ========================================
+   ユーティリティ
+   ======================================== */
 .hidden {
     display: none !important;
 }
@@ -783,36 +858,38 @@ body.host-mode .chat-message .pin-btn {
     background: rgba(255,102,255,0.5);
     color: #fff;
 }
-/* 絵文字アニメーション */
-#emoji-animation-container {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 15000;
-    overflow: hidden;
-}
 
-.floating-emoji {
-    position: absolute;
-    bottom: -60px;
-    animation: emojiFloat 2.5s ease-out forwards;
-    pointer-events: none;
-}
-
-@keyframes emojiFloat {
-    0% {
-        transform: translateY(0) rotate(0deg) scale(0.5);
-        opacity: 0;
+/* ========================================
+   レスポンシブ対応
+   ======================================== */
+@media (max-width: 600px) {
+    #room-title {
+        font-size: 20px;
+        padding: 8px 14px;
     }
-    10% {
-        opacity: 1;
-        transform: translateY(-50px) rotate(10deg) scale(1);
+    
+    #chat-container {
+        width: calc(100% - 180px);
+        max-width: 280px;
     }
-    50% {
-        opacity: 1;
+    
+    #chat-messages {
+        max-height: 80px;
     }
-    100% {
-        transform: translateY(-500px) translateX(var(--drift, 0px)) rotate(30deg) scale(0.8);
-        opacity: 0;
+    
+    .action-btn {
+        width: 55px;
+        height: 55px;
+        font-size: 24px;
+    }
+    
+    #joystick-base {
+        width: 100px;
+        height: 100px;
+    }
+    
+    #joystick-stick {
+        width: 40px;
+        height: 40px;
     }
 }

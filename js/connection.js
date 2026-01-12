@@ -4,7 +4,6 @@
 
 import {
   debugLog,
-  isIOS,
   addSpeakerIndicator,
   removeSpeakerIndicator
 } from './utils.js';
@@ -17,8 +16,9 @@ import { setHostAuthResult } from './settings.js';
 const PARTYKIT_HOST = 'kimurameta.kimura-jane.partykit.dev';
 const ROOM_ID = 'main-stage';
 
-// Agora設定（後で正式なものに置き換え）
-const AGORA_APP_ID = 'YOUR_AGORA_APP_ID'; // TODO: 本番のApp IDに変更
+// Agora設定
+const AGORA_APP_ID = 'be3dfbd19aea4850bb9564c05248f3f9';
+const AGORA_CHANNEL = 'metaverse_room';
 
 // --------------------------------------------
 // 状態
@@ -42,9 +42,10 @@ let secretMode = false;
 let isAuthed = false;
 let isHost = false;
 
-// Agora関連（後で実装）
+// Agora関連
 let agoraClient = null;
 let localAudioTrack = null;
+let remoteUsers = new Map();
 
 function canAccessContent() {
   return !secretMode || isAuthed;
@@ -170,7 +171,6 @@ export function connectToPartyKit(userName) {
   wantReconnect = true;
   clearReconnectTimer();
 
-  // 接続ごとに状態リセット
   isAuthed = false;
   secretMode = false;
   isHost = false;
@@ -221,7 +221,6 @@ export function connectToPartyKit(userName) {
     hostAuthed = false;
     hostAuthPending = false;
 
-    // Agora切断
     leaveAgoraChannel();
 
     setHostAuthResult(false, '接続が切れたため主催者状態を解除しました');
@@ -474,7 +473,7 @@ function handleServerMessage(data) {
 
       if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
 
-      // Agoraチャンネルに参加（音声配信開始）
+      // Agoraチャンネルに参加して音声配信開始
       joinAgoraChannel();
 
       if (callbacks.onSpeakApproved) callbacks.onSpeakApproved();
@@ -598,16 +597,11 @@ function updateSpeakerList(speakers) {
 }
 
 // --------------------------------------------
-// Agora関連（音声通話）
+// Agora音声通話
 // --------------------------------------------
 async function joinAgoraChannel() {
   debugLog('[Agora] チャンネル参加開始...', 'info');
 
-  // TODO: Agora SDKを使って音声チャンネルに参加
-  // 今はプレースホルダー
-  
-  /*
-  // Agora実装例（後で有効化）:
   try {
     const AgoraRTC = window.AgoraRTC;
     if (!AgoraRTC) {
@@ -615,52 +609,73 @@ async function joinAgoraChannel() {
       return;
     }
 
-    agoraClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-    
-    await agoraClient.join(AGORA_APP_ID, ROOM_ID, null, myServerConnectionId);
-    debugLog('[Agora] チャンネル参加成功', 'success');
-
-    // マイク取得
-    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-    await agoraClient.publish([localAudioTrack]);
-    debugLog('[Agora] 音声配信開始', 'success');
+    // クライアント作成
+    agoraClient = AgoraRTC.createClient({ 
+      mode: 'rtc', 
+      codec: 'vp8' 
+    });
 
     // リモートユーザーの音声を受信
     agoraClient.on('user-published', async (user, mediaType) => {
       if (mediaType === 'audio') {
         await agoraClient.subscribe(user, mediaType);
         user.audioTrack?.play();
-        debugLog(`[Agora] ${user.uid} の音声を受信`, 'success');
+        remoteUsers.set(user.uid, user);
+        debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
       }
     });
 
+    agoraClient.on('user-unpublished', (user, mediaType) => {
+      if (mediaType === 'audio') {
+        remoteUsers.delete(user.uid);
+        debugLog(`[Agora] ${user.uid} の音声が停止`, 'info');
+      }
+    });
+
+    agoraClient.on('user-left', (user) => {
+      remoteUsers.delete(user.uid);
+      debugLog(`[Agora] ${user.uid} が退出`, 'info');
+    });
+
+    // チャンネルに参加（トークンなしでテスト）
+    const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
+    debugLog(`[Agora] チャンネル参加成功: uid=${uid}`, 'success');
+
+    // マイク取得と配信開始
+    localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+      encoderConfig: 'high_quality_stereo'
+    });
+    
+    await agoraClient.publish([localAudioTrack]);
+    debugLog('[Agora] 音声配信開始', 'success');
+
   } catch (e) {
     debugLog(`[Agora] エラー: ${e?.message || e}`, 'error');
+    console.error('[Agora] 詳細エラー:', e);
   }
-  */
-
-  debugLog('[Agora] 音声機能は後で実装予定', 'info');
 }
 
 async function leaveAgoraChannel() {
   debugLog('[Agora] チャンネル退出', 'info');
 
-  /*
-  // Agora実装例（後で有効化）:
   try {
     if (localAudioTrack) {
       localAudioTrack.stop();
       localAudioTrack.close();
       localAudioTrack = null;
     }
+
     if (agoraClient) {
       await agoraClient.leave();
       agoraClient = null;
     }
+
+    remoteUsers.clear();
+    debugLog('[Agora] 退出完了', 'success');
+
   } catch (e) {
     debugLog(`[Agora] 退出エラー: ${e?.message || e}`, 'error');
   }
-  */
 }
 
 // --------------------------------------------
@@ -695,7 +710,6 @@ export function stopSpeaking() {
   isMicMuted = false;
   updateSpeakerButton();
 
-  // Agoraチャンネルから退出
   leaveAgoraChannel();
 
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -728,12 +742,11 @@ export function toggleMic() {
   if (!canAccessContent()) return false;
 
   if (isSpeaker && localAudioTrack) {
-    // TODO: Agora実装後に有効化
-    // localAudioTrack.setEnabled(!localAudioTrack.enabled);
-    // isMicMuted = !localAudioTrack.enabled;
-    isMicMuted = !isMicMuted;
-    debugLog(`[Connection] マイク: ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
-    return !isMicMuted;
+    const newEnabled = !localAudioTrack.enabled;
+    localAudioTrack.setEnabled(newEnabled);
+    isMicMuted = !newEnabled;
+    debugLog(`[Agora] マイク: ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
+    return newEnabled;
   }
   return false;
 }

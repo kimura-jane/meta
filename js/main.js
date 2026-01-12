@@ -79,7 +79,7 @@ function isContentAllowed() {
 let currentPinnedComment = null;
 
 // -----------------------------
-// ★ チャットメッセージ履歴（ピン留め用）
+// ★ チャットメッセージ履歴（ピン留め用・重複チェック用）
 // -----------------------------
 const chatMessageHistory = [];
 
@@ -130,7 +130,6 @@ function purgeSensitiveClientState(reason = '') {
     if (existing) existing.remove();
   } catch (_) {}
 
-  // ピン留めもクリア
   try {
     currentPinnedComment = null;
     updatePinnedCommentUI(null);
@@ -145,7 +144,6 @@ function purgeSensitiveClientState(reason = '') {
 const nameTags = new Map();
 let nameTagLayer = null;
 
-// 自分の初期ID（接続前に生成したローカルID）
 let myLocalId = 'user_' + Math.random().toString(36).substr(2, 9);
 
 // アバター設定
@@ -209,7 +207,7 @@ const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 
 let penlightTime = 0;
 
 // -----------------------------
-// ★ 自分のIDを取得（サーバーIDがあればそれ、なければローカルID）
+// ★ 自分のIDを取得
 // -----------------------------
 function getMyId() {
   return getMyConnectionId() || myLocalId;
@@ -479,7 +477,6 @@ function hideAuthOverlay() {
 }
 
 function refreshSecretGateUI() {
-  // settings.js のトグルも同期
   setSecretModeUI(secretMode);
 
   if (!secretMode) {
@@ -632,158 +629,96 @@ const EMOJI_CATEGORIES = {
 let currentEmojiCategory = 'cheer';
 let emojiPanelVisible = false;
 
-function setupEmojiPanel() {
-  // 絵文字パネルのコンテナを作成
-  const panel = document.createElement('div');
-  panel.id = 'emoji-panel';
-  panel.style.cssText = `
-    position: fixed;
-    bottom: 200px;
-    right: 20px;
-    background: rgba(0, 0, 0, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 16px;
-    padding: 12px;
-    z-index: 5000;
-    display: none;
-    flex-direction: column;
-    gap: 10px;
-    backdrop-filter: blur(10px);
-    max-width: 280px;
-  `;
+function setupEmojiUI() {
+  // 既存のパネルがあれば使用、なければ作成
+  let panel = document.getElementById('emoji-panel');
+  
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'emoji-panel';
+    panel.className = 'hidden';
+    document.body.appendChild(panel);
+  }
+
+  // パネルの中身を構築
+  panel.innerHTML = '';
 
   // カテゴリタブ
   const tabContainer = document.createElement('div');
-  tabContainer.style.cssText = `
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-    justify-content: center;
-    padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  `;
+  tabContainer.id = 'emoji-tabs';
+  tabContainer.className = 'emoji-tabs';
 
   Object.keys(EMOJI_CATEGORIES).forEach(categoryKey => {
     const category = EMOJI_CATEGORIES[categoryKey];
     const tab = document.createElement('button');
-    tab.textContent = category.name;
+    tab.className = `emoji-tab ${categoryKey === currentEmojiCategory ? 'active' : ''}`;
+    tab.textContent = category.emojis[0]; // カテゴリの最初の絵文字をアイコンに
     tab.dataset.category = categoryKey;
-    tab.style.cssText = `
-      padding: 6px 10px;
-      border: none;
-      border-radius: 8px;
-      background: ${categoryKey === currentEmojiCategory ? 'rgba(255, 102, 255, 0.5)' : 'rgba(255, 255, 255, 0.1)'};
-      color: white;
-      font-size: 12px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background 0.2s;
-    `;
-    tab.addEventListener('click', () => {
+    tab.title = category.name;
+    tab.addEventListener('click', (e) => {
+      e.stopPropagation();
       currentEmojiCategory = categoryKey;
-      updateEmojiButtons();
+      updateEmojiGrid();
       // タブのアクティブ状態を更新
-      tabContainer.querySelectorAll('button').forEach(btn => {
-        btn.style.background = btn.dataset.category === categoryKey
-          ? 'rgba(255, 102, 255, 0.5)'
-          : 'rgba(255, 255, 255, 0.1)';
+      tabContainer.querySelectorAll('.emoji-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.category === categoryKey);
       });
     });
     tabContainer.appendChild(tab);
   });
 
-  // 絵文字ボタンコンテナ
-  const emojiContainer = document.createElement('div');
-  emojiContainer.id = 'emoji-buttons';
-  emojiContainer.style.cssText = `
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
-    justify-items: center;
-  `;
+  // 絵文字グリッド
+  const emojiGrid = document.createElement('div');
+  emojiGrid.id = 'emoji-grid';
+  emojiGrid.className = 'emoji-grid';
 
   panel.appendChild(tabContainer);
-  panel.appendChild(emojiContainer);
-  document.body.appendChild(panel);
+  panel.appendChild(emojiGrid);
 
-  // 絵文字ボタンを更新
-  updateEmojiButtons();
+  // 絵文字グリッドを更新
+  updateEmojiGrid();
 
-  // 絵文字トグルボタン（既存のアクションボタンエリアに追加）
-  const actionButtons = document.getElementById('action-buttons');
-  if (actionButtons) {
-    const emojiToggleBtn = document.createElement('button');
-    emojiToggleBtn.id = 'emoji-toggle-btn';
-    emojiToggleBtn.textContent = '🎉';
-    emojiToggleBtn.style.cssText = `
-      width: 60px;
-      height: 60px;
-      border-radius: 50%;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      background: linear-gradient(135deg, #ff6699, #ff9966);
-      color: white;
-      font-size: 28px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 15px rgba(255, 102, 153, 0.4);
-      transition: transform 0.2s, box-shadow 0.2s;
-    `;
-    emojiToggleBtn.addEventListener('click', (e) => {
+  // 絵文字ボタンのイベント設定
+  const emojiBtn = document.getElementById('emoji-btn');
+  if (emojiBtn) {
+    // 既存のイベントをクリア
+    const newEmojiBtn = emojiBtn.cloneNode(true);
+    emojiBtn.parentNode.replaceChild(newEmojiBtn, emojiBtn);
+    
+    newEmojiBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleEmojiPanel();
     });
-    actionButtons.appendChild(emojiToggleBtn);
   }
 
   // パネル外クリックで閉じる
   document.addEventListener('click', (e) => {
-    if (emojiPanelVisible && !panel.contains(e.target) && e.target.id !== 'emoji-toggle-btn') {
+    const panel = document.getElementById('emoji-panel');
+    const emojiBtn = document.getElementById('emoji-btn');
+    if (emojiPanelVisible && panel && !panel.contains(e.target) && e.target !== emojiBtn) {
       hideEmojiPanel();
     }
   });
 
-  debugLog('Emoji panel setup complete', 'success');
+  debugLog('Emoji UI setup complete', 'success');
 }
 
-function updateEmojiButtons() {
-  const container = document.getElementById('emoji-buttons');
-  if (!container) return;
+function updateEmojiGrid() {
+  const grid = document.getElementById('emoji-grid');
+  if (!grid) return;
 
-  container.innerHTML = '';
+  grid.innerHTML = '';
   const emojis = EMOJI_CATEGORIES[currentEmojiCategory]?.emojis || [];
 
   emojis.forEach(emoji => {
-    const btn = document.createElement('button');
-    btn.textContent = emoji;
-    btn.style.cssText = `
-      width: 48px;
-      height: 48px;
-      border: none;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.1);
-      font-size: 28px;
-      cursor: pointer;
-      transition: transform 0.15s, background 0.15s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    `;
-    btn.addEventListener('click', (e) => {
+    const item = document.createElement('button');
+    item.className = 'emoji-item';
+    item.textContent = emoji;
+    item.addEventListener('click', (e) => {
       e.stopPropagation();
       throwEmoji(emoji);
-      // ボタンアニメーション
-      btn.style.transform = 'scale(1.3)';
-      setTimeout(() => btn.style.transform = 'scale(1)', 150);
     });
-    btn.addEventListener('mouseenter', () => {
-      btn.style.background = 'rgba(255, 102, 255, 0.3)';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.background = 'rgba(255, 255, 255, 0.1)';
-    });
-    container.appendChild(btn);
+    grid.appendChild(item);
   });
 }
 
@@ -791,7 +726,13 @@ function toggleEmojiPanel() {
   emojiPanelVisible = !emojiPanelVisible;
   const panel = document.getElementById('emoji-panel');
   if (panel) {
-    panel.style.display = emojiPanelVisible ? 'flex' : 'none';
+    panel.classList.toggle('hidden', !emojiPanelVisible);
+  }
+  
+  // ペンライト色パネルを閉じる
+  if (emojiPanelVisible) {
+    const penlightColors = document.getElementById('penlight-colors');
+    if (penlightColors) penlightColors.classList.add('hidden');
   }
 }
 
@@ -799,7 +740,7 @@ function hideEmojiPanel() {
   emojiPanelVisible = false;
   const panel = document.getElementById('emoji-panel');
   if (panel) {
-    panel.style.display = 'none';
+    panel.classList.add('hidden');
   }
 }
 
@@ -809,161 +750,81 @@ function throwEmoji(emoji) {
     return;
   }
 
-  // 自分の画面にもアニメーション表示
+  // 自分の画面にアニメーション表示
   showEmojiAnimation(emoji);
 
   // サーバーに送信
-  sendEmojiThrow(emoji);
+  try {
+    sendEmojiThrow(emoji);
+  } catch (e) {
+    debugLog(`Emoji send error: ${e}`, 'warn');
+  }
 
   debugLog(`Emoji thrown: ${emoji}`, 'info');
 }
 
 function showEmojiAnimation(emoji) {
-  // 複数の絵文字を生成（豆撒き風）
-  const count = 5 + Math.floor(Math.random() * 5); // 5〜9個
+  const count = 5 + Math.floor(Math.random() * 5);
 
   for (let i = 0; i < count; i++) {
     setTimeout(() => {
       createFloatingEmoji(emoji);
-    }, i * 50); // 少しずつずらして生成
+    }, i * 50);
   }
 }
 
 function createFloatingEmoji(emoji) {
-  const container = document.createElement('div');
-  container.style.cssText = `
-    position: fixed;
-    bottom: -60px;
-    left: ${10 + Math.random() * 80}%;
-    font-size: ${40 + Math.random() * 30}px;
-    pointer-events: none;
-    z-index: 15000;
-    animation: emojiFloat ${2 + Math.random() * 1.5}s ease-out forwards;
-    opacity: 1;
-  `;
-  container.textContent = emoji;
+  const container = document.getElementById('emoji-animation-container') || document.body;
+  
+  const el = document.createElement('div');
+  el.className = 'floating-emoji';
+  el.textContent = emoji;
+  el.style.left = `${10 + Math.random() * 80}%`;
+  el.style.bottom = '-60px';
+  el.style.fontSize = `${40 + Math.random() * 30}px`;
+  el.style.animationDuration = `${2 + Math.random() * 1.5}s`;
 
-  // アニメーションスタイルを追加（まだなければ）
-  if (!document.getElementById('emoji-animation-styles')) {
-    const style = document.createElement('style');
-    style.id = 'emoji-animation-styles';
-    style.textContent = `
-      @keyframes emojiFloat {
-        0% {
-          transform: translateY(0) rotate(0deg) scale(0.5);
-          opacity: 0;
-        }
-        10% {
-          opacity: 1;
-          transform: translateY(-50px) rotate(${Math.random() > 0.5 ? '' : '-'}10deg) scale(1);
-        }
-        50% {
-          opacity: 1;
-        }
-        100% {
-          transform: translateY(-${400 + Math.random() * 300}px) translateX(${(Math.random() - 0.5) * 200}px) rotate(${(Math.random() - 0.5) * 60}deg) scale(0.8);
-          opacity: 0;
-        }
-      }
-    `;
-    document.head.appendChild(style);
-  }
+  container.appendChild(el);
 
-  document.body.appendChild(container);
-
-  // アニメーション終了後に削除
   setTimeout(() => {
-    container.remove();
+    el.remove();
   }, 3500);
 }
 
 // -----------------------------
 // ★ ピン留め機能
 // -----------------------------
-function setupPinnedCommentUI() {
-  // ピン留めコメント表示エリア（チャットの上）
-  const chatArea = document.getElementById('chat-area');
-  if (!chatArea) return;
-
-  const pinnedContainer = document.createElement('div');
-  pinnedContainer.id = 'pinned-comment-container';
-  pinnedContainer.style.cssText = `
-    display: none;
-    background: linear-gradient(135deg, rgba(255, 102, 255, 0.2), rgba(102, 51, 255, 0.2));
-    border: 1px solid rgba(255, 102, 255, 0.4);
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin-bottom: 10px;
-    position: relative;
-  `;
-
-  const pinnedLabel = document.createElement('div');
-  pinnedLabel.style.cssText = `
-    font-size: 11px;
-    color: rgba(255, 102, 255, 0.9);
-    margin-bottom: 4px;
-    font-weight: bold;
-  `;
-  pinnedLabel.textContent = '📌 ピン留め';
-
-  const pinnedContent = document.createElement('div');
-  pinnedContent.id = 'pinned-comment-content';
-  pinnedContent.style.cssText = `
-    font-size: 13px;
-    color: white;
-    word-break: break-word;
-  `;
-
-  const unpinBtn = document.createElement('button');
-  unpinBtn.id = 'unpin-btn';
-  unpinBtn.textContent = '×';
-  unpinBtn.style.cssText = `
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    font-size: 14px;
-    cursor: pointer;
-    display: none;
-  `;
-  unpinBtn.addEventListener('click', () => {
-    if (currentPinnedComment) {
-      unpinComment(currentPinnedComment.odUserId, currentPinnedComment.odMsgId);
-    }
-  });
-
-  pinnedContainer.appendChild(pinnedLabel);
-  pinnedContainer.appendChild(pinnedContent);
-  pinnedContainer.appendChild(unpinBtn);
-
-  // チャットエリアの先頭に挿入
-  chatArea.insertBefore(pinnedContainer, chatArea.firstChild);
-
-  debugLog('Pinned comment UI setup complete', 'success');
-}
-
 function updatePinnedCommentUI(comment) {
-  const container = document.getElementById('pinned-comment-container');
-  const content = document.getElementById('pinned-comment-content');
-  const unpinBtn = document.getElementById('unpin-btn');
-
-  if (!container || !content) return;
+  const container = document.getElementById('pinned-comment');
+  
+  if (!container) return;
 
   if (comment) {
-    container.style.display = 'block';
-    content.innerHTML = `<strong>${escapeHtml(comment.userName || 'ゲスト')}:</strong> ${escapeHtml(comment.message)}`;
-    // 主催者のみ解除ボタンを表示
+    container.classList.remove('hidden');
+    container.innerHTML = `
+      <div id="pinned-comment-content">
+        <div id="pinned-comment-text">
+          <span style="color: #ff99cc; font-weight: bold;">📌 ${escapeHtml(comment.userName || 'ゲスト')}</span>: ${escapeHtml(comment.message)}
+        </div>
+        ${isHost ? '<button id="unpin-btn">×</button>' : ''}
+      </div>
+    `;
+    
+    const unpinBtn = document.getElementById('unpin-btn');
     if (unpinBtn) {
-      unpinBtn.style.display = isHost ? 'block' : 'none';
+      unpinBtn.addEventListener('click', () => {
+        if (currentPinnedComment) {
+          try {
+            unpinComment(currentPinnedComment.odUserId, currentPinnedComment.odMsgId);
+          } catch (e) {
+            debugLog(`Unpin error: ${e}`, 'warn');
+          }
+        }
+      });
     }
   } else {
-    container.style.display = 'none';
-    content.innerHTML = '';
+    container.classList.add('hidden');
+    container.innerHTML = '';
   }
 }
 
@@ -973,31 +834,32 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// チャットメッセージにピン留めボタンを追加（主催者用）
+// チャットメッセージにピン留めボタンを追加
 function addChatMessageWithPin(userName, message, odUserId, odMsgId, isMyMessage = false) {
   const chatMessages = document.getElementById('chat-messages');
   if (!chatMessages) return;
+
+  // 重複チェック
+  const existingMsg = chatMessageHistory.find(m => m.odMsgId === odMsgId);
+  if (existingMsg) {
+    debugLog(`[Chat] Duplicate message skipped: ${odMsgId}`, 'warn');
+    return;
+  }
 
   const messageDiv = document.createElement('div');
   messageDiv.className = 'chat-message';
   messageDiv.dataset.odUserId = odUserId;
   messageDiv.dataset.odMsgId = odMsgId;
-  messageDiv.style.cssText = `
-    padding: 8px 10px;
-    margin-bottom: 6px;
-    background: ${isMyMessage ? 'rgba(102, 51, 255, 0.3)' : 'rgba(255, 255, 255, 0.1)'};
-    border-radius: 8px;
-    font-size: 13px;
-    position: relative;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 8px;
-  `;
 
-  const textContainer = document.createElement('div');
-  textContainer.style.flex = '1';
-  textContainer.innerHTML = `<strong style="color: ${isMyMessage ? '#bb99ff' : '#ff99cc'};">${escapeHtml(userName)}</strong>: ${escapeHtml(message)}`;
+  const textContainer = document.createElement('span');
+  textContainer.className = 'message-text';
+  
+  const usernameSpan = document.createElement('span');
+  usernameSpan.className = 'username';
+  usernameSpan.textContent = userName || 'ゲスト';
+  
+  textContainer.appendChild(usernameSpan);
+  textContainer.appendChild(document.createTextNode(': ' + message));
 
   messageDiv.appendChild(textContainer);
 
@@ -1006,27 +868,14 @@ function addChatMessageWithPin(userName, message, odUserId, odMsgId, isMyMessage
     const pinBtn = document.createElement('button');
     pinBtn.className = 'pin-btn';
     pinBtn.textContent = '📌';
-    pinBtn.style.cssText = `
-      padding: 4px 8px;
-      border: none;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.1);
-      color: white;
-      font-size: 14px;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: background 0.2s;
-    `;
     pinBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      pinComment(odUserId, odMsgId, userName, message);
-      showNotification('コメントをピン留めしました', 'success');
-    });
-    pinBtn.addEventListener('mouseenter', () => {
-      pinBtn.style.background = 'rgba(255, 102, 255, 0.4)';
-    });
-    pinBtn.addEventListener('mouseleave', () => {
-      pinBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+      try {
+        pinComment(odUserId, odMsgId, userName, message);
+        showNotification('コメントをピン留めしました', 'success');
+      } catch (err) {
+        debugLog(`Pin error: ${err}`, 'warn');
+      }
     });
     messageDiv.appendChild(pinBtn);
   }
@@ -1036,10 +885,41 @@ function addChatMessageWithPin(userName, message, odUserId, odMsgId, isMyMessage
 
   // 履歴に保存
   chatMessageHistory.push({ odUserId, odMsgId, userName, message });
-  // 最大100件まで保持
   if (chatMessageHistory.length > 100) {
     chatMessageHistory.shift();
   }
+}
+
+// 主催者ログイン後にチャットのピン留めボタンを再描画
+function refreshChatPinButtons() {
+  const chatMessages = document.getElementById('chat-messages');
+  if (!chatMessages || !isHost) return;
+
+  chatMessages.querySelectorAll('.chat-message').forEach(msgDiv => {
+    if (msgDiv.querySelector('.pin-btn')) return;
+
+    const odUserId = msgDiv.dataset.odUserId;
+    const odMsgId = msgDiv.dataset.odMsgId;
+
+    if (!odUserId || !odMsgId) return;
+
+    const msgData = chatMessageHistory.find(m => m.odUserId === odUserId && m.odMsgId === odMsgId);
+    if (!msgData) return;
+
+    const pinBtn = document.createElement('button');
+    pinBtn.className = 'pin-btn';
+    pinBtn.textContent = '📌';
+    pinBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      try {
+        pinComment(odUserId, odMsgId, msgData.userName, msgData.message);
+        showNotification('コメントをピン留めしました', 'success');
+      } catch (err) {
+        debugLog(`Pin error: ${err}`, 'warn');
+      }
+    });
+    msgDiv.appendChild(pinBtn);
+  });
 }
 
 // 初期化
@@ -1173,8 +1053,7 @@ async function init() {
   setupSpeakerControls();
   setupJoystick();
   setupCameraSwipe();
-  setupEmojiPanel();
-  setupPinnedCommentUI();
+  setupEmojiUI();
 
   window.addEventListener('resize', onWindowResize);
 
@@ -1241,7 +1120,6 @@ function setupConnection() {
       resetHostOverlayButton();
       refreshSecretGateUI();
       
-      // 主催者になったらピン留めボタンを再描画
       if (data?.ok) {
         refreshChatPinButtons();
       }
@@ -1367,16 +1245,15 @@ function setupConnection() {
 
       const myId = getMyId();
       const isMyMessage = odUserId === myId;
+      const msgId = odMsgId || `${odUserId}_${Date.now()}`;
       
-      // ピン留め機能付きでチャットメッセージを追加
-      addChatMessageWithPin(userName, message, odUserId, odMsgId || Date.now().toString(), isMyMessage);
+      addChatMessageWithPin(userName, message, odUserId, msgId, isMyMessage);
     },
 
     onEmojiThrow: (odUserId, emoji) => {
       if (!isContentAllowed()) return;
 
       debugLog(`[Callback] Emoji throw from ${odUserId}: ${emoji}`, 'info');
-      // 自分以外からの絵文字投げをアニメーション表示
       const myId = getMyId();
       if (odUserId !== myId) {
         showEmojiAnimation(emoji);
@@ -1479,54 +1356,6 @@ function setupConnection() {
   refreshSecretGateUI();
 }
 
-// 主催者ログイン後にチャットのピン留めボタンを再描画
-function refreshChatPinButtons() {
-  const chatMessages = document.getElementById('chat-messages');
-  if (!chatMessages) return;
-
-  // 既存のメッセージにピン留めボタンを追加
-  chatMessages.querySelectorAll('.chat-message').forEach(msgDiv => {
-    // 既にピンボタンがあればスキップ
-    if (msgDiv.querySelector('.pin-btn')) return;
-
-    const odUserId = msgDiv.dataset.odUserId;
-    const odMsgId = msgDiv.dataset.odMsgId;
-
-    if (!odUserId || !odMsgId) return;
-
-    // 履歴からメッセージ情報を取得
-    const msgData = chatMessageHistory.find(m => m.odUserId === odUserId && m.odMsgId === odMsgId);
-    if (!msgData) return;
-
-    const pinBtn = document.createElement('button');
-    pinBtn.className = 'pin-btn';
-    pinBtn.textContent = '📌';
-    pinBtn.style.cssText = `
-      padding: 4px 8px;
-      border: none;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.1);
-      color: white;
-      font-size: 14px;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: background 0.2s;
-    `;
-    pinBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      pinComment(odUserId, odMsgId, msgData.userName, msgData.message);
-      showNotification('コメントをピン留めしました', 'success');
-    });
-    pinBtn.addEventListener('mouseenter', () => {
-      pinBtn.style.background = 'rgba(255, 102, 255, 0.4)';
-    });
-    pinBtn.addEventListener('mouseleave', () => {
-      pinBtn.style.background = 'rgba(255, 255, 255, 0.1)';
-    });
-    msgDiv.appendChild(pinBtn);
-  });
-}
-
 // アナウンス表示
 function showAnnouncement(message) {
   const existing = document.getElementById('announcement-overlay');
@@ -1552,7 +1381,7 @@ function showAnnouncement(message) {
   overlay.innerHTML = `
     <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
       <span style="font-size: 24px;">📢</span>
-      <span>${message}</span>
+      <span>${escapeHtml(message)}</span>
     </div>
   `;
 
@@ -1887,7 +1716,7 @@ function updateSpeakerCount(count) {
   if (el) el.textContent = count;
 }
 
-// チャットUIセットアップ
+// チャットUIセットアップ（二重送信修正版）
 function setupChatUI() {
   const form = document.getElementById('chat-form');
   const input = document.getElementById('chat-input');
@@ -1897,26 +1726,45 @@ function setupChatUI() {
     return;
   }
 
-  form.addEventListener('submit', (e) => {
+  // 既存のイベントリスナーを削除（二重登録防止）
+  const newForm = form.cloneNode(true);
+  form.parentNode.replaceChild(newForm, form);
+  
+  const newInput = newForm.querySelector('#chat-input');
+  const newSubmit = newForm.querySelector('#chat-submit');
+
+  // フォームのsubmitイベント
+  newForm.addEventListener('submit', (e) => {
     e.preventDefault();
-
-    if (!isContentAllowed()) {
-      showNotification('入室パスワードが必要です', 'warn');
-      return;
-    }
-
-    const message = input.value.trim();
-    if (message) {
-      sendChat(message);
-      // 自分のメッセージもピン留め機能付きで追加
-      const myId = getMyId();
-      const msgId = Date.now().toString();
-      addChatMessageWithPin(myUserName, message, myId, msgId, true);
-      input.value = '';
-    }
+    e.stopPropagation();
+    submitChat(newInput);
   });
 
+  // 送信ボタンのクリックイベント
+  if (newSubmit) {
+    newSubmit.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      submitChat(newInput);
+    });
+  }
+
   debugLog('Chat UI setup complete', 'success');
+}
+
+// チャット送信処理（共通化）
+function submitChat(input) {
+  if (!isContentAllowed()) {
+    showNotification('入室パスワードが必要です', 'warn');
+    return;
+  }
+
+  const message = input.value.trim();
+  if (!message) return;
+
+  // サーバーに送信（サーバーからのonChatコールバックで表示される）
+  sendChat(message);
+  input.value = '';
 }
 
 // アクションボタンセットアップ
@@ -1925,7 +1773,7 @@ function setupActionButtons() {
   const otageiBtn = document.getElementById('otagei-btn');
   const penlightColors = document.getElementById('penlight-colors');
 
-  if (!penlightBtn || !otageiBtn || !penlightColors) {
+  if (!penlightBtn || !otageiBtn) {
     debugLog('Action button elements not found', 'error');
     return;
   }
@@ -1949,6 +1797,9 @@ function setupActionButtons() {
       updatePenlightPosition();
       sendReaction('penlight', penlightColor);
       debugLog(`Penlight position: ${myPenlight.position.x.toFixed(2)}, ${myPenlight.position.y.toFixed(2)}, ${myPenlight.position.z.toFixed(2)}`, 'info');
+      
+      // 絵文字パネルを閉じる
+      hideEmojiPanel();
     } else {
       penlightBtn.style.background = '';
       penlightBtn.style.boxShadow = '';
@@ -1978,7 +1829,10 @@ function setupActionButtons() {
       longPressTriggered = false;
       penlightLongPressTimer = setTimeout(() => {
         longPressTriggered = true;
-        penlightColors.classList.remove('hidden');
+        if (penlightColors) {
+          penlightColors.classList.remove('hidden');
+          hideEmojiPanel();
+        }
         debugLog('Penlight color panel opened (touch)', 'info');
       }, 500);
     });
@@ -2010,7 +1864,10 @@ function setupActionButtons() {
       longPressTriggered = false;
       penlightLongPressTimer = setTimeout(() => {
         longPressTriggered = true;
-        penlightColors.classList.remove('hidden');
+        if (penlightColors) {
+          penlightColors.classList.remove('hidden');
+          hideEmojiPanel();
+        }
         debugLog('Penlight color panel opened (mouse)', 'info');
       }, 500);
     });
@@ -2033,32 +1890,34 @@ function setupActionButtons() {
     });
   }
 
-  document.querySelectorAll('.color-btn').forEach(btn => {
-    function selectColor(e) {
-      e.preventDefault();
-      e.stopPropagation();
+  if (penlightColors) {
+    document.querySelectorAll('.color-btn').forEach(btn => {
+      function selectColor(e) {
+        e.preventDefault();
+        e.stopPropagation();
 
-      if (!isContentAllowed()) return;
+        if (!isContentAllowed()) return;
 
-      penlightColor = btn.dataset.color;
-      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
+        penlightColor = btn.dataset.color;
+        document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
 
-      updatePenlightColor();
+        updatePenlightColor();
 
-      if (isPenlightActive) {
-        penlightBtn.style.background = penlightColor;
-        penlightBtn.style.boxShadow = `0 0 15px ${penlightColor}`;
-        sendReaction('penlight', penlightColor);
+        if (isPenlightActive) {
+          penlightBtn.style.background = penlightColor;
+          penlightBtn.style.boxShadow = `0 0 15px ${penlightColor}`;
+          sendReaction('penlight', penlightColor);
+        }
+
+        penlightColors.classList.add('hidden');
+        debugLog(`Penlight color changed to ${penlightColor}`, 'info');
       }
 
-      penlightColors.classList.add('hidden');
-      debugLog(`Penlight color changed to ${penlightColor}`, 'info');
-    }
-
-    if (isTouchDevice) btn.addEventListener('touchend', selectColor);
-    else btn.addEventListener('click', selectColor);
-  });
+      if (isTouchDevice) btn.addEventListener('touchend', selectColor);
+      else btn.addEventListener('click', selectColor);
+    });
+  }
 
   let otageiLastToggleTime = 0;
 

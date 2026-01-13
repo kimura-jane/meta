@@ -22,8 +22,10 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- 3D描画エリア -->
     <div id="canvas-container"></div>
     
+    <!-- UIオーバーレイ -->
     <div id="ui-overlay">
         <!-- 左上: ルーム情報 -->
         <div id="room-info">
@@ -42,10 +44,7 @@
             </div>
         </div>
 
-        <!-- 右上: 設定ボタン -->
-        <button id="settings-btn" class="settings-toggle-btn">⚙️</button>
-
-        <!-- 右上: スピーカーコントロール -->
+        <!-- 右上: スピーカーコントロール（登壇時のみ表示） -->
         <div id="speaker-controls" class="hidden">
             <button id="mic-toggle-btn">🎙️</button>
             <button id="leave-stage-btn">降壇する</button>
@@ -55,30 +54,16 @@
         <div id="chat-container">
             <!-- ピン留めコメント表示エリア -->
             <div id="pinned-comment" class="hidden"></div>
+            <!-- チャットメッセージ -->
             <div id="chat-messages"></div>
+            <!-- チャット入力フォーム -->
             <form id="chat-form">
-                <input type="text" id="chat-input" placeholder="メッセージを入力..." autocomplete="off">
+                <input type="text" id="chat-input" placeholder="メッセージ..." autocomplete="off">
                 <button type="submit" id="chat-submit">送信</button>
             </form>
         </div>
 
-        <!-- 中央下: ジョイスティック -->
-        <div id="joystick-container">
-            <div id="joystick-base">
-                <div id="joystick-stick"></div>
-            </div>
-        </div>
-
-        <!-- 左下: オタ芸ボタン -->
-        <button id="otagei-btn" class="action-btn">🙌</button>
-
-        <!-- 右下: ペンライトボタン -->
-        <button id="penlight-btn" class="action-btn">🔦</button>
-
-        <!-- 右: 絵文字ボタン -->
-        <button id="emoji-btn" class="action-btn">🎉</button>
-
-        <!-- ペンライト色選択 -->
+        <!-- ペンライト色選択パネル -->
         <div id="penlight-colors" class="hidden">
             <button class="color-btn" type="button" data-color="#ff0000" style="background:#ff0000"></button>
             <button class="color-btn" type="button" data-color="#ff00ff" style="background:#ff00ff"></button>
@@ -92,17 +77,30 @@
         <div id="emoji-panel" class="hidden"></div>
     </div>
 
+    <!-- コントロールエリア（ジョイスティック・ボタン） -->
+    <div id="controls-area">
+        <!-- 中央下: ジョイスティック -->
+        <div id="joystick-container">
+            <div id="joystick-base">
+                <div id="joystick-stick"></div>
+            </div>
+        </div>
+
+        <!-- オタ芸ボタン（ジョイスティック左） -->
+        <button id="otagei-btn" class="action-btn">🙌</button>
+
+        <!-- ペンライトボタン（ジョイスティック右） -->
+        <button id="penlight-btn" class="action-btn">🔦</button>
+
+        <!-- 絵文字ボタン（右下） -->
+        <button id="emoji-btn" class="action-btn">🎉</button>
+
+        <!-- 設定ボタン（右上） -->
+        <button id="settings-btn" class="action-btn">⚙️</button>
+    </div>
+
     <!-- 絵文字アニメーション用コンテナ -->
     <div id="emoji-animation-container"></div>
-
-    <!-- 音声再生許可オーバーレイ（タップで消える） -->
-    <div id="audio-unlock-overlay" onclick="this.classList.add('hidden')">
-        <div class="audio-unlock-content">
-            <div class="audio-unlock-icon">🎧</div>
-            <div class="audio-unlock-title">タップして視聴</div>
-            <div class="audio-unlock-subtitle">音声を再生するにはタップしてください</div>
-        </div>
-    </div>
 
     <!-- Three.js -->
     <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
@@ -110,6 +108,7 @@
     <!-- Agora Web SDK -->
     <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
     
+    <!-- メインスクリプト -->
     <script type="module" src="js/main.js"></script>
 </body>
 </html>

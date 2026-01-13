@@ -41,7 +41,6 @@ import {
 import {
   initSettings,
   getSettings,
-  showSettings,
   showNotification,
   updateSpeakRequests,
   updateCurrentSpeakers,
@@ -63,9 +62,7 @@ import {
 let scene, camera, renderer;
 let clock;
 
-// -----------------------------
-// ★ 秘密会議（認証状態）
-// -----------------------------
+// 秘密会議（認証状態）
 let secretMode = false;
 let isAuthed = false;
 let isHost = false;
@@ -74,19 +71,13 @@ function isContentAllowed() {
   return !secretMode || isAuthed;
 }
 
-// -----------------------------
-// ★ ピン留めコメント
-// -----------------------------
+// ピン留めコメント
 let currentPinnedComment = null;
 
-// -----------------------------
-// ★ チャットメッセージ履歴（ピン留め用・重複チェック用）
-// -----------------------------
+// チャットメッセージ履歴
 const chatMessageHistory = [];
 
-// -----------------------------
-// ★ 秘密会議ON/未認証時にクライアント状態を掃除
-// -----------------------------
+// 秘密会議ON/未認証時にクライアント状態を掃除
 function purgeSensitiveClientState(reason = '') {
   const hasScene = !!scene;
 
@@ -136,9 +127,7 @@ function purgeSensitiveClientState(reason = '') {
   if (reason) debugLog(`purgeSensitiveClientState: ${reason}`, 'warn');
 }
 
-// -----------------------------
-// ★ ネームタグ（DOMオーバーレイ）
-// -----------------------------
+// ネームタグ（DOMオーバーレイ）
 const nameTags = new Map();
 let nameTagLayer = null;
 
@@ -204,16 +193,12 @@ const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 
 // ペンライトアニメーション用
 let penlightTime = 0;
 
-// -----------------------------
-// ★ 自分のIDを取得
-// -----------------------------
+// 自分のIDを取得
 function getMyId() {
   return getMyConnectionId() || myLocalId;
 }
 
-// -----------------------------
-// ★ 秘密会議 UI（オーバーレイ）
-// -----------------------------
+// 秘密会議 UI（オーバーレイ）
 let authOverlay = null;
 let authOverlayMsg = null;
 let authOverlayInput = null;
@@ -510,9 +495,7 @@ function enableContentUI(enable) {
   if (emojiPanel) emojiPanel.style.pointerEvents = enable ? 'auto' : 'none';
 }
 
-// -----------------------------
-// ★ ネームタグ Layer
-// -----------------------------
+// ネームタグ Layer
 function ensureNameTagLayer() {
   if (nameTagLayer) return;
   nameTagLayer = document.createElement('div');
@@ -612,9 +595,7 @@ function updateNameTags() {
   });
 }
 
-// -----------------------------
-// ★ 絵文字投げ機能
-// -----------------------------
+// 絵文字投げ機能
 const EMOJI_CATEGORIES = {
   cheer: { name: '応援', emojis: ['🙌', '👏', '🔥', '✨', '🥇'] },
   heart: { name: 'ハート', emojis: ['🩷', '❤️', '❤️‍🔥'] },
@@ -771,9 +752,7 @@ function createFloatingEmoji(emoji) {
   setTimeout(() => el.remove(), 3500);
 }
 
-// -----------------------------
-// ★ ピン留め機能
-// -----------------------------
+// ピン留め機能
 function updatePinnedCommentUI(comment) {
   const container = document.getElementById('pinned-comment');
   
@@ -895,24 +874,6 @@ function refreshChatPinButtons() {
     });
     msgDiv.appendChild(pinBtn);
   });
-}
-
-// -----------------------------
-// ★ 設定ボタンのセットアップ
-// -----------------------------
-function setupSettingsButton() {
-  const settingsBtn = document.getElementById('settings-btn');
-  if (!settingsBtn) {
-    debugLog('Settings button not found', 'warn');
-    return;
-  }
-
-  settingsBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    showSettings();
-  });
-
-  debugLog('Settings button setup complete', 'success');
 }
 
 // 初期化
@@ -1047,7 +1008,6 @@ async function init() {
   setupJoystick();
   setupCameraSwipe();
   setupEmojiUI();
-  setupSettingsButton();
 
   window.addEventListener('resize', onWindowResize);
 

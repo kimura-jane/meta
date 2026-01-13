@@ -1,6 +1,6 @@
-/* style.css - タテアナ式生住居 完全版 */
+/* style.css - タテアナ式生住居 完全版（縄文土器スタイル） */
 
-@import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Zen+Antique&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Noto+Sans+JP:wght@400;700;900&display=swap');
 
 /* ========================================
    グローバルリセット
@@ -57,7 +57,7 @@ body {
 }
 
 /* ========================================
-   ルーム情報（左上）
+   ルーム情報（左上）- 縄文土器スタイル
 ======================================== */
 #room-info {
     position: fixed;
@@ -67,37 +67,68 @@ body {
 }
 
 #room-title {
-    font-family: 'Noto Sans JP', sans-serif;
-    font-size: 20px;
-    font-weight: 900;
-    color: #ff6b9d;
-    padding: 8px 14px;
-    background: rgba(0, 0, 0, 0.7);
-    border: 2px solid rgba(255, 107, 157, 0.5);
-    border-radius: 10px;
-    backdrop-filter: blur(10px);
+    font-family: 'Zen Antique', serif;
+    font-size: 32px;
+    font-weight: 400;
+    color: #e8d4b8;
+    padding: 16px 28px;
+    background: 
+        linear-gradient(135deg, rgba(89, 62, 42, 0.95), rgba(62, 43, 29, 0.95));
+    border: 3px solid #8b6914;
+    border-radius: 8px;
+    position: relative;
+    text-shadow: 
+        2px 2px 4px rgba(0, 0, 0, 0.5),
+        0 0 20px rgba(255, 147, 41, 0.3);
+    box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+    letter-spacing: 0.1em;
+}
+
+/* 縄文模様の装飾（上下のライン） */
+#room-title::before,
+#room-title::after {
+    content: '〰〰〰';
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: #a07830;
+    letter-spacing: 2px;
+    opacity: 0.7;
+}
+
+#room-title::before {
+    top: 4px;
+}
+
+#room-title::after {
+    bottom: 4px;
 }
 
 #room-stats {
     display: flex;
     gap: 8px;
-    margin-top: 8px;
+    margin-top: 10px;
     font-size: 11px;
 }
 
 .stat-item {
-    padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.6);
+    padding: 6px 10px;
+    background: rgba(89, 62, 42, 0.8);
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(139, 105, 20, 0.5);
+    color: #e8d4b8;
 }
 
 .stat-item:first-child {
-    color: #00ffff;
+    color: #98d9c2;
 }
 
 .stat-item:last-child {
-    color: #ff00ff;
+    color: #f0a860;
 }
 
 /* ========================================
@@ -151,11 +182,10 @@ body {
 
 /* ========================================
    デバッグUI（左上、ルーム情報の下）
-   ※JSで動的に生成される
 ======================================== */
 #debug-panel {
     position: fixed;
-    top: 100px;
+    top: 130px;
     left: 15px;
     z-index: 50;
 }
@@ -203,8 +233,8 @@ body {
 
 /* ピン留めコメント */
 #pinned-comment {
-    background: linear-gradient(135deg, rgba(255, 107, 157, 0.25), rgba(196, 69, 105, 0.25));
-    border: 2px solid rgba(255, 107, 157, 0.6);
+    background: linear-gradient(135deg, rgba(139, 105, 20, 0.3), rgba(89, 62, 42, 0.3));
+    border: 2px solid rgba(139, 105, 20, 0.6);
     border-radius: 10px;
     padding: 10px 12px;
     margin-bottom: 8px;
@@ -217,8 +247,8 @@ body {
 }
 
 @keyframes pinGlow {
-    0%, 100% { box-shadow: 0 0 8px rgba(255, 107, 157, 0.4); }
-    50% { box-shadow: 0 0 16px rgba(255, 107, 157, 0.7); }
+    0%, 100% { box-shadow: 0 0 8px rgba(139, 105, 20, 0.4); }
+    50% { box-shadow: 0 0 16px rgba(139, 105, 20, 0.7); }
 }
 
 #pinned-comment-content {
@@ -252,7 +282,7 @@ body {
 }
 
 #unpin-btn:hover {
-    background: rgba(255, 107, 157, 0.5);
+    background: rgba(139, 105, 20, 0.5);
 }
 
 /* チャットメッセージ */
@@ -288,7 +318,7 @@ body {
 }
 
 .chat-message .username {
-    color: #00ffff;
+    color: #f0a860;
     font-weight: 600;
     margin-right: 4px;
 }
@@ -306,11 +336,11 @@ body {
 }
 
 .chat-message .pin-btn:hover {
-    background: rgba(255, 107, 157, 0.4);
+    background: rgba(139, 105, 20, 0.4);
     color: white;
 }
 
-/* チャット入力フォーム（送信ボタン内包） */
+/* チャット入力フォーム */
 #chat-form {
     display: flex;
     align-items: center;
@@ -322,7 +352,7 @@ body {
 }
 
 #chat-form:focus-within {
-    border-color: rgba(255, 107, 157, 0.5);
+    border-color: rgba(139, 105, 20, 0.5);
 }
 
 #chat-input {
@@ -342,7 +372,7 @@ body {
 
 #chat-submit {
     padding: 8px 16px;
-    background: linear-gradient(135deg, #ff6b9d, #c44569);
+    background: linear-gradient(135deg, #a07830, #8b6914);
     border: none;
     border-radius: 20px;
     color: white;
@@ -354,7 +384,7 @@ body {
 }
 
 #chat-submit:hover {
-    box-shadow: 0 0 15px rgba(255, 107, 157, 0.5);
+    box-shadow: 0 0 15px rgba(139, 105, 20, 0.5);
 }
 
 #chat-submit:active {
@@ -392,8 +422,8 @@ body {
 #joystick-base {
     width: 100px;
     height: 100px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 2px solid rgba(255, 255, 255, 0.25);
+    background: rgba(89, 62, 42, 0.3);
+    border: 2px solid rgba(139, 105, 20, 0.4);
     border-radius: 50%;
     position: relative;
     backdrop-filter: blur(5px);
@@ -402,13 +432,13 @@ body {
 #joystick-stick {
     width: 42px;
     height: 42px;
-    background: linear-gradient(135deg, #ff6b9d, #c44569);
+    background: linear-gradient(135deg, #a07830, #8b6914);
     border-radius: 50%;
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 0 12px rgba(255, 107, 157, 0.5);
+    box-shadow: 0 0 12px rgba(139, 105, 20, 0.5);
     cursor: grab;
 }
 
@@ -417,7 +447,7 @@ body {
 }
 
 /* ========================================
-   アクションボタン（ジョイスティックの下に横一列）
+   アクションボタン
 ======================================== */
 #action-buttons {
     display: flex;
@@ -429,8 +459,8 @@ body {
     width: 52px;
     height: 52px;
     border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    background: rgba(0, 0, 0, 0.7);
+    border: 2px solid rgba(139, 105, 20, 0.4);
+    background: rgba(89, 62, 42, 0.7);
     color: white;
     font-size: 24px;
     cursor: pointer;
@@ -442,8 +472,8 @@ body {
 }
 
 .action-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(139, 105, 20, 0.4);
+    border-color: rgba(139, 105, 20, 0.6);
 }
 
 .action-btn:active {
@@ -451,9 +481,9 @@ body {
 }
 
 .action-btn.active {
-    background: linear-gradient(135deg, #ff6b9d, #c44569);
-    border-color: #ff6b9d;
-    box-shadow: 0 0 15px rgba(255, 107, 157, 0.5);
+    background: linear-gradient(135deg, #a07830, #8b6914);
+    border-color: #a07830;
+    box-shadow: 0 0 15px rgba(139, 105, 20, 0.5);
 }
 
 /* 設定ボタン（右上固定） */
@@ -474,9 +504,9 @@ body {
     display: flex;
     gap: 8px;
     padding: 10px 15px;
-    background: rgba(0, 0, 0, 0.85);
+    background: rgba(89, 62, 42, 0.9);
     border-radius: 30px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(139, 105, 20, 0.4);
     backdrop-filter: blur(10px);
     z-index: 600;
 }
@@ -512,9 +542,9 @@ body {
     bottom: 200px;
     right: 15px;
     width: 250px;
-    background: rgba(0, 0, 0, 0.9);
+    background: rgba(89, 62, 42, 0.95);
     border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(139, 105, 20, 0.4);
     backdrop-filter: blur(10px);
     overflow: hidden;
     z-index: 600;
@@ -528,7 +558,7 @@ body {
 #emoji-tabs,
 .emoji-tabs {
     display: flex;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(139, 105, 20, 0.3);
     overflow-x: auto;
 }
 
@@ -546,13 +576,13 @@ body {
 }
 
 .emoji-tab:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(139, 105, 20, 0.3);
 }
 
 .emoji-tab.active {
     color: white;
-    background: rgba(255, 107, 157, 0.3);
-    border-bottom: 2px solid #ff6b9d;
+    background: rgba(139, 105, 20, 0.5);
+    border-bottom: 2px solid #a07830;
 }
 
 /* 絵文字グリッド */
@@ -582,7 +612,7 @@ body {
 }
 
 .emoji-item:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(139, 105, 20, 0.3);
     transform: scale(1.1);
 }
 
@@ -640,10 +670,11 @@ body {
     left: 50%;
     transform: translateX(-50%) scale(0.9);
     z-index: 15000;
-    background: linear-gradient(135deg, rgba(255, 102, 255, 0.95), rgba(102, 51, 255, 0.95));
+    background: linear-gradient(135deg, rgba(160, 120, 48, 0.95), rgba(139, 105, 20, 0.95));
     border-radius: 20px;
+    border: 2px solid #a07830;
     padding: 20px 40px;
-    box-shadow: 0 8px 32px rgba(255, 102, 255, 0.4);
+    box-shadow: 0 8px 32px rgba(139, 105, 20, 0.4);
     cursor: pointer;
     opacity: 0;
     visibility: hidden;
@@ -656,15 +687,15 @@ body {
     visibility: visible;
     transform: translateX(-50%) scale(1);
     pointer-events: auto;
-    animation: pulse-glow 2s ease-in-out infinite;
+    animation: pulse-glow-jomon 2s ease-in-out infinite;
 }
 
-@keyframes pulse-glow {
+@keyframes pulse-glow-jomon {
     0%, 100% {
-        box-shadow: 0 8px 32px rgba(255, 102, 255, 0.4);
+        box-shadow: 0 8px 32px rgba(139, 105, 20, 0.4);
     }
     50% {
-        box-shadow: 0 8px 48px rgba(255, 102, 255, 0.7);
+        box-shadow: 0 8px 48px rgba(255, 147, 41, 0.6);
     }
 }
 
@@ -673,7 +704,7 @@ body {
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    color: white;
+    color: #e8d4b8;
     text-align: center;
 }
 
@@ -688,8 +719,10 @@ body {
 }
 
 .audio-unlock-title {
-    font-size: 18px;
-    font-weight: 800;
+    font-family: 'Zen Antique', serif;
+    font-size: 20px;
+    font-weight: 400;
+    letter-spacing: 0.1em;
 }
 
 .audio-unlock-text {
@@ -706,10 +739,10 @@ body {
     left: 50%;
     transform: translateX(-50%) translateY(-20px);
     padding: 10px 20px;
-    background: rgba(0, 0, 0, 0.9);
+    background: rgba(89, 62, 42, 0.95);
     border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
+    border: 1px solid rgba(139, 105, 20, 0.5);
+    color: #e8d4b8;
     font-size: 13px;
     z-index: 10000;
     opacity: 0;
@@ -724,19 +757,19 @@ body {
 }
 
 .notification.success {
-    border-color: #00ff88;
-    box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+    border-color: #98d9c2;
+    box-shadow: 0 0 15px rgba(152, 217, 194, 0.3);
 }
 
 .notification.error,
 .notification.warn {
-    border-color: #ff4757;
-    box-shadow: 0 0 15px rgba(255, 71, 87, 0.3);
+    border-color: #e07050;
+    box-shadow: 0 0 15px rgba(224, 112, 80, 0.3);
 }
 
 .notification.info {
-    border-color: #00ffff;
-    box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+    border-color: #a07830;
+    box-shadow: 0 0 15px rgba(139, 105, 20, 0.3);
 }
 
 /* ========================================
@@ -753,22 +786,22 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(89, 62, 42, 0.3);
     border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(139, 105, 20, 0.5);
     border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.5);
+    background: rgba(139, 105, 20, 0.7);
 }
 
 /* 選択 */
 ::selection {
-    background: rgba(255, 107, 157, 0.5);
+    background: rgba(139, 105, 20, 0.5);
     color: white;
 }
 
@@ -777,8 +810,21 @@ body {
 ======================================== */
 @media (max-width: 480px) {
     #room-title {
-        font-size: 16px;
-        padding: 6px 12px;
+        font-size: 22px;
+        padding: 12px 18px;
+    }
+    
+    #room-title::before,
+    #room-title::after {
+        font-size: 8px;
+    }
+    
+    #room-title::before {
+        top: 3px;
+    }
+    
+    #room-title::after {
+        bottom: 3px;
     }
     
     #room-stats {
@@ -787,7 +833,7 @@ body {
     }
     
     #speaker-controls {
-        top: 60px;
+        top: 80px;
         right: 10px;
         flex-direction: column;
         gap: 6px;
@@ -804,7 +850,7 @@ body {
     }
     
     #debug-panel {
-        top: 90px;
+        top: 110px;
     }
     
     #chat-container {
@@ -908,7 +954,7 @@ body {
     }
     
     .audio-unlock-title {
-        font-size: 15px;
+        font-size: 16px;
     }
     
     .audio-unlock-text {
@@ -919,8 +965,8 @@ body {
 /* タブレット */
 @media (min-width: 481px) and (max-width: 768px) {
     #room-title {
-        font-size: 18px;
-        padding: 7px 13px;
+        font-size: 26px;
+        padding: 14px 22px;
     }
     
     #chat-container {
@@ -971,8 +1017,13 @@ body {
     }
     
     #room-title {
-        font-size: 14px;
-        padding: 4px 10px;
+        font-size: 18px;
+        padding: 8px 14px;
+    }
+    
+    #room-title::before,
+    #room-title::after {
+        display: none;
     }
     
     #room-stats {
@@ -1088,7 +1139,7 @@ body {
     }
     
     .audio-unlock-title {
-        font-size: 13px;
+        font-size: 14px;
     }
     
     .audio-unlock-text {

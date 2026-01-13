@@ -151,9 +151,9 @@ body {
     position: fixed;
     bottom: 15px;
     left: 15px;
-    width: 35%;
-    max-width: 220px;
-    min-width: 160px;
+    width: 45%;
+    max-width: 320px;
+    min-width: 200px;
     z-index: 100;
 }
 
@@ -266,23 +266,29 @@ body {
     color: white;
 }
 
-/* チャット入力フォーム */
+/* チャット入力フォーム（送信ボタン内包） */
 #chat-form {
     display: flex;
-    gap: 6px;
     align-items: center;
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 25px;
+    backdrop-filter: blur(10px);
+    padding: 4px 4px 4px 15px;
+}
+
+#chat-form:focus-within {
+    border-color: rgba(255, 107, 157, 0.5);
 }
 
 #chat-input {
     flex: 1;
-    padding: 10px 12px;
-    background: rgba(0, 0, 0, 0.65);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 20px;
+    padding: 8px 0;
+    background: transparent;
+    border: none;
     color: white;
     font-size: 13px;
     outline: none;
-    backdrop-filter: blur(10px);
     min-width: 0;
 }
 
@@ -290,12 +296,8 @@ body {
     color: rgba(255, 255, 255, 0.4);
 }
 
-#chat-input:focus {
-    border-color: rgba(255, 107, 157, 0.5);
-}
-
 #chat-submit {
-    padding: 10px 14px;
+    padding: 8px 16px;
     background: linear-gradient(135deg, #ff6b9d, #c44569);
     border: none;
     border-radius: 20px;
@@ -305,7 +307,6 @@ body {
     cursor: pointer;
     transition: all 0.3s ease;
     flex-shrink: 0;
-    min-width: 50px;
 }
 
 #chat-submit:hover {
@@ -317,16 +318,20 @@ body {
 }
 
 /* ========================================
-   コントロールエリア（下部ボタン群）
+   コントロールエリア（右下）
 ======================================== */
 #controls-area {
     position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 180px;
+    bottom: 15px;
+    right: 15px;
+    width: 45%;
+    max-width: 200px;
     pointer-events: none;
     z-index: 500;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
 }
 
 #controls-area > * {
@@ -334,13 +339,9 @@ body {
 }
 
 /* ========================================
-   ジョイスティック（中央右寄り）
+   ジョイスティック
 ======================================== */
 #joystick-container {
-    position: absolute;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(20%);
     touch-action: none;
 }
 
@@ -372,10 +373,15 @@ body {
 }
 
 /* ========================================
-   アクションボタン共通
+   アクションボタン（ジョイスティックの下に横一列）
 ======================================== */
+#action-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
 .action-btn {
-    position: absolute;
     width: 52px;
     height: 52px;
     border-radius: 50%;
@@ -406,33 +412,11 @@ body {
     box-shadow: 0 0 15px rgba(255, 107, 157, 0.5);
 }
 
-/* オタ芸ボタン（ジョイスティック左） */
-#otagei-btn {
-    bottom: 45px;
-    left: 50%;
-    transform: translateX(-100px);
-}
-
-/* ペンライトボタン（ジョイスティック右横） */
-#penlight-btn {
-    bottom: 45px;
-    left: 50%;
-    transform: translateX(150px);
-}
-
-/* 絵文字ボタン（右端） */
-#emoji-btn {
-    bottom: 45px;
-    right: 20px;
-}
-
 /* 設定ボタン（右上固定） */
 #settings-btn {
     position: fixed;
     top: 15px;
     right: 15px;
-    bottom: auto;
-    left: auto;
     z-index: 1000;
 }
 
@@ -441,9 +425,8 @@ body {
 ======================================== */
 #penlight-colors {
     position: fixed;
-    bottom: 120px;
-    left: 50%;
-    transform: translateX(-50%);
+    bottom: 200px;
+    right: 15px;
     display: flex;
     gap: 8px;
     padding: 10px 15px;
@@ -482,8 +465,8 @@ body {
 ======================================== */
 #emoji-panel {
     position: fixed;
-    bottom: 110px;
-    right: 20px;
+    bottom: 200px;
+    right: 15px;
     width: 250px;
     background: rgba(0, 0, 0, 0.9);
     border-radius: 14px;
@@ -647,11 +630,11 @@ body {
 }
 
 /* ========================================
-   デバッグUI
+   デバッグUI（左下、チャットの上）
 ======================================== */
 #debug-panel {
     position: fixed;
-    bottom: 140px;
+    bottom: 220px;
     left: 15px;
     z-index: 50;
 }
@@ -732,9 +715,9 @@ body {
     }
     
     #chat-container {
-        width: 32%;
-        max-width: 160px;
-        min-width: 130px;
+        width: 50%;
+        max-width: 200px;
+        min-width: 150px;
     }
     
     #chat-messages {
@@ -747,18 +730,19 @@ body {
     }
     
     #chat-input {
-        padding: 8px 10px;
+        padding: 6px 0;
         font-size: 12px;
     }
     
     #chat-submit {
-        padding: 8px 10px;
+        padding: 6px 12px;
         font-size: 11px;
-        min-width: 40px;
     }
     
-    #joystick-container {
-        transform: translateX(30%);
+    #controls-area {
+        width: 40%;
+        max-width: 160px;
+        gap: 10px;
     }
     
     #joystick-base {
@@ -771,22 +755,14 @@ body {
         height: 36px;
     }
     
+    #action-buttons {
+        gap: 8px;
+    }
+    
     .action-btn {
-        width: 46px;
-        height: 46px;
+        width: 44px;
+        height: 44px;
         font-size: 20px;
-    }
-    
-    #otagei-btn {
-        transform: translateX(-90px);
-    }
-    
-    #penlight-btn {
-        transform: translateX(140px);
-    }
-    
-    #emoji-btn {
-        right: 15px;
     }
     
     #settings-btn {
@@ -796,7 +772,8 @@ body {
     }
     
     #penlight-colors {
-        bottom: 100px;
+        bottom: 180px;
+        right: 10px;
     }
     
     .color-btn {
@@ -805,9 +782,9 @@ body {
     }
     
     #emoji-panel {
-        width: 220px;
-        right: 15px;
-        bottom: 100px;
+        width: 200px;
+        right: 10px;
+        bottom: 180px;
     }
     
     .emoji-item {
@@ -827,21 +804,26 @@ body {
     .floating-emoji {
         font-size: 40px;
     }
+    
+    #debug-panel {
+        bottom: 200px;
+    }
 }
 
 /* タブレット */
 @media (min-width: 481px) and (max-width: 768px) {
     #chat-container {
-        width: 35%;
-        max-width: 200px;
+        width: 45%;
+        max-width: 280px;
     }
     
     #chat-messages {
         max-height: 140px;
     }
     
-    #joystick-container {
-        transform: translateX(25%);
+    #controls-area {
+        width: 42%;
+        max-width: 180px;
     }
     
     #joystick-base {
@@ -855,22 +837,18 @@ body {
     }
     
     .action-btn {
-        width: 50px;
-        height: 50px;
+        width: 48px;
+        height: 48px;
         font-size: 22px;
     }
     
-    #otagei-btn {
-        transform: translateX(-95px);
-    }
-    
-    #penlight-btn {
-        transform: translateX(145px);
-    }
-    
     #emoji-panel {
-        width: 240px;
-        bottom: 105px;
+        width: 230px;
+        bottom: 190px;
+    }
+    
+    #debug-panel {
+        bottom: 210px;
     }
 }
 
@@ -893,21 +871,32 @@ body {
     #chat-container {
         bottom: 8px;
         left: 8px;
-        width: 28%;
-        max-width: 140px;
+        width: 40%;
+        max-width: 180px;
     }
     
     #chat-messages {
-        max-height: 70px;
+        max-height: 60px;
+    }
+    
+    #chat-form {
+        padding: 3px 3px 3px 10px;
+    }
+    
+    #chat-input {
+        padding: 5px 0;
+        font-size: 11px;
+    }
+    
+    #chat-submit {
+        padding: 5px 10px;
+        font-size: 10px;
     }
     
     #controls-area {
-        height: 120px;
-    }
-    
-    #joystick-container {
-        bottom: 10px;
-        transform: translateX(30%);
+        bottom: 8px;
+        right: 8px;
+        gap: 8px;
     }
     
     #joystick-base {
@@ -920,41 +909,30 @@ body {
         height: 30px;
     }
     
+    #action-buttons {
+        gap: 6px;
+    }
+    
     .action-btn {
-        width: 40px;
-        height: 40px;
-        font-size: 18px;
-    }
-    
-    #otagei-btn {
-        bottom: 25px;
-        transform: translateX(-75px);
-    }
-    
-    #penlight-btn {
-        bottom: 25px;
-        transform: translateX(115px);
-    }
-    
-    #emoji-btn {
-        bottom: 25px;
-        right: 15px;
-    }
-    
-    #settings-btn {
         width: 38px;
         height: 38px;
         font-size: 16px;
     }
     
+    #settings-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+    }
+    
     #emoji-panel {
-        bottom: 70px;
-        width: 180px;
-        max-height: 150px;
+        bottom: 130px;
+        width: 160px;
+        max-height: 140px;
     }
     
     #emoji-grid {
-        max-height: 80px;
+        max-height: 70px;
     }
     
     #pinned-comment {
@@ -962,10 +940,14 @@ body {
     }
     
     #penlight-colors {
-        bottom: 70px;
+        bottom: 130px;
     }
     
     .floating-emoji {
         font-size: 32px;
+    }
+    
+    #debug-panel {
+        bottom: 130px;
     }
 }

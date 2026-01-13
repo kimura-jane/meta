@@ -145,6 +145,44 @@ body {
 }
 
 /* ========================================
+   デバッグUI（左上、ルーム情報の下）
+======================================== */
+#debug-panel {
+    position: fixed;
+    top: 100px;
+    left: 15px;
+    z-index: 50;
+}
+
+#debug-toggle {
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    padding: 4px 8px;
+    font-size: 10px;
+    cursor: pointer;
+}
+
+#debug-log {
+    display: none;
+    margin-top: 5px;
+    background: rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 8px;
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 9px;
+    font-family: monospace;
+    width: 220px;
+}
+
+#debug-log.show {
+    display: block;
+}
+
+/* ========================================
    チャットエリア（左下）
 ======================================== */
 #chat-container {
@@ -630,44 +668,6 @@ body {
 }
 
 /* ========================================
-   デバッグUI（左下、チャットの上）
-======================================== */
-#debug-panel {
-    position: fixed;
-    bottom: 220px;
-    left: 15px;
-    z-index: 50;
-}
-
-#debug-toggle {
-    background: rgba(0, 0, 0, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    color: white;
-    padding: 4px 8px;
-    font-size: 10px;
-    cursor: pointer;
-}
-
-#debug-log {
-    display: none;
-    margin-top: 5px;
-    background: rgba(0, 0, 0, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    padding: 8px;
-    max-height: 120px;
-    overflow-y: auto;
-    font-size: 9px;
-    font-family: monospace;
-    width: 220px;
-}
-
-#debug-log.show {
-    display: block;
-}
-
-/* ========================================
    ユーティリティ
 ======================================== */
 .hidden {
@@ -712,6 +712,10 @@ body {
     #room-stats {
         font-size: 10px;
         gap: 5px;
+    }
+    
+    #debug-panel {
+        top: 90px;
     }
     
     #chat-container {
@@ -804,10 +808,6 @@ body {
     .floating-emoji {
         font-size: 40px;
     }
-    
-    #debug-panel {
-        bottom: 200px;
-    }
 }
 
 /* タブレット */
@@ -846,10 +846,6 @@ body {
         width: 230px;
         bottom: 190px;
     }
-    
-    #debug-panel {
-        bottom: 210px;
-    }
 }
 
 /* 横向きスマホ対応 */
@@ -866,6 +862,11 @@ body {
     
     #room-stats {
         display: none;
+    }
+    
+    #debug-panel {
+        top: 45px;
+        left: 8px;
     }
     
     #chat-container {
@@ -945,9 +946,5 @@ body {
     
     .floating-emoji {
         font-size: 32px;
-    }
-    
-    #debug-panel {
-        bottom: 130px;
     }
 }

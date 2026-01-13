@@ -719,15 +719,16 @@ function throwEmoji(emoji) {
     return;
   }
 
+  // 自分の画面にアニメーション表示
   showEmojiAnimation(emoji);
 
+  // サーバーに送信
   try {
     sendEmojiThrow(emoji);
+    debugLog(`Emoji thrown: ${emoji}`, 'info');
   } catch (e) {
     debugLog(`Emoji send error: ${e}`, 'warn');
   }
-
-  debugLog(`Emoji thrown: ${emoji}`, 'info');
 }
 
 function showEmojiAnimation(emoji) {
@@ -747,6 +748,7 @@ function createFloatingEmoji(emoji) {
   el.className = 'floating-emoji';
   el.textContent = emoji;
   el.style.left = `${10 + Math.random() * 80}%`;
+  el.style.bottom = '0';
   container.appendChild(el);
 
   setTimeout(() => el.remove(), 3500);
@@ -763,7 +765,7 @@ function updatePinnedCommentUI(comment) {
     container.innerHTML = `
       <div id="pinned-comment-content">
         <div id="pinned-comment-text">
-          <span style="color: #ff99cc; font-weight: bold;">📌 ${escapeHtml(comment.userName || 'ゲスト')}</span>: ${escapeHtml(comment.message)}
+          <span style="color: #ff99cc; font-weight: bold;">📌 ${escapeHtml(comment.userName || comment.senderName || 'ゲスト')}</span>: ${escapeHtml(comment.message)}
         </div>
         ${isHost ? '<button id="unpin-btn">×</button>' : ''}
       </div>
@@ -774,7 +776,7 @@ function updatePinnedCommentUI(comment) {
       unpinBtn.addEventListener('click', () => {
         if (currentPinnedComment) {
           try {
-            unpinComment(currentPinnedComment.odUserId, currentPinnedComment.odMsgId);
+            unpinComment();
           } catch (e) {
             debugLog(`Unpin error: ${e}`, 'warn');
           }
@@ -827,7 +829,7 @@ function addChatMessageWithPin(userName, message, odUserId, odMsgId, isMyMessage
     pinBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       try {
-        pinComment(odUserId, odMsgId, userName, message);
+        pinComment(odUserId, userName, message);
         showNotification('コメントをピン留めしました', 'success');
       } catch (err) {
         debugLog(`Pin error: ${err}`, 'warn');
@@ -866,7 +868,7 @@ function refreshChatPinButtons() {
     pinBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       try {
-        pinComment(odUserId, odMsgId, msgData.userName, msgData.message);
+        pinComment(odUserId, msgData.userName, msgData.message);
         showNotification('コメントをピン留めしました', 'success');
       } catch (err) {
         debugLog(`Pin error: ${err}`, 'warn');
@@ -1204,12 +1206,13 @@ function setupConnection() {
       addChatMessageWithPin(userName, message, odUserId, msgId, isMyMessage);
     },
 
-    onEmojiThrow: (odUserId, emoji) => {
+    onEmojiThrow: (emoji, senderId, senderName) => {
       if (!isContentAllowed()) return;
 
-      debugLog(`[Callback] Emoji throw from ${odUserId}: ${emoji}`, 'info');
+      debugLog(`[Callback] Emoji throw: ${emoji} from ${senderId}`, 'info');
       const myId = getMyId();
-      if (odUserId !== myId) {
+      // 自分以外から来た絵文字のみ表示
+      if (senderId !== myId) {
         showEmojiAnimation(emoji);
       }
     },

@@ -46,7 +46,7 @@
 
         <!-- 右上: スピーカーコントロール（登壇時のみ表示） -->
         <div id="speaker-controls" class="hidden">
-            <button id="mic-toggle-btn">🎙️</button>
+            <button id="mic-toggle-btn">🎙️ マイク ON</button>
             <button id="leave-stage-btn">降壇する</button>
         </div>
 
@@ -80,13 +80,7 @@
 
         <!-- 絵文字選択パネル -->
         <div id="emoji-panel" class="hidden">
-            <div id="emoji-tabs" class="emoji-tabs">
-                <button class="emoji-tab active" data-category="face">😀</button>
-                <button class="emoji-tab" data-category="gesture">👋</button>
-                <button class="emoji-tab" data-category="heart">❤️</button>
-                <button class="emoji-tab" data-category="celebration">🎉</button>
-                <button class="emoji-tab" data-category="music">🎵</button>
-            </div>
+            <div id="emoji-tabs" class="emoji-tabs"></div>
             <div id="emoji-grid" class="emoji-grid"></div>
         </div>
     </div>
@@ -110,6 +104,15 @@
 
     <!-- 絵文字アニメーション用コンテナ -->
     <div id="emoji-animation-container"></div>
+
+    <!-- 音声視聴オーバーレイ -->
+    <div id="audio-unlock-overlay">
+        <div class="audio-unlock-content">
+            <div class="audio-unlock-icon">🎙️</div>
+            <div class="audio-unlock-title">配信中</div>
+            <div class="audio-unlock-text">タップして視聴</div>
+        </div>
+    </div>
 
     <!-- Three.js -->
     <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>

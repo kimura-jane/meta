@@ -151,9 +151,9 @@ body {
     position: fixed;
     bottom: 15px;
     left: 15px;
-    width: 45%;
-    max-width: 280px;
-    min-width: 200px;
+    width: 38%;
+    max-width: 240px;
+    min-width: 180px;
     z-index: 100;
 }
 
@@ -334,13 +334,12 @@ body {
 }
 
 /* ========================================
-   ジョイスティック（中央下）
+   ジョイスティック（右寄り配置）
 ======================================== */
 #joystick-container {
     position: absolute;
     bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
+    right: 30%;
     touch-action: none;
 }
 
@@ -409,13 +408,13 @@ body {
 /* オタ芸ボタン（ジョイスティック左） */
 #otagei-btn {
     bottom: 40px;
-    left: calc(50% - 90px);
+    right: calc(30% + 70px);
 }
 
 /* ペンライトボタン（ジョイスティック右） */
 #penlight-btn {
     bottom: 40px;
-    right: calc(50% - 90px);
+    right: calc(30% - 120px);
 }
 
 /* 絵文字ボタン（右下） */
@@ -440,8 +439,8 @@ body {
 #penlight-colors {
     position: fixed;
     bottom: 110px;
-    left: 50%;
-    transform: translateX(-50%);
+    right: 30%;
+    transform: translateX(50%);
     display: flex;
     gap: 8px;
     padding: 10px 15px;
@@ -513,6 +512,7 @@ body {
     font-size: 14px;
     cursor: pointer;
     transition: all 0.2s ease;
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Android Emoji", sans-serif;
 }
 
 .emoji-tab:hover {
@@ -548,6 +548,7 @@ body {
     border: none;
     cursor: pointer;
     transition: all 0.2s ease;
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Android Emoji", sans-serif;
 }
 
 .emoji-item:hover {
@@ -576,19 +577,25 @@ body {
 .flying-emoji,
 .floating-emoji {
     position: absolute;
-    font-size: 40px;
+    bottom: 0;
+    font-size: 48px;
     pointer-events: none;
-    animation: floatUp 2.5s ease-out forwards;
+    animation: floatUp 3s ease-out forwards;
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Android Emoji", sans-serif;
+    line-height: 1;
 }
 
 @keyframes floatUp {
     0% {
         opacity: 1;
-        transform: translateY(0) scale(1);
+        transform: translateY(0) scale(1) rotate(0deg);
+    }
+    50% {
+        opacity: 1;
     }
     100% {
         opacity: 0;
-        transform: translateY(-400px) scale(0.5);
+        transform: translateY(-100vh) scale(0.6) rotate(15deg);
     }
 }
 
@@ -720,9 +727,9 @@ body {
     }
     
     #chat-container {
-        width: 42%;
-        max-width: 200px;
-        min-width: 150px;
+        width: 35%;
+        max-width: 180px;
+        min-width: 140px;
     }
     
     #chat-messages {
@@ -745,6 +752,10 @@ body {
         min-width: 40px;
     }
     
+    #joystick-container {
+        right: 25%;
+    }
+    
     #joystick-base {
         width: 85px;
         height: 85px;
@@ -762,11 +773,11 @@ body {
     }
     
     #otagei-btn {
-        left: calc(50% - 75px);
+        right: calc(25% + 60px);
     }
     
     #penlight-btn {
-        right: calc(50% - 75px);
+        right: calc(25% - 105px);
     }
     
     #emoji-btn {
@@ -781,6 +792,7 @@ body {
     
     #penlight-colors {
         bottom: 100px;
+        right: 25%;
     }
     
     .color-btn {
@@ -807,17 +819,25 @@ body {
     #pinned-comment-text {
         font-size: 11px;
     }
+    
+    .floating-emoji {
+        font-size: 40px;
+    }
 }
 
 /* タブレット */
 @media (min-width: 481px) and (max-width: 768px) {
     #chat-container {
-        width: 50%;
-        max-width: 260px;
+        width: 40%;
+        max-width: 220px;
     }
     
     #chat-messages {
         max-height: 140px;
+    }
+    
+    #joystick-container {
+        right: 28%;
     }
     
     #joystick-base {
@@ -837,16 +857,20 @@ body {
     }
     
     #otagei-btn {
-        left: calc(50% - 85px);
+        right: calc(28% + 65px);
     }
     
     #penlight-btn {
-        right: calc(50% - 85px);
+        right: calc(28% - 115px);
     }
     
     #emoji-panel {
         width: 240px;
         bottom: 105px;
+    }
+    
+    #penlight-colors {
+        right: 28%;
     }
 }
 
@@ -869,8 +893,8 @@ body {
     #chat-container {
         bottom: 8px;
         left: 8px;
-        width: 35%;
-        max-width: 180px;
+        width: 30%;
+        max-width: 160px;
     }
     
     #chat-messages {
@@ -883,6 +907,7 @@ body {
     
     #joystick-container {
         bottom: 10px;
+        right: 30%;
     }
     
     #joystick-base {
@@ -903,12 +928,12 @@ body {
     
     #otagei-btn {
         bottom: 20px;
-        left: calc(50% - 65px);
+        right: calc(30% + 50px);
     }
     
     #penlight-btn {
         bottom: 20px;
-        right: calc(50% - 65px);
+        right: calc(30% - 90px);
     }
     
     #emoji-btn {
@@ -938,5 +963,10 @@ body {
     
     #penlight-colors {
         bottom: 70px;
+        right: 30%;
+    }
+    
+    .floating-emoji {
+        font-size: 32px;
     }
 }

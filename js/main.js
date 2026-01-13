@@ -41,6 +41,7 @@ import {
 import {
   initSettings,
   getSettings,
+  showSettings,
   showNotification,
   updateSpeakRequests,
   updateCurrentSpeakers,
@@ -90,10 +91,7 @@ function purgeSensitiveClientState(reason = '') {
   const hasScene = !!scene;
 
   remoteAvatars.forEach((userData, odUserId) => {
-    try {
-      stopRemoteOtagei(odUserId);
-    } catch (_) {}
-
+    try { stopRemoteOtagei(odUserId); } catch (_) {}
     if (hasScene) {
       try { if (userData?.avatar) scene.remove(userData.avatar); } catch (_) {}
       try { if (userData?.penlight) scene.remove(userData.penlight); } catch (_) {}
@@ -630,7 +628,6 @@ let currentEmojiCategory = 'cheer';
 let emojiPanelVisible = false;
 
 function setupEmojiUI() {
-  // 既存のパネルがあれば使用、なければ作成
   let panel = document.getElementById('emoji-panel');
   
   if (!panel) {
@@ -640,10 +637,8 @@ function setupEmojiUI() {
     document.body.appendChild(panel);
   }
 
-  // パネルの中身を構築
   panel.innerHTML = '';
 
-  // カテゴリタブ
   const tabContainer = document.createElement('div');
   tabContainer.id = 'emoji-tabs';
   tabContainer.className = 'emoji-tabs';
@@ -652,14 +647,13 @@ function setupEmojiUI() {
     const category = EMOJI_CATEGORIES[categoryKey];
     const tab = document.createElement('button');
     tab.className = `emoji-tab ${categoryKey === currentEmojiCategory ? 'active' : ''}`;
-    tab.textContent = category.emojis[0]; // カテゴリの最初の絵文字をアイコンに
+    tab.textContent = category.emojis[0];
     tab.dataset.category = categoryKey;
     tab.title = category.name;
     tab.addEventListener('click', (e) => {
       e.stopPropagation();
       currentEmojiCategory = categoryKey;
       updateEmojiGrid();
-      // タブのアクティブ状態を更新
       tabContainer.querySelectorAll('.emoji-tab').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.category === categoryKey);
       });
@@ -667,7 +661,6 @@ function setupEmojiUI() {
     tabContainer.appendChild(tab);
   });
 
-  // 絵文字グリッド
   const emojiGrid = document.createElement('div');
   emojiGrid.id = 'emoji-grid';
   emojiGrid.className = 'emoji-grid';
@@ -675,13 +668,10 @@ function setupEmojiUI() {
   panel.appendChild(tabContainer);
   panel.appendChild(emojiGrid);
 
-  // 絵文字グリッドを更新
   updateEmojiGrid();
 
-  // 絵文字ボタンのイベント設定
   const emojiBtn = document.getElementById('emoji-btn');
   if (emojiBtn) {
-    // 既存のイベントをクリア
     const newEmojiBtn = emojiBtn.cloneNode(true);
     emojiBtn.parentNode.replaceChild(newEmojiBtn, emojiBtn);
     
@@ -691,7 +681,6 @@ function setupEmojiUI() {
     });
   }
 
-  // パネル外クリックで閉じる
   document.addEventListener('click', (e) => {
     const panel = document.getElementById('emoji-panel');
     const emojiBtn = document.getElementById('emoji-btn');
@@ -729,7 +718,6 @@ function toggleEmojiPanel() {
     panel.classList.toggle('hidden', !emojiPanelVisible);
   }
   
-  // ペンライト色パネルを閉じる
   if (emojiPanelVisible) {
     const penlightColors = document.getElementById('penlight-colors');
     if (penlightColors) penlightColors.classList.add('hidden');
@@ -750,10 +738,8 @@ function throwEmoji(emoji) {
     return;
   }
 
-  // 自分の画面にアニメーション表示
   showEmojiAnimation(emoji);
 
-  // サーバーに送信
   try {
     sendEmojiThrow(emoji);
   } catch (e) {
@@ -780,15 +766,9 @@ function createFloatingEmoji(emoji) {
   el.className = 'floating-emoji';
   el.textContent = emoji;
   el.style.left = `${10 + Math.random() * 80}%`;
-  el.style.bottom = '-60px';
-  el.style.fontSize = `${40 + Math.random() * 30}px`;
-  el.style.animationDuration = `${2 + Math.random() * 1.5}s`;
-
   container.appendChild(el);
 
-  setTimeout(() => {
-    el.remove();
-  }, 3500);
+  setTimeout(() => el.remove(), 3500);
 }
 
 // -----------------------------
@@ -834,12 +814,10 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// チャットメッセージにピン留めボタンを追加
 function addChatMessageWithPin(userName, message, odUserId, odMsgId, isMyMessage = false) {
   const chatMessages = document.getElementById('chat-messages');
   if (!chatMessages) return;
 
-  // 重複チェック
   const existingMsg = chatMessageHistory.find(m => m.odMsgId === odMsgId);
   if (existingMsg) {
     debugLog(`[Chat] Duplicate message skipped: ${odMsgId}`, 'warn');
@@ -863,7 +841,6 @@ function addChatMessageWithPin(userName, message, odUserId, odMsgId, isMyMessage
 
   messageDiv.appendChild(textContainer);
 
-  // 主催者の場合のみピン留めボタンを表示
   if (isHost) {
     const pinBtn = document.createElement('button');
     pinBtn.className = 'pin-btn';
@@ -883,14 +860,12 @@ function addChatMessageWithPin(userName, message, odUserId, odMsgId, isMyMessage
   chatMessages.appendChild(messageDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 
-  // 履歴に保存
   chatMessageHistory.push({ odUserId, odMsgId, userName, message });
   if (chatMessageHistory.length > 100) {
     chatMessageHistory.shift();
   }
 }
 
-// 主催者ログイン後にチャットのピン留めボタンを再描画
 function refreshChatPinButtons() {
   const chatMessages = document.getElementById('chat-messages');
   if (!chatMessages || !isHost) return;
@@ -920,6 +895,24 @@ function refreshChatPinButtons() {
     });
     msgDiv.appendChild(pinBtn);
   });
+}
+
+// -----------------------------
+// ★ 設定ボタンのセットアップ
+// -----------------------------
+function setupSettingsButton() {
+  const settingsBtn = document.getElementById('settings-btn');
+  if (!settingsBtn) {
+    debugLog('Settings button not found', 'warn');
+    return;
+  }
+
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showSettings();
+  });
+
+  debugLog('Settings button setup complete', 'success');
 }
 
 // 初期化
@@ -1054,6 +1047,7 @@ async function init() {
   setupJoystick();
   setupCameraSwipe();
   setupEmojiUI();
+  setupSettingsButton();
 
   window.addEventListener('resize', onWindowResize);
 
@@ -1716,7 +1710,7 @@ function updateSpeakerCount(count) {
   if (el) el.textContent = count;
 }
 
-// チャットUIセットアップ（二重送信修正版）
+// チャットUIセットアップ
 function setupChatUI() {
   const form = document.getElementById('chat-form');
   const input = document.getElementById('chat-input');
@@ -1726,21 +1720,18 @@ function setupChatUI() {
     return;
   }
 
-  // 既存のイベントリスナーを削除（二重登録防止）
   const newForm = form.cloneNode(true);
   form.parentNode.replaceChild(newForm, form);
   
   const newInput = newForm.querySelector('#chat-input');
   const newSubmit = newForm.querySelector('#chat-submit');
 
-  // フォームのsubmitイベント
   newForm.addEventListener('submit', (e) => {
     e.preventDefault();
     e.stopPropagation();
     submitChat(newInput);
   });
 
-  // 送信ボタンのクリックイベント
   if (newSubmit) {
     newSubmit.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1752,7 +1743,7 @@ function setupChatUI() {
   debugLog('Chat UI setup complete', 'success');
 }
 
-// チャット送信処理（共通化）
+// チャット送信処理
 function submitChat(input) {
   if (!isContentAllowed()) {
     showNotification('入室パスワードが必要です', 'warn');
@@ -1762,7 +1753,6 @@ function submitChat(input) {
   const message = input.value.trim();
   if (!message) return;
 
-  // サーバーに送信（サーバーからのonChatコールバックで表示される）
   sendChat(message);
   input.value = '';
 }
@@ -1798,7 +1788,6 @@ function setupActionButtons() {
       sendReaction('penlight', penlightColor);
       debugLog(`Penlight position: ${myPenlight.position.x.toFixed(2)}, ${myPenlight.position.y.toFixed(2)}, ${myPenlight.position.z.toFixed(2)}`, 'info');
       
-      // 絵文字パネルを閉じる
       hideEmojiPanel();
     } else {
       penlightBtn.style.background = '';

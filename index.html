@@ -53,6 +53,12 @@
             <button id="leave-stage-btn">降壇する</button>
         </div>
 
+        <!-- 左下: デバッグパネル -->
+        <div id="debug-panel">
+            <button id="debug-toggle">🔧 Debug</button>
+            <div id="debug-log"></div>
+        </div>
+
         <!-- 左下: チャットエリア -->
         <div id="chat-container">
             <!-- ピン留めコメント表示エリア -->
@@ -69,12 +75,6 @@
                 <input type="text" id="chat-input" placeholder="メッセージ..." autocomplete="off">
                 <button type="submit" id="chat-submit">送信</button>
             </form>
-        </div>
-
-        <!-- デバッグパネル（左下、チャットの上） -->
-        <div id="debug-panel">
-            <button id="debug-toggle">🔧 Debug</button>
-            <div id="debug-log"></div>
         </div>
 
         <!-- ペンライト色選択パネル -->

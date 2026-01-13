@@ -105,7 +105,7 @@ body {
 ======================================== */
 #speaker-controls {
     position: fixed;
-    top: 80px;
+    top: 15px;
     right: 15px;
     display: flex;
     gap: 8px;
@@ -118,19 +118,20 @@ body {
 }
 
 #mic-toggle-btn {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #00ff88, #00cc6a);
+    padding: 10px 16px;
+    border-radius: 25px;
+    background: linear-gradient(135deg, #4CAF50, #8BC34A);
     border: none;
     color: white;
-    font-size: 18px;
+    font-size: 13px;
+    font-weight: bold;
     cursor: pointer;
     transition: all 0.3s ease;
+    white-space: nowrap;
 }
 
 #mic-toggle-btn.muted {
-    background: linear-gradient(135deg, #ff4757, #c0392b);
+    background: linear-gradient(135deg, #f44336, #ff5722);
 }
 
 #leave-stage-btn {
@@ -142,6 +143,10 @@ body {
     font-size: 12px;
     font-weight: bold;
     cursor: pointer;
+}
+
+#leave-stage-btn:hover {
+    background: rgba(255, 71, 87, 1);
 }
 
 /* ========================================
@@ -627,6 +632,72 @@ body {
 }
 
 /* ========================================
+   音声視聴オーバーレイ
+======================================== */
+#audio-unlock-overlay {
+    position: fixed;
+    bottom: 200px;
+    left: 50%;
+    transform: translateX(-50%) scale(0.9);
+    z-index: 15000;
+    background: linear-gradient(135deg, rgba(255, 102, 255, 0.95), rgba(102, 51, 255, 0.95));
+    border-radius: 20px;
+    padding: 20px 40px;
+    box-shadow: 0 8px 32px rgba(255, 102, 255, 0.4);
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    pointer-events: none;
+}
+
+#audio-unlock-overlay.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) scale(1);
+    pointer-events: auto;
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% {
+        box-shadow: 0 8px 32px rgba(255, 102, 255, 0.4);
+    }
+    50% {
+        box-shadow: 0 8px 48px rgba(255, 102, 255, 0.7);
+    }
+}
+
+.audio-unlock-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: white;
+    text-align: center;
+}
+
+.audio-unlock-icon {
+    font-size: 36px;
+    animation: bounce 1s ease-in-out infinite;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+}
+
+.audio-unlock-title {
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.audio-unlock-text {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+/* ========================================
    通知
 ======================================== */
 .notification {
@@ -713,6 +784,23 @@ body {
     #room-stats {
         font-size: 10px;
         gap: 5px;
+    }
+    
+    #speaker-controls {
+        top: 60px;
+        right: 10px;
+        flex-direction: column;
+        gap: 6px;
+    }
+    
+    #mic-toggle-btn {
+        padding: 8px 12px;
+        font-size: 11px;
+    }
+    
+    #leave-stage-btn {
+        padding: 8px 12px;
+        font-size: 11px;
     }
     
     #debug-panel {
@@ -809,6 +897,23 @@ body {
     .floating-emoji {
         font-size: 40px;
     }
+    
+    #audio-unlock-overlay {
+        bottom: 180px;
+        padding: 16px 30px;
+    }
+    
+    .audio-unlock-icon {
+        font-size: 28px;
+    }
+    
+    .audio-unlock-title {
+        font-size: 15px;
+    }
+    
+    .audio-unlock-text {
+        font-size: 12px;
+    }
 }
 
 /* タブレット */
@@ -852,6 +957,10 @@ body {
         width: 230px;
         bottom: 190px;
     }
+    
+    #audio-unlock-overlay {
+        bottom: 190px;
+    }
 }
 
 /* 横向きスマホ対応 */
@@ -868,6 +977,21 @@ body {
     
     #room-stats {
         display: none;
+    }
+    
+    #speaker-controls {
+        top: 8px;
+        right: 8px;
+    }
+    
+    #mic-toggle-btn {
+        padding: 6px 10px;
+        font-size: 10px;
+    }
+    
+    #leave-stage-btn {
+        padding: 6px 10px;
+        font-size: 10px;
     }
     
     #debug-panel {
@@ -952,5 +1076,22 @@ body {
     
     .floating-emoji {
         font-size: 32px;
+    }
+    
+    #audio-unlock-overlay {
+        bottom: 130px;
+        padding: 12px 24px;
+    }
+    
+    .audio-unlock-icon {
+        font-size: 24px;
+    }
+    
+    .audio-unlock-title {
+        font-size: 13px;
+    }
+    
+    .audio-unlock-text {
+        font-size: 11px;
     }
 }

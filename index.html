@@ -44,6 +44,9 @@
             </div>
         </div>
 
+        <!-- 右上: 設定ボタン -->
+        <button id="settings-btn" class="action-btn">⚙️</button>
+
         <!-- 右上: スピーカーコントロール（登壇時のみ表示） -->
         <div id="speaker-controls" class="hidden">
             <button id="mic-toggle-btn">🎙️</button>
@@ -53,14 +56,25 @@
         <!-- 左下: チャットエリア -->
         <div id="chat-container">
             <!-- ピン留めコメント表示エリア -->
-            <div id="pinned-comment" class="hidden"></div>
+            <div id="pinned-comment" class="hidden">
+                <div id="pinned-comment-content">
+                    <div id="pinned-comment-text"></div>
+                    <button id="unpin-btn">×</button>
+                </div>
+            </div>
             <!-- チャットメッセージ -->
             <div id="chat-messages"></div>
-            <!-- チャット入力フォーム -->
+            <!-- チャット入力フォーム（送信ボタン内包） -->
             <form id="chat-form">
                 <input type="text" id="chat-input" placeholder="メッセージ..." autocomplete="off">
                 <button type="submit" id="chat-submit">送信</button>
             </form>
+        </div>
+
+        <!-- デバッグパネル（左下、チャットの上） -->
+        <div id="debug-panel">
+            <button id="debug-toggle">🔧 Debug</button>
+            <div id="debug-log"></div>
         </div>
 
         <!-- ペンライト色選択パネル -->
@@ -74,26 +88,33 @@
         </div>
 
         <!-- 絵文字選択パネル -->
-        <div id="emoji-panel" class="hidden"></div>
+        <div id="emoji-panel" class="hidden">
+            <div id="emoji-tabs" class="emoji-tabs">
+                <button class="emoji-tab active" data-category="face">😀</button>
+                <button class="emoji-tab" data-category="gesture">👋</button>
+                <button class="emoji-tab" data-category="heart">❤️</button>
+                <button class="emoji-tab" data-category="celebration">🎉</button>
+                <button class="emoji-tab" data-category="music">🎵</button>
+            </div>
+            <div id="emoji-grid" class="emoji-grid"></div>
+        </div>
     </div>
 
-    <!-- コントロールエリア（ジョイスティック・ボタン） -->
+    <!-- コントロールエリア（右下：ジョイスティック・ボタン） -->
     <div id="controls-area">
-        <!-- 中央下: ジョイスティック -->
+        <!-- ジョイスティック -->
         <div id="joystick-container">
             <div id="joystick-base">
                 <div id="joystick-stick"></div>
             </div>
         </div>
 
-        <!-- オタ芸ボタン（ジョイスティック左） -->
-        <button id="otagei-btn" class="action-btn">🙌</button>
-
-        <!-- ペンライトボタン（ジョイスティック右） -->
-        <button id="penlight-btn" class="action-btn">🔦</button>
-
-        <!-- 絵文字ボタン（右下） -->
-        <button id="emoji-btn" class="action-btn">🎉</button>
+        <!-- アクションボタン（ジョイスティックの下に横一列） -->
+        <div id="action-buttons">
+            <button id="otagei-btn" class="action-btn">🙌</button>
+            <button id="penlight-btn" class="action-btn">🔦</button>
+            <button id="emoji-btn" class="action-btn">🎉</button>
+        </div>
     </div>
 
     <!-- 絵文字アニメーション用コンテナ -->

@@ -68,10 +68,10 @@ body {
 
 #room-title {
     font-family: 'Noto Sans JP', sans-serif;
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 900;
     color: #ff6b9d;
-    padding: 6px 12px;
+    padding: 8px 14px;
     background: rgba(0, 0, 0, 0.7);
     border: 2px solid rgba(255, 107, 157, 0.5);
     border-radius: 10px;
@@ -146,6 +146,7 @@ body {
 
 /* ========================================
    デバッグUI（左上、ルーム情報の下）
+   ※JSで動的に生成される
 ======================================== */
 #debug-panel {
     position: fixed;
@@ -705,8 +706,8 @@ body {
 ======================================== */
 @media (max-width: 480px) {
     #room-title {
-        font-size: 14px;
-        padding: 5px 10px;
+        font-size: 16px;
+        padding: 6px 12px;
     }
     
     #room-stats {
@@ -812,6 +813,11 @@ body {
 
 /* タブレット */
 @media (min-width: 481px) and (max-width: 768px) {
+    #room-title {
+        font-size: 18px;
+        padding: 7px 13px;
+    }
+    
     #chat-container {
         width: 45%;
         max-width: 280px;
@@ -856,8 +862,8 @@ body {
     }
     
     #room-title {
-        font-size: 12px;
-        padding: 3px 8px;
+        font-size: 14px;
+        padding: 4px 10px;
     }
     
     #room-stats {

@@ -74,16 +74,10 @@ function isHostMode() {
 }
 
 // ✅ connection.js から呼ばれて主催者状態を確定する
+// ※ 通知はmain.js側で出すので、ここでは出さない
 function setHostAuthResult(ok, reason = '') {
   hostLoginPending = false;
   setHostModeUI(!!ok);
-
-  if (ok) {
-    showNotification('主催者として認証されました', 'success');
-  } else {
-    if (reason) showNotification(`主催者認証NG: ${reason}`, 'error');
-    else showNotification('主催者認証が解除されました', 'info');
-  }
 
   const btn = document.getElementById('host-login-btn');
   if (btn) {

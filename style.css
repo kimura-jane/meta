@@ -68,28 +68,25 @@ body {
 
 #room-title {
     font-family: 'Noto Sans JP', sans-serif;
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 900;
-    background: linear-gradient(135deg, #ff6b9d, #c44569);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #ff6b9d;
     padding: 6px 12px;
-    border: 2px solid rgba(255, 107, 157, 0.3);
+    background: rgba(0, 0, 0, 0.7);
+    border: 2px solid rgba(255, 107, 157, 0.5);
     border-radius: 10px;
     backdrop-filter: blur(10px);
-    background-color: rgba(0, 0, 0, 0.5);
 }
 
 #room-stats {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     margin-top: 8px;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .stat-item {
-    padding: 4px 10px;
+    padding: 4px 8px;
     background: rgba(0, 0, 0, 0.6);
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.2);
@@ -104,55 +101,25 @@ body {
 }
 
 /* ========================================
-   設定ボタン（右上）
-======================================== */
-#settings-btn,
-.settings-toggle-btn {
-    position: fixed !important;
-    top: 15px !important;
-    right: 15px !important;
-    width: 50px !important;
-    height: 50px !important;
-    border-radius: 50% !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    color: white !important;
-    font-size: 22px !important;
-    cursor: pointer !important;
-    z-index: 1000 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    backdrop-filter: blur(10px);
-    transition: all 0.3s ease;
-}
-
-#settings-btn:hover,
-.settings-toggle-btn:hover {
-    background: rgba(255, 255, 255, 0.1) !important;
-    border-color: rgba(255, 255, 255, 0.5) !important;
-}
-
-/* ========================================
-   スピーカーコントロール（右上、設定の下）
+   スピーカーコントロール（右上）
 ======================================== */
 #speaker-controls {
     position: fixed;
-    top: 80px;
+    top: 15px;
     right: 15px;
     display: flex;
-    flex-direction: column;
     gap: 8px;
+    align-items: center;
     z-index: 100;
 }
 
 #speaker-controls.hidden {
-    display: none;
+    display: none !important;
 }
 
 #mic-toggle-btn {
-    width: 45px;
-    height: 45px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     background: linear-gradient(135deg, #00ff88, #00cc6a);
     border: none;
@@ -167,12 +134,13 @@ body {
 }
 
 #leave-stage-btn {
-    padding: 6px 12px;
+    padding: 10px 14px;
     background: rgba(255, 71, 87, 0.8);
     border: none;
-    border-radius: 6px;
+    border-radius: 20px;
     color: white;
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: bold;
     cursor: pointer;
 }
 
@@ -180,12 +148,13 @@ body {
    チャットエリア（左下）
 ======================================== */
 #chat-container {
-    position: fixed !important;
-    bottom: 15px !important;
-    left: 15px !important;
-    width: 280px !important;
-    max-width: calc(100vw - 180px) !important;
-    z-index: 100 !important;
+    position: fixed;
+    bottom: 15px;
+    left: 15px;
+    width: 45%;
+    max-width: 280px;
+    min-width: 200px;
+    z-index: 100;
 }
 
 /* ピン留めコメント */
@@ -217,7 +186,7 @@ body {
 
 #pinned-comment-text {
     flex: 1;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.4;
     word-break: break-word;
 }
@@ -227,9 +196,9 @@ body {
     border: none;
     color: white;
     cursor: pointer;
-    font-size: 14px;
-    width: 24px;
-    height: 24px;
+    font-size: 12px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -244,7 +213,7 @@ body {
 
 /* チャットメッセージ */
 #chat-messages {
-    max-height: 180px;
+    max-height: 150px;
     overflow-y: auto;
     background: rgba(0, 0, 0, 0.65);
     backdrop-filter: blur(10px);
@@ -255,9 +224,9 @@ body {
 }
 
 .chat-message {
-    padding: 6px 0;
+    padding: 5px 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    font-size: 13px;
+    font-size: 12px;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -285,8 +254,8 @@ body {
     border: none;
     color: rgba(255, 255, 255, 0.5);
     cursor: pointer;
-    font-size: 12px;
-    padding: 3px 6px;
+    font-size: 11px;
+    padding: 2px 5px;
     border-radius: 4px;
     flex-shrink: 0;
     transition: all 0.2s;
@@ -306,7 +275,7 @@ body {
 
 #chat-input {
     flex: 1;
-    padding: 10px 14px;
+    padding: 10px 12px;
     background: rgba(0, 0, 0, 0.65);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 20px;
@@ -326,12 +295,12 @@ body {
 }
 
 #chat-submit {
-    padding: 10px 16px;
+    padding: 10px 14px;
     background: linear-gradient(135deg, #ff6b9d, #c44569);
     border: none;
     border-radius: 20px;
     color: white;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -340,7 +309,6 @@ body {
 }
 
 #chat-submit:hover {
-    transform: scale(1.05);
     box-shadow: 0 0 15px rgba(255, 107, 157, 0.5);
 }
 
@@ -349,20 +317,36 @@ body {
 }
 
 /* ========================================
+   コントロールエリア（下部ボタン群）
+======================================== */
+#controls-area {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 180px;
+    pointer-events: none;
+    z-index: 500;
+}
+
+#controls-area > * {
+    pointer-events: auto;
+}
+
+/* ========================================
    ジョイスティック（中央下）
 ======================================== */
 #joystick-container {
-    position: fixed !important;
-    bottom: 25px !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    z-index: 500 !important;
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
     touch-action: none;
 }
 
 #joystick-base {
-    width: 110px;
-    height: 110px;
+    width: 100px;
+    height: 100px;
     background: rgba(255, 255, 255, 0.08);
     border: 2px solid rgba(255, 255, 255, 0.25);
     border-radius: 50%;
@@ -371,8 +355,8 @@ body {
 }
 
 #joystick-stick {
-    width: 45px;
-    height: 45px;
+    width: 42px;
+    height: 42px;
     background: linear-gradient(135deg, #ff6b9d, #c44569);
     border-radius: 50%;
     position: absolute;
@@ -391,24 +375,25 @@ body {
    アクションボタン共通
 ======================================== */
 .action-btn {
-    width: 55px !important;
-    height: 55px !important;
-    border-radius: 50% !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    color: white !important;
-    font-size: 26px !important;
-    cursor: pointer !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    position: absolute;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     backdrop-filter: blur(10px);
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
 }
 
 .action-btn:hover {
-    background: rgba(255, 255, 255, 0.1) !important;
-    border-color: rgba(255, 255, 255, 0.5) !important;
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.5);
 }
 
 .action-btn:active {
@@ -416,52 +401,55 @@ body {
 }
 
 .action-btn.active {
-    background: linear-gradient(135deg, #ff6b9d, #c44569) !important;
-    border-color: #ff6b9d !important;
+    background: linear-gradient(135deg, #ff6b9d, #c44569);
+    border-color: #ff6b9d;
     box-shadow: 0 0 15px rgba(255, 107, 157, 0.5);
 }
 
-/* オタ芸ボタン（左下、チャットの右） */
+/* オタ芸ボタン（ジョイスティック左） */
 #otagei-btn {
-    position: fixed !important;
-    bottom: 25px !important;
-    left: calc(50% - 100px) !important;
-    z-index: 500 !important;
+    bottom: 40px;
+    left: calc(50% - 90px);
 }
 
-/* ペンライトボタン（右下、ジョイスティックの右） */
+/* ペンライトボタン（ジョイスティック右） */
 #penlight-btn {
-    position: fixed !important;
-    bottom: 25px !important;
-    right: calc(50% - 100px) !important;
-    z-index: 500 !important;
+    bottom: 40px;
+    right: calc(50% - 90px);
 }
 
-/* 絵文字ボタン（右側、ペンライトの上） */
+/* 絵文字ボタン（右下） */
 #emoji-btn {
-    position: fixed !important;
-    bottom: 95px !important;
-    right: 15px !important;
-    z-index: 500 !important;
+    bottom: 40px;
+    right: 20px;
+}
+
+/* 設定ボタン（右上固定） */
+#settings-btn {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    bottom: auto;
+    left: auto;
+    z-index: 1000;
 }
 
 /* ========================================
-   ペンライト色選択（右下、ペンライトの上）
+   ペンライト色選択
 ======================================== */
 #penlight-colors {
-    position: fixed !important;
-    bottom: 95px !important;
-    right: calc(50% - 100px) !important;
-    transform: translateX(50%);
-    z-index: 600 !important;
+    position: fixed;
+    bottom: 110px;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
-    flex-direction: row;
-    gap: 6px;
-    padding: 10px;
+    gap: 8px;
+    padding: 10px 15px;
     background: rgba(0, 0, 0, 0.85);
     border-radius: 30px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     backdrop-filter: blur(10px);
+    z-index: 600;
 }
 
 #penlight-colors.hidden {
@@ -469,12 +457,12 @@ body {
 }
 
 .color-btn {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     border: 2px solid rgba(255, 255, 255, 0.3);
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
 }
 
 .color-btn:hover {
@@ -488,19 +476,19 @@ body {
 }
 
 /* ========================================
-   絵文字パネル（右側）
+   絵文字パネル
 ======================================== */
 #emoji-panel {
-    position: fixed !important;
-    bottom: 160px !important;
-    right: 15px !important;
-    width: 260px;
-    z-index: 600 !important;
+    position: fixed;
+    bottom: 110px;
+    right: 20px;
+    width: 250px;
     background: rgba(0, 0, 0, 0.9);
     border-radius: 14px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     backdrop-filter: blur(10px);
     overflow: hidden;
+    z-index: 600;
 }
 
 #emoji-panel.hidden {
@@ -517,12 +505,12 @@ body {
 
 .emoji-tab {
     flex: 1;
-    min-width: 40px;
+    min-width: 38px;
     padding: 8px 4px;
     background: none;
     border: none;
     color: rgba(255, 255, 255, 0.6);
-    font-size: 16px;
+    font-size: 14px;
     cursor: pointer;
     transition: all 0.2s ease;
 }
@@ -542,19 +530,19 @@ body {
 .emoji-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
+    gap: 5px;
     padding: 10px;
-    max-height: 160px;
+    max-height: 150px;
     overflow-y: auto;
 }
 
 .emoji-item {
-    width: 42px;
-    height: 42px;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: 22px;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 8px;
     border: none;
@@ -564,7 +552,7 @@ body {
 
 .emoji-item:hover {
     background: rgba(255, 255, 255, 0.15);
-    transform: scale(1.15);
+    transform: scale(1.1);
 }
 
 .emoji-item:active {
@@ -589,25 +577,18 @@ body {
 .floating-emoji {
     position: absolute;
     font-size: 40px;
-    animation: emojiFloat 2.5s ease-out forwards;
     pointer-events: none;
+    animation: floatUp 2.5s ease-out forwards;
 }
 
-@keyframes emojiFloat {
+@keyframes floatUp {
     0% {
-        transform: translateY(0) rotate(0deg) scale(0.5);
-        opacity: 0;
-    }
-    10% {
         opacity: 1;
-        transform: translateY(-50px) rotate(10deg) scale(1);
-    }
-    50% {
-        opacity: 1;
+        transform: translateY(0) scale(1);
     }
     100% {
-        transform: translateY(-450px) translateX(var(--drift, 0px)) rotate(360deg) scale(0.6);
         opacity: 0;
+        transform: translateY(-400px) scale(0.5);
     }
 }
 
@@ -654,58 +635,11 @@ body {
 }
 
 /* ========================================
-   オーディオ解除オーバーレイ
-======================================== */
-#audio-unlock-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.95);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 20000;
-    cursor: pointer;
-}
-
-#audio-unlock-overlay.hidden {
-    display: none;
-}
-
-.audio-unlock-content {
-    text-align: center;
-}
-
-.audio-unlock-icon {
-    font-size: 70px;
-    margin-bottom: 15px;
-    animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.1); opacity: 0.8; }
-}
-
-.audio-unlock-title {
-    font-size: 22px;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
-
-.audio-unlock-subtitle {
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.6);
-}
-
-/* ========================================
    デバッグUI
 ======================================== */
 #debug-panel {
     position: fixed;
-    bottom: 15px;
+    bottom: 140px;
     left: 15px;
     z-index: 50;
 }
@@ -716,7 +650,7 @@ body {
     border-radius: 6px;
     color: white;
     padding: 4px 8px;
-    font-size: 11px;
+    font-size: 10px;
     cursor: pointer;
 }
 
@@ -727,11 +661,11 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 6px;
     padding: 8px;
-    max-height: 150px;
+    max-height: 120px;
     overflow-y: auto;
-    font-size: 10px;
+    font-size: 9px;
     font-family: monospace;
-    width: 250px;
+    width: 220px;
 }
 
 #debug-log.show {
@@ -747,18 +681,18 @@ body {
 
 /* スクロールバー */
 ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
+    width: 4px;
+    height: 4px;
 }
 
 ::-webkit-scrollbar-track {
     background: rgba(0, 0, 0, 0.3);
-    border-radius: 3px;
+    border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.3);
-    border-radius: 3px;
+    border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -776,96 +710,94 @@ body {
 ======================================== */
 @media (max-width: 480px) {
     #room-title {
-        font-size: 16px;
+        font-size: 14px;
         padding: 5px 10px;
     }
     
     #room-stats {
         font-size: 10px;
-        gap: 6px;
-    }
-    
-    #settings-btn,
-    .settings-toggle-btn {
-        width: 44px !important;
-        height: 44px !important;
-        font-size: 18px !important;
+        gap: 5px;
     }
     
     #chat-container {
-        width: 220px !important;
-        max-width: calc(100vw - 150px) !important;
+        width: 42%;
+        max-width: 200px;
+        min-width: 150px;
     }
     
     #chat-messages {
-        max-height: 140px;
+        max-height: 120px;
         padding: 8px;
     }
     
     .chat-message {
-        font-size: 12px;
+        font-size: 11px;
     }
     
     #chat-input {
-        padding: 8px 12px;
+        padding: 8px 10px;
         font-size: 12px;
     }
     
     #chat-submit {
-        padding: 8px 12px;
-        font-size: 12px;
-        min-width: 45px;
+        padding: 8px 10px;
+        font-size: 11px;
+        min-width: 40px;
     }
     
     #joystick-base {
-        width: 90px;
-        height: 90px;
+        width: 85px;
+        height: 85px;
     }
     
     #joystick-stick {
-        width: 38px;
-        height: 38px;
+        width: 36px;
+        height: 36px;
     }
     
     .action-btn {
-        width: 48px !important;
-        height: 48px !important;
-        font-size: 22px !important;
+        width: 46px;
+        height: 46px;
+        font-size: 20px;
     }
     
     #otagei-btn {
-        left: calc(50% - 85px) !important;
+        left: calc(50% - 75px);
     }
     
     #penlight-btn {
-        right: calc(50% - 85px) !important;
+        right: calc(50% - 75px);
     }
     
     #emoji-btn {
-        bottom: 85px !important;
-        right: 10px !important;
+        right: 15px;
+    }
+    
+    #settings-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
     }
     
     #penlight-colors {
-        right: calc(50% - 85px) !important;
-        bottom: 85px !important;
+        bottom: 100px;
     }
     
     .color-btn {
-        width: 30px;
-        height: 30px;
+        width: 28px;
+        height: 28px;
     }
     
     #emoji-panel {
-        width: 230px;
-        right: 10px !important;
-        bottom: 145px !important;
+        width: 220px;
+        right: 15px;
+        bottom: 100px;
     }
     
     .emoji-item {
-        width: 36px;
-        height: 36px;
-        font-size: 20px;
+        width: 35px;
+        height: 35px;
+        font-size: 18px;
     }
     
     #pinned-comment {
@@ -873,60 +805,61 @@ body {
     }
     
     #pinned-comment-text {
-        font-size: 12px;
+        font-size: 11px;
     }
 }
 
 /* タブレット */
 @media (min-width: 481px) and (max-width: 768px) {
     #chat-container {
-        width: 260px !important;
+        width: 50%;
+        max-width: 260px;
     }
     
     #chat-messages {
-        max-height: 160px;
+        max-height: 140px;
     }
     
     #joystick-base {
-        width: 100px;
-        height: 100px;
+        width: 95px;
+        height: 95px;
     }
     
     #joystick-stick {
-        width: 42px;
-        height: 42px;
+        width: 40px;
+        height: 40px;
     }
     
     .action-btn {
-        width: 52px !important;
-        height: 52px !important;
-        font-size: 24px !important;
+        width: 50px;
+        height: 50px;
+        font-size: 22px;
     }
     
     #otagei-btn {
-        left: calc(50% - 95px) !important;
+        left: calc(50% - 85px);
     }
     
     #penlight-btn {
-        right: calc(50% - 95px) !important;
+        right: calc(50% - 85px);
     }
     
     #emoji-panel {
-        width: 250px;
-        bottom: 155px !important;
+        width: 240px;
+        bottom: 105px;
     }
 }
 
 /* 横向きスマホ対応 */
 @media (max-height: 450px) {
     #room-info {
-        top: 10px;
-        left: 10px;
+        top: 8px;
+        left: 8px;
     }
     
     #room-title {
-        font-size: 14px;
-        padding: 4px 8px;
+        font-size: 12px;
+        padding: 3px 8px;
     }
     
     #room-stats {
@@ -934,60 +867,76 @@ body {
     }
     
     #chat-container {
-        bottom: 10px !important;
-        left: 10px !important;
-        width: 200px !important;
+        bottom: 8px;
+        left: 8px;
+        width: 35%;
+        max-width: 180px;
     }
     
     #chat-messages {
-        max-height: 80px;
+        max-height: 70px;
+    }
+    
+    #controls-area {
+        height: 120px;
     }
     
     #joystick-container {
-        bottom: 15px !important;
+        bottom: 10px;
     }
     
     #joystick-base {
-        width: 80px;
-        height: 80px;
+        width: 70px;
+        height: 70px;
     }
     
     #joystick-stick {
-        width: 35px;
-        height: 35px;
+        width: 30px;
+        height: 30px;
     }
     
     .action-btn {
-        width: 44px !important;
-        height: 44px !important;
-        font-size: 20px !important;
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
     }
     
     #otagei-btn {
-        bottom: 15px !important;
-        left: calc(50% - 75px) !important;
+        bottom: 20px;
+        left: calc(50% - 65px);
     }
     
     #penlight-btn {
-        bottom: 15px !important;
-        right: calc(50% - 75px) !important;
+        bottom: 20px;
+        right: calc(50% - 65px);
     }
     
     #emoji-btn {
-        bottom: 70px !important;
+        bottom: 20px;
+        right: 15px;
+    }
+    
+    #settings-btn {
+        width: 38px;
+        height: 38px;
+        font-size: 16px;
     }
     
     #emoji-panel {
-        bottom: 120px !important;
-        width: 200px;
-        max-height: 200px;
+        bottom: 70px;
+        width: 180px;
+        max-height: 150px;
     }
     
     #emoji-grid {
-        max-height: 100px;
+        max-height: 80px;
     }
     
     #pinned-comment {
         display: none;
+    }
+    
+    #penlight-colors {
+        bottom: 70px;
     }
 }

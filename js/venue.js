@@ -20,15 +20,17 @@ let lightTime = 0;
 let ambientLight;
 let roomBrightness = 0.6; // デフォルト60%
 
-let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/IMG_3206.jpeg';
+// デフォルト背景をIMG_9719に変更
+let stageBackgroundUrl = 'https://raw.githubusercontent.com/kimura-jane/meta/main/stage/IMG_9719.jpeg';
 
 // 背景リスト
 const STAGE_BACKGROUNDS = [
+    { name: 'IMG_9719', file: 'IMG_9719.jpeg' },
+    { name: 'IMG_3206', file: 'IMG_3206.jpeg', isRoot: true },
     { name: 'IMG_0967', file: 'IMG_0967.png' },
     { name: 'IMG_3273', file: 'IMG_3273.jpeg' },
     { name: 'IMG_3274', file: 'IMG_3274.jpeg' },
-    { name: 'IMG_3275', file: 'IMG_3275.jpeg' },
-    { name: 'IMG_9719', file: 'IMG_9719.jpeg' }
+    { name: 'IMG_3275', file: 'IMG_3275.jpeg' }
 ];
 
 export function getStageBackgrounds() {

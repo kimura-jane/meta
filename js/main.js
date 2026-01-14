@@ -145,12 +145,12 @@ const CHARA_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/
 
 // 背景設定
 const STAGE_BACKGROUNDS = [
-  { name: 'デフォルト', file: 'IMG_3206.jpeg', isRoot: true },
+  { name: 'デフォルト', file: 'IMG_9719.jpeg' },
+  { name: 'IMG_3206', file: 'IMG_3206.jpeg', isRoot: true },
   { name: 'IMG_0967', file: 'IMG_0967.png' },
   { name: 'IMG_3273', file: 'IMG_3273.jpeg' },
   { name: 'IMG_3274', file: 'IMG_3274.jpeg' },
-  { name: 'IMG_3275', file: 'IMG_3275.jpeg' },
-  { name: 'IMG_9719', file: 'IMG_9719.jpeg' }
+  { name: 'IMG_3275', file: 'IMG_3275.jpeg' }
 ];
 const STAGE_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/stage/';
 const ROOT_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/';
@@ -597,10 +597,9 @@ function updateNameTags() {
 
 // 絵文字投げ機能
 const EMOJI_CATEGORIES = {
-  cheer: { name: '応援', emojis: ['🙌', '👏', '🔥', '✨', '🥇'] },
-  heart: { name: 'ハート', emojis: ['🩷', '❤️', '❤️‍🔥'] },
-  celebrate: { name: 'お祝い', emojis: ['🎉', '🎊', '🎁', '👼'] },
-  funny: { name: 'おもしろ', emojis: ['💩', '🧠', '💢', '🍌', '🐼'] },
+  cheer: { name: '応援', emojis: ['🙌', '👏', '🔥', '🩷', '❤️', '❤️‍🔥'] },
+  celebrate: { name: 'お祝い', emojis: ['🎉', '🎊', '🎁', '✨', '🥇'] },
+  funny: { name: 'おもしろ', emojis: ['💩', '🧠', '💢', '🐼', '👼'] },
   sports: { name: 'スポーツ', emojis: ['⚾️', '🏀', '⚽️', '🏇'] },
   food: { name: '飲食', emojis: ['🍙', '🍌', '🍻', '🍾'] }
 };
@@ -719,10 +718,8 @@ function throwEmoji(emoji) {
     return;
   }
 
-  // 自分の画面にアニメーション表示
   showEmojiAnimation(emoji);
 
-  // サーバーに送信
   try {
     sendEmojiThrow(emoji);
     debugLog(`Emoji thrown: ${emoji}`, 'info');
@@ -1211,7 +1208,6 @@ function setupConnection() {
 
       debugLog(`[Callback] Emoji throw: ${emoji} from ${senderId}`, 'info');
       const myId = getMyId();
-      // 自分以外から来た絵文字のみ表示
       if (senderId !== myId) {
         showEmojiAnimation(emoji);
       }

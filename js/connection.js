@@ -22,10 +22,9 @@ const AGORA_CHANNEL = 'metaverse_room';
 
 // 絵文字カテゴリ
 const EMOJI_CATEGORIES = {
-  cheer: ['🙌', '👏', '🔥', '✨', '🥇'],
-  heart: ['🩷', '❤️', '❤️‍🔥'],
-  celebrate: ['🎉', '🎊', '🎁', '👼'],
-  funny: ['💩', '🧠', '💢', '🍌', '🐼'],
+  cheer: ['🙌', '👏', '🔥', '🩷', '❤️', '❤️‍🔥'],
+  celebrate: ['🎉', '🎊', '🎁', '✨', '🥇'],
+  funny: ['💩', '🧠', '💢', '🐼', '👼'],
   sports: ['⚾️', '🏀', '⚽️', '🏇'],
   food: ['🍙', '🍌', '🍻', '🍾']
 };
@@ -379,7 +378,6 @@ function handleServerMessage(data) {
         callbacks.onBackgroundChange(data.backgroundUrl);
       }
 
-      // ピン留めコメントを復元
       if (data.pinnedComment) {
         pinnedComment = data.pinnedComment;
         if (callbacks.onPinnedComment) callbacks.onPinnedComment(pinnedComment);
@@ -566,7 +564,6 @@ function handleServerMessage(data) {
 
       if (callbacks.onCurrentSpeakersUpdate) callbacks.onCurrentSpeakersUpdate(currentSpeakers);
 
-      // 視聴者モードで参加していた場合は退出してから登壇者として参加
       if (isAgoraJoinedAsListener) {
         leaveAgoraChannel().then(() => {
           joinAgoraChannel();

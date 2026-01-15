@@ -758,12 +758,16 @@ async function joinAgoraChannel() {
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
     debugLog(`[Agora] チャンネル参加成功: uid=${uid}`, 'success');
 
+    // 音楽用高音質設定（192kbps、ノイズ除去OFF、エコーキャンセルON）
     localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-      encoderConfig: 'high_quality_stereo'
+      encoderConfig: 'music_high_quality_stereo',
+      ANS: false,  // ノイズ除去OFF（BGMや動画の音を通す）
+      AEC: true,   // エコーキャンセルON（ハウリング防止）
+      AGC: false   // 自動音量調整OFF（音量が勝手に変わらない）
     });
     
     await agoraClient.publish([localAudioTrack]);
-    debugLog('[Agora] 音声配信開始', 'success');
+    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps）', 'success');
 
     isAgoraJoinedAsListener = false;
 

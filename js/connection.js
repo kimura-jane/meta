@@ -763,14 +763,14 @@ async function joinAgoraChannel() {
       encoderConfig: 'music_high_quality_stereo',
       ANS: false,  // ノイズ除去OFF（BGMや動画の音を通す）
       AEC: true,   // エコーキャンセルON（ハウリング防止）
-      AGC: true    // 自動音量調整ON（音量を安定させる）
+      AGC: false   // 自動音量調整OFF（歌の強弱を保つ）
     });
 
     // 配信音量を上げる（デフォルト100、最大1000）
-    localAudioTrack.setVolume(200);
+    localAudioTrack.setVolume(400);
     
     await agoraClient.publish([localAudioTrack]);
-    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps, 音量200%）', 'success');
+    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps, 音量400%）', 'success');
 
     // 自分の声をモニタリング（イヤホン必須）
     localAudioTrack.play();

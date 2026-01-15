@@ -662,9 +662,10 @@ body {
 }
 
 /* ========================================
-   音声視聴オーバーレイ
+   音声視聴オーバーレイ（最初は完全に非表示）
 ======================================== */
 #audio-unlock-overlay {
+    display: none;
     position: fixed;
     bottom: 200px;
     left: 50%;
@@ -676,13 +677,10 @@ body {
     padding: 20px 40px;
     box-shadow: 0 8px 32px rgba(139, 105, 20, 0.4);
     cursor: pointer;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-    pointer-events: none;
 }
 
 #audio-unlock-overlay.show {
+    display: block;
     opacity: 1;
     visibility: visible;
     transform: translateX(-50%) scale(1);

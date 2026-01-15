@@ -1,5 +1,5 @@
 // ============================================
-// connection.js - PartyKit接続（Agora低遅延・高音質修正版）
+// connection.js - PartyKit接続（Agora対応版）
 // ============================================
 
 import {
@@ -758,16 +758,23 @@ async function joinAgoraChannel() {
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
     debugLog(`[Agora] チャンネル参加成功: uid=${uid}`, 'success');
 
-    // 【重要】音楽用・低遅延設定（AECを切る！）
+    // 音楽用高音質設定（192kbps）
     localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
       encoderConfig: 'music_high_quality_stereo',
       ANS: false,  // ノイズ除去OFF（BGMや動画の音を通す）
-      AEC: false,  // ★ここを変更！エコーキャンセルOFF（遅延激減）
-      AGC: false   // 自動音量調整OFF（音量が勝手に変わらない）
+      AEC: true,   // エコーキャンセルON（ハウリング防止）
+      AGC: true    // 自動音量調整ON（音量を安定させる）
     });
+
+    // 配信音量を上げる（デフォルト100、最大1000）
+    localAudioTrack.setVolume(200);
     
     await agoraClient.publish([localAudioTrack]);
-    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, AEC:OFF）', 'success');
+    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps, 音量200%）', 'success');
+
+    // 自分の声をモニタリング（イヤホン必須）
+    localAudioTrack.play();
+    debugLog('[Agora] セルフモニタリング開始', 'info');
 
     isAgoraJoinedAsListener = false;
 

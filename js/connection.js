@@ -767,10 +767,10 @@ async function joinAgoraChannel() {
     });
 
     // 配信音量を上げる（デフォルト100、最大1000）
-    localAudioTrack.setVolume(400);
+    localAudioTrack.setVolume(300);
     
     await agoraClient.publish([localAudioTrack]);
-    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps, 音量400%）', 'success');
+    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps, 音量300%）', 'success');
 
     // 自分の声をモニタリング（イヤホン必須）
     localAudioTrack.play();

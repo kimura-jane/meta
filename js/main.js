@@ -54,8 +54,7 @@ import {
   setAvatarSpotlight,
   createPenlight,
   addChatMessage,
-  debugLog,
-  createDebugUI
+  debugLog
 } from './utils.js';
 
 // Three.js
@@ -879,7 +878,6 @@ function refreshChatPinButtons() {
 async function init() {
   debugLog('Initializing...');
   debugLog(`Touch device: ${isTouchDevice}`, 'info');
-  createDebugUI();
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000011);

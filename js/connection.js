@@ -61,6 +61,9 @@ let remoteUsers = new Map();
 let isAgoraJoinedAsListener = false;
 let audioUnlocked = false;
 
+// Web Audio API用
+let audioContext = null;
+
 // ピン留め
 let pinnedComment = null;
 
@@ -237,10 +240,11 @@ function safeSend(obj) {
 }
 
 // --------------------------------------------
-// iOS音声アンロック用ダミー再生
+// iOS音声アンロック用ダミー再生 + AudioContext初期化
 // --------------------------------------------
 async function unlockAudioForIOS() {
   try {
+    // ダミー音声再生
     const audio = new Audio();
     audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
     audio.volume = 0.01;
@@ -248,7 +252,17 @@ async function unlockAudioForIOS() {
     await audio.play();
     audio.pause();
     audio.remove();
-    debugLog('[Audio] iOSスピーカーアンロック成功', 'success');
+    debugLog('[Audio] iOSダミー音声再生成功', 'success');
+
+    // AudioContextを初期化（ユーザージェスチャー内で）
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+    debugLog(`[Audio] AudioContext初期化完了: state=${audioContext.state}`, 'success');
+
     return true;
   } catch (e) {
     debugLog(`[Audio] iOSスピーカーアンロック失敗: ${e?.message || e}`, 'warn');
@@ -814,7 +828,7 @@ function updateSpeakerList(speakers) {
 }
 
 // --------------------------------------------
-// Agora共通イベントリスナー設定
+// Agora共通イベントリスナー設定（Web Audio API版）
 // --------------------------------------------
 function setupAgoraEventListeners() {
   if (!agoraClient) return;
@@ -822,7 +836,71 @@ function setupAgoraEventListeners() {
   agoraClient.on('user-published', async (user, mediaType) => {
     if (mediaType === 'audio') {
       await agoraClient.subscribe(user, mediaType);
-      user.audioTrack?.play();
+      
+      const audioTrack = user.audioTrack;
+      if (audioTrack) {
+        let playedViaWebAudio = false;
+        
+        // Web Audio API経由で再生を試みる（スピーカー出力を強制）
+        try {
+          // AudioContextがなければ作成
+          if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          }
+          
+          // suspendedならresumeする
+          if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+          }
+          
+          // Agoraのトラックから MediaStreamTrack を取得
+          const mediaStreamTrack = audioTrack.getMediaStreamTrack();
+          if (mediaStreamTrack) {
+            const mediaStream = new MediaStream([mediaStreamTrack]);
+            const source = audioContext.createMediaStreamSource(mediaStream);
+            
+            // 出力先に接続
+            source.connect(audioContext.destination);
+            
+            // userに紐づけて後で管理できるようにする
+            user._webAudioSource = source;
+            
+            playedViaWebAudio = true;
+            debugLog(`[Agora] ${user.uid} Web Audio API経由で再生開始`, 'success');
+          }
+        } catch (e) {
+          debugLog(`[Agora] Web Audio API経由失敗: ${e?.message}`, 'warn');
+        }
+        
+        // Web Audio APIで再生できなかった場合、audio要素を試す
+        if (!playedViaWebAudio) {
+          try {
+            const mediaStreamTrack = audioTrack.getMediaStreamTrack();
+            if (mediaStreamTrack) {
+              const mediaStream = new MediaStream([mediaStreamTrack]);
+              
+              const audioEl = document.createElement('audio');
+              audioEl.srcObject = mediaStream;
+              audioEl.setAttribute('playsinline', 'true');
+              audioEl.setAttribute('autoplay', 'true');
+              audioEl.volume = 1.0;
+              audioEl.style.display = 'none';
+              document.body.appendChild(audioEl);
+              
+              await audioEl.play();
+              
+              user._audioElement = audioEl;
+              
+              debugLog(`[Agora] ${user.uid} audio要素経由で再生開始`, 'success');
+            }
+          } catch (e2) {
+            debugLog(`[Agora] audio要素経由も失敗、通常再生へ: ${e2?.message}`, 'warn');
+            // 最終フォールバック：Agoraのデフォルト再生
+            audioTrack.play();
+          }
+        }
+      }
+      
       remoteUsers.set(user.uid, user);
       debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
     }
@@ -830,12 +908,42 @@ function setupAgoraEventListeners() {
 
   agoraClient.on('user-unpublished', (user, mediaType) => {
     if (mediaType === 'audio') {
+      // クリーンアップ
+      if (user._webAudioSource) {
+        try {
+          user._webAudioSource.disconnect();
+        } catch (_) {}
+        user._webAudioSource = null;
+      }
+      if (user._audioElement) {
+        try {
+          user._audioElement.pause();
+          user._audioElement.srcObject = null;
+          user._audioElement.remove();
+        } catch (_) {}
+        user._audioElement = null;
+      }
+      
       remoteUsers.delete(user.uid);
       debugLog(`[Agora] ${user.uid} の音声が停止`, 'info');
     }
   });
 
   agoraClient.on('user-left', (user) => {
+    // クリーンアップ
+    if (user._webAudioSource) {
+      try {
+        user._webAudioSource.disconnect();
+      } catch (_) {}
+    }
+    if (user._audioElement) {
+      try {
+        user._audioElement.pause();
+        user._audioElement.srcObject = null;
+        user._audioElement.remove();
+      } catch (_) {}
+    }
+    
     remoteUsers.delete(user.uid);
     debugLog(`[Agora] ${user.uid} が退出`, 'info');
   });
@@ -938,6 +1046,22 @@ async function leaveAgoraChannel() {
       localAudioTrack.close();
       localAudioTrack = null;
     }
+
+    // リモートユーザーのクリーンアップ
+    remoteUsers.forEach((user) => {
+      if (user._webAudioSource) {
+        try {
+          user._webAudioSource.disconnect();
+        } catch (_) {}
+      }
+      if (user._audioElement) {
+        try {
+          user._audioElement.pause();
+          user._audioElement.srcObject = null;
+          user._audioElement.remove();
+        } catch (_) {}
+      }
+    });
 
     if (agoraClient) {
       await agoraClient.leave();

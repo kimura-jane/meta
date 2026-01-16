@@ -225,7 +225,6 @@ function setupBeforeUnload() {
   
   window.addEventListener('beforeunload', () => {
     if (socket && socket.readyState === WebSocket.OPEN) {
-      // サーバーに離脱を通知
       try {
         socket.send(JSON.stringify({ type: 'leave' }));
       } catch (e) {
@@ -276,8 +275,6 @@ export function connectToPartyKit(userName) {
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
 
     initAudioUnlockOverlay();
-    
-    // ページ離脱時の処理を登録
     setupBeforeUnload();
 
     debugLog('[Connection] requestInit 送信', 'info');
@@ -802,15 +799,8 @@ async function joinAgoraChannel() {
       AGC: false   // 自動音量調整OFF（歌の強弱を保つ）
     });
 
-    // 配信音量を上げる（デフォルト100、最大1000）
-    localAudioTrack.setVolume(300);
-    
     await agoraClient.publish([localAudioTrack]);
-    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps, 音量300%）', 'success');
-
-    // 自分の声をモニタリング（イヤホン必須）
-    localAudioTrack.play();
-    debugLog('[Agora] セルフモニタリング開始', 'info');
+    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps）', 'success');
 
     isAgoraJoinedAsListener = false;
 

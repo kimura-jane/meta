@@ -61,6 +61,9 @@ let audioUnlocked = false;
 // ピン留め
 let pinnedComment = null;
 
+// ページ離脱イベント登録済みフラグ
+let beforeUnloadRegistered = false;
+
 function canAccessContent() {
   return !secretMode || isAuthed;
 }
@@ -214,6 +217,26 @@ function initAudioUnlockOverlay() {
 }
 
 // --------------------------------------------
+// ページ離脱時の処理
+// --------------------------------------------
+function setupBeforeUnload() {
+  if (beforeUnloadRegistered) return;
+  beforeUnloadRegistered = true;
+  
+  window.addEventListener('beforeunload', () => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      // サーバーに離脱を通知
+      try {
+        socket.send(JSON.stringify({ type: 'leave' }));
+      } catch (e) {
+        // 無視
+      }
+      socket.close(1000, 'page unload');
+    }
+  });
+}
+
+// --------------------------------------------
 // PartyKit接続
 // --------------------------------------------
 export function connectToPartyKit(userName) {
@@ -253,6 +276,9 @@ export function connectToPartyKit(userName) {
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
 
     initAudioUnlockOverlay();
+    
+    // ページ離脱時の処理を登録
+    setupBeforeUnload();
 
     debugLog('[Connection] requestInit 送信', 'info');
     safeSend({ type: 'requestInit', userName: currentUserName });

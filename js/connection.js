@@ -1,5 +1,5 @@
 // ============================================
-// connection.js - PartyKit接続（Agora Liveモード対応版）
+// connection.js - PartyKit接続（Agora RTC/Live切り替え対応版）
 // ============================================
 
 import {
@@ -19,6 +19,9 @@ const ROOM_ID = 'main-stage';
 // Agora設定
 const AGORA_APP_ID = 'be3dfbd19aea4850bb9564c05248f3f9';
 const AGORA_CHANNEL = 'metaverse_room';
+
+// Agoraモード設定（'rtc' または 'live'）
+let agoraMode = localStorage.getItem('agoraMode') || 'live';
 
 // 絵文字カテゴリ
 const EMOJI_CATEGORIES = {
@@ -95,7 +98,8 @@ let callbacks = {
   onHostAuthResult: null,
   onMyIdChanged: null,
   onEmojiThrow: null,
-  onPinnedComment: null
+  onPinnedComment: null,
+  onAgoraModeChange: null
 };
 
 export function setCallbacks(cbs) {
@@ -115,7 +119,8 @@ export function getState() {
     secretMode,
     isAuthed,
     isHost,
-    pinnedComment
+    pinnedComment,
+    agoraMode
   };
 }
 
@@ -125,6 +130,50 @@ export function getMyConnectionId() {
 
 export function getEmojiCategories() {
   return EMOJI_CATEGORIES;
+}
+
+// --------------------------------------------
+// Agoraモード切り替え
+// --------------------------------------------
+export function getAgoraMode() {
+  return agoraMode;
+}
+
+export function setAgoraMode(mode) {
+  if (mode !== 'rtc' && mode !== 'live') {
+    debugLog(`[Agora] 無効なモード: ${mode}`, 'error');
+    return false;
+  }
+  
+  const wasInChannel = agoraClient !== null;
+  const wasSpeaker = isSpeaker;
+  const wasListener = isAgoraJoinedAsListener;
+  
+  agoraMode = mode;
+  localStorage.setItem('agoraMode', mode);
+  debugLog(`[Agora] モード変更: ${mode}`, 'success');
+  
+  if (callbacks.onAgoraModeChange) {
+    callbacks.onAgoraModeChange(mode);
+  }
+  
+  // チャンネルに参加中なら再接続
+  if (wasInChannel) {
+    leaveAgoraChannel().then(() => {
+      if (wasSpeaker) {
+        joinAgoraChannel();
+      } else if (wasListener) {
+        joinAgoraAsListener();
+      }
+    });
+  }
+  
+  return true;
+}
+
+export function toggleAgoraMode() {
+  const newMode = agoraMode === 'rtc' ? 'live' : 'rtc';
+  return setAgoraMode(newMode);
 }
 
 // --------------------------------------------
@@ -187,7 +236,6 @@ function safeSend(obj) {
 async function unlockAudioForIOS() {
   try {
     const audio = new Audio();
-    // 無音の短いWAVデータ（Base64）
     audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
     audio.volume = 0.01;
     audio.playsInline = true;
@@ -228,7 +276,6 @@ function initAudioUnlockOverlay() {
     overlay.addEventListener('click', async () => {
       debugLog('[Audio] オーバーレイがクリックされました', 'info');
       
-      // iOSでスピーカーから音を出すためのアンロック
       await unlockAudioForIOS();
       
       audioUnlocked = true;
@@ -761,10 +808,38 @@ function updateSpeakerList(speakers) {
 }
 
 // --------------------------------------------
-// Agora音声通話（登壇者用） - Liveモード Host
+// Agora共通イベントリスナー設定
+// --------------------------------------------
+function setupAgoraEventListeners() {
+  if (!agoraClient) return;
+
+  agoraClient.on('user-published', async (user, mediaType) => {
+    if (mediaType === 'audio') {
+      await agoraClient.subscribe(user, mediaType);
+      user.audioTrack?.play();
+      remoteUsers.set(user.uid, user);
+      debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
+    }
+  });
+
+  agoraClient.on('user-unpublished', (user, mediaType) => {
+    if (mediaType === 'audio') {
+      remoteUsers.delete(user.uid);
+      debugLog(`[Agora] ${user.uid} の音声が停止`, 'info');
+    }
+  });
+
+  agoraClient.on('user-left', (user) => {
+    remoteUsers.delete(user.uid);
+    debugLog(`[Agora] ${user.uid} が退出`, 'info');
+  });
+}
+
+// --------------------------------------------
+// Agora音声通話（登壇者用）
 // --------------------------------------------
 async function joinAgoraChannel() {
-  debugLog('[Agora] チャンネル参加開始（登壇者: Hostモード）...', 'info');
+  debugLog(`[Agora] チャンネル参加開始（登壇者, mode=${agoraMode}）...`, 'info');
 
   try {
     const AgoraRTC = window.AgoraRTC;
@@ -773,51 +848,31 @@ async function joinAgoraChannel() {
       return;
     }
 
-    // Liveモードでクライアント作成
     agoraClient = AgoraRTC.createClient({ 
-      mode: 'live', 
+      mode: agoraMode, 
       codec: 'vp8' 
     });
 
-    // イベントリスナー設定
-    agoraClient.on('user-published', async (user, mediaType) => {
-      if (mediaType === 'audio') {
-        await agoraClient.subscribe(user, mediaType);
-        user.audioTrack?.play();
-        remoteUsers.set(user.uid, user);
-        debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
-      }
-    });
+    setupAgoraEventListeners();
 
-    agoraClient.on('user-unpublished', (user, mediaType) => {
-      if (mediaType === 'audio') {
-        remoteUsers.delete(user.uid);
-        debugLog(`[Agora] ${user.uid} の音声が停止`, 'info');
-      }
-    });
-
-    agoraClient.on('user-left', (user) => {
-      remoteUsers.delete(user.uid);
-      debugLog(`[Agora] ${user.uid} が退出`, 'info');
-    });
-
-    // 役割を「ホスト（配信者）」に設定（joinの前に設定）
-    await agoraClient.setClientRole('host');
+    // Liveモードの場合のみロール設定
+    if (agoraMode === 'live') {
+      await agoraClient.setClientRole('host');
+    }
 
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
-    debugLog(`[Agora] 登壇者としてチャンネル参加成功: uid=${uid}`, 'success');
+    debugLog(`[Agora] 登壇者としてチャンネル参加成功: uid=${uid}, mode=${agoraMode}`, 'success');
 
     // 音楽用高音質設定
-    // ※注意: AEC OFFのため、登壇者はイヤホン必須（ハウリング防止）
     localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
       encoderConfig: 'high_quality_stereo',
-      ANS: false,  // ノイズ除去OFF（BGMや動画の音を通す）
-      AEC: false,  // エコーキャンセルOFF（音質優先）
-      AGC: false   // 自動音量調整OFF
+      ANS: false,
+      AEC: false,
+      AGC: false
     });
     
     await agoraClient.publish([localAudioTrack]);
-    debugLog('[Agora] 音声配信開始（Live Host, high_quality_stereo）', 'success');
+    debugLog(`[Agora] 音声配信開始（${agoraMode}, high_quality_stereo）`, 'success');
 
     isAgoraJoinedAsListener = false;
 
@@ -828,12 +883,12 @@ async function joinAgoraChannel() {
 }
 
 // --------------------------------------------
-// Agora音声受信（視聴者用） - Liveモード Audience
+// Agora音声受信（視聴者用）
 // --------------------------------------------
 async function joinAgoraAsListener() {
   if (isAgoraJoinedAsListener || isSpeaker) return;
 
-  debugLog('[Agora] チャンネル参加開始（視聴者: Audienceモード）...', 'info');
+  debugLog(`[Agora] チャンネル参加開始（視聴者, mode=${agoraMode}）...`, 'info');
 
   try {
     const AgoraRTC = window.AgoraRTC;
@@ -842,39 +897,20 @@ async function joinAgoraAsListener() {
       return;
     }
 
-    // Liveモードでクライアント作成
     agoraClient = AgoraRTC.createClient({ 
-      mode: 'live', 
+      mode: agoraMode, 
       codec: 'vp8' 
     });
 
-    // イベントリスナー設定
-    agoraClient.on('user-published', async (user, mediaType) => {
-      if (mediaType === 'audio') {
-        await agoraClient.subscribe(user, mediaType);
-        user.audioTrack?.play();
-        remoteUsers.set(user.uid, user);
-        debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
-      }
-    });
+    setupAgoraEventListeners();
 
-    agoraClient.on('user-unpublished', (user, mediaType) => {
-      if (mediaType === 'audio') {
-        remoteUsers.delete(user.uid);
-        debugLog(`[Agora] ${user.uid} の音声が停止`, 'info');
-      }
-    });
-
-    agoraClient.on('user-left', (user) => {
-      remoteUsers.delete(user.uid);
-      debugLog(`[Agora] ${user.uid} が退出`, 'info');
-    });
-
-    // 役割を「視聴者」に設定（joinの前に設定）
-    await agoraClient.setClientRole('audience');
+    // Liveモードの場合のみロール設定
+    if (agoraMode === 'live') {
+      await agoraClient.setClientRole('audience');
+    }
 
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
-    debugLog(`[Agora] 視聴者としてチャンネル参加成功: uid=${uid}`, 'success');
+    debugLog(`[Agora] 視聴者としてチャンネル参加成功: uid=${uid}, mode=${agoraMode}`, 'success');
 
     isAgoraJoinedAsListener = true;
 

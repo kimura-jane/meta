@@ -738,6 +738,16 @@ async function joinAgoraChannel() {
       if (mediaType === 'audio') {
         await agoraClient.subscribe(user, mediaType);
         user.audioTrack?.play();
+        
+        // iOSでスピーカーから音を出す
+        try {
+          if (user.audioTrack && user.audioTrack.setPlaybackDevice) {
+            await user.audioTrack.setPlaybackDevice('speakerphone');
+          }
+        } catch (e) {
+          debugLog('[Agora] スピーカー設定スキップ', 'info');
+        }
+        
         remoteUsers.set(user.uid, user);
         debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
       }
@@ -799,6 +809,13 @@ async function joinAgoraAsListener() {
       return;
     }
 
+    // iOSでスピーカーから音を出す設定
+    try {
+      AgoraRTC.setParameter('AUDIO_PLAYOUT_DEVICE', 'speakerphone');
+    } catch (e) {
+      debugLog('[Agora] スピーカー設定パラメータスキップ', 'info');
+    }
+
     agoraClient = AgoraRTC.createClient({ 
       mode: 'rtc', 
       codec: 'vp8' 
@@ -808,6 +825,16 @@ async function joinAgoraAsListener() {
       if (mediaType === 'audio') {
         await agoraClient.subscribe(user, mediaType);
         user.audioTrack?.play();
+        
+        // iOSでスピーカーから音を出す
+        try {
+          if (user.audioTrack && user.audioTrack.setPlaybackDevice) {
+            await user.audioTrack.setPlaybackDevice('speakerphone');
+          }
+        } catch (e) {
+          debugLog('[Agora] スピーカー設定スキップ', 'info');
+        }
+        
         remoteUsers.set(user.uid, user);
         debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
       }

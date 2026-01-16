@@ -2,6 +2,8 @@
 // ✅ 主催者判定はサーバ結果だけで確定する（ローカル照合しない）
 // ✅ connection.js から setHostAuthResult(ok, reason) が呼ばれる想定
 
+import { getAgoraMode, setAgoraMode } from './connection.js';
+
 const STAGE_BACKGROUNDS = [
   { name: 'デフォルト', file: 'IMG_3206.jpeg', isRoot: true },
   { name: 'IMG_0967', file: 'IMG_0967.png' },
@@ -109,6 +111,9 @@ function setHostModeUI(enabled) {
   } else {
     document.body.classList.remove('host-mode');
   }
+
+  // 音声モード表示を更新
+  updateAgoraModeUI();
 }
 
 // 秘密会議モードのUI更新（外部から呼ばれる）
@@ -122,6 +127,27 @@ function setSecretModeUI(enabled) {
   if (statusText) {
     statusText.textContent = currentSecretMode ? '🔒 ON' : '🔓 OFF';
     statusText.style.color = currentSecretMode ? '#ff6666' : '#66ff66';
+  }
+}
+
+// 音声モードUI更新
+function updateAgoraModeUI() {
+  const modeText = document.getElementById('agora-mode-text');
+  const modeBtn = document.getElementById('agora-mode-btn');
+  
+  if (!modeText || !modeBtn) return;
+  
+  const mode = getAgoraMode();
+  if (mode === 'rtc') {
+    modeText.textContent = '📞 通話モード';
+    modeText.style.color = '#66ffff';
+    modeBtn.textContent = '配信モードに切替';
+    modeBtn.style.background = 'linear-gradient(135deg, #ff6600 0%, #ff9900 100%)';
+  } else {
+    modeText.textContent = '📡 配信モード';
+    modeText.style.color = '#ff9900';
+    modeBtn.textContent = '通話モードに切替';
+    modeBtn.style.background = 'linear-gradient(135deg, #0066ff 0%, #00ccff 100%)';
   }
 }
 
@@ -390,6 +416,26 @@ function createSettingsUI() {
           <span style="color:#ffaa00; font-weight:bold;">👑 主催者モード有効</span>
         </div>
 
+        <div style="margin-bottom: 15px; padding:12px; background:rgba(0,100,255,0.1); border:1px solid rgba(100,200,255,0.3); border-radius:8px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+            <span style="font-size:14px; font-weight:bold; color:#66ccff;">🔊 音声モード</span>
+            <span id="agora-mode-text" style="font-size:12px;">📞 通話モード</span>
+          </div>
+          <div style="font-size:11px; color:#aaa; margin-bottom:10px;">
+            通話: 双方向会話向け / 配信: 一方向配信向け（大人数対応）
+          </div>
+          <button id="agora-mode-btn" style="
+            width:100%;
+            padding:8px;
+            border:none;
+            border-radius:4px;
+            color:white;
+            font-weight:bold;
+            cursor:pointer;
+            transition: all 0.3s ease;
+          ">配信モードに切替</button>
+        </div>
+
         <div style="margin-bottom: 15px; padding:12px; background:rgba(255,0,0,0.1); border:1px solid rgba(255,100,100,0.3); border-radius:8px;">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
             <span style="font-size:14px; font-weight:bold; color:#ff6666;">🔒 秘密会議モード</span>
@@ -534,6 +580,8 @@ function createSettingsUI() {
     overlay.style.display = 'block';
     panel.style.right = '0';
     if (nameTagLayer) nameTagLayer.style.display = 'none';
+    // 設定パネルを開いた時に音声モードUIを更新
+    updateAgoraModeUI();
   };
 
   overlay.onclick = () => {
@@ -617,6 +665,18 @@ function createSettingsUI() {
     showNotification('ログアウトしました', 'info');
   };
 
+  // --- 音声モード切り替え
+  document.getElementById('agora-mode-btn').onclick = () => {
+    const currentMode = getAgoraMode();
+    const newMode = currentMode === 'rtc' ? 'live' : 'rtc';
+    
+    setAgoraMode(newMode);
+    updateAgoraModeUI();
+    
+    const modeName = newMode === 'rtc' ? '通話モード' : '配信モード';
+    showNotification(`${modeName}に切り替えました`, 'success');
+  };
+
   // --- 秘密会議モード
   document.getElementById('secret-mode-toggle').onchange = (e) => {
     const enabled = e.target.checked;
@@ -666,6 +726,9 @@ function createSettingsUI() {
   document.head.appendChild(style);
 
   setHostModeUI(false);
+  
+  // 初期表示時に音声モードUIを設定
+  updateAgoraModeUI();
 }
 
 // main.js 経由のボタンに繋ぐ
@@ -690,5 +753,6 @@ export {
   updateUserCount,
   isHostMode,
   setHostAuthResult,
-  setSecretModeUI
+  setSecretModeUI,
+  updateAgoraModeUI
 };

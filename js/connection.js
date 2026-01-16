@@ -61,6 +61,9 @@ let audioUnlocked = false;
 // ピン留め
 let pinnedComment = null;
 
+// beforeunload重複登録防止
+let beforeUnloadRegistered = false;
+
 function canAccessContent() {
   return !secretMode || isAuthed;
 }
@@ -214,6 +217,21 @@ function initAudioUnlockOverlay() {
 }
 
 // --------------------------------------------
+// beforeunload設定
+// --------------------------------------------
+function setupBeforeUnload() {
+  if (beforeUnloadRegistered) return;
+  beforeUnloadRegistered = true;
+  
+  window.addEventListener('beforeunload', () => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'leave' }));
+      socket.close(1000, 'page unload');
+    }
+  });
+}
+
+// --------------------------------------------
 // PartyKit接続
 // --------------------------------------------
 export function connectToPartyKit(userName) {
@@ -253,6 +271,7 @@ export function connectToPartyKit(userName) {
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
 
     initAudioUnlockOverlay();
+    setupBeforeUnload();
 
     debugLog('[Connection] requestInit 送信', 'info');
     safeSend({ type: 'requestInit', userName: currentUserName });
@@ -738,6 +757,16 @@ async function joinAgoraChannel() {
       if (mediaType === 'audio') {
         await agoraClient.subscribe(user, mediaType);
         user.audioTrack?.play();
+        
+        // iOSでスピーカーから音を出す
+        try {
+          if (user.audioTrack && user.audioTrack.setPlaybackDevice) {
+            await user.audioTrack.setPlaybackDevice('speakerphone');
+          }
+        } catch (e) {
+          // 非対応デバイスでは無視
+        }
+        
         remoteUsers.set(user.uid, user);
         debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
       }
@@ -758,16 +787,16 @@ async function joinAgoraChannel() {
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
     debugLog(`[Agora] チャンネル参加成功: uid=${uid}`, 'success');
 
-    // 音楽用高音質設定（192kbps、ノイズ除去OFF、エコーキャンセルON）
+    // 音楽用高音質設定（192kbps）- AEC OFF、セルフモニタリングなし
     localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
       encoderConfig: 'music_high_quality_stereo',
       ANS: false,  // ノイズ除去OFF（BGMや動画の音を通す）
-      AEC: true,   // エコーキャンセルON（ハウリング防止）
+      AEC: false,  // エコーキャンセルOFF（音質優先、イヤホン必須）
       AGC: false   // 自動音量調整OFF（音量が勝手に変わらない）
     });
     
     await agoraClient.publish([localAudioTrack]);
-    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps）', 'success');
+    debugLog('[Agora] 音声配信開始（music_high_quality_stereo, 192kbps, AEC OFF）', 'success');
 
     isAgoraJoinedAsListener = false;
 
@@ -792,6 +821,13 @@ async function joinAgoraAsListener() {
       return;
     }
 
+    // iOSでスピーカーから音を出す設定
+    try {
+      AgoraRTC.setParameter('AUDIO_PLAYOUT_DEVICE', 'speakerphone');
+    } catch (e) {
+      // 非対応の場合は無視
+    }
+
     agoraClient = AgoraRTC.createClient({ 
       mode: 'rtc', 
       codec: 'vp8' 
@@ -801,6 +837,16 @@ async function joinAgoraAsListener() {
       if (mediaType === 'audio') {
         await agoraClient.subscribe(user, mediaType);
         user.audioTrack?.play();
+        
+        // iOSでスピーカーから音を出す
+        try {
+          if (user.audioTrack && user.audioTrack.setPlaybackDevice) {
+            await user.audioTrack.setPlaybackDevice('speakerphone');
+          }
+        } catch (e) {
+          // 非対応デバイスでは無視
+        }
+        
         remoteUsers.set(user.uid, user);
         debugLog(`[Agora] ${user.uid} の音声を受信開始`, 'success');
       }

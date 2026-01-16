@@ -277,6 +277,8 @@ function showAudioUnlockOverlay() {
   const overlay = document.getElementById('audio-unlock-overlay');
   if (overlay) {
     overlay.classList.add('show');
+    overlay.style.pointerEvents = 'auto';
+    overlay.style.zIndex = '9999';
     debugLog('[Audio] タップして視聴オーバーレイを表示', 'info');
   }
 }
@@ -285,6 +287,7 @@ function hideAudioUnlockOverlay() {
   const overlay = document.getElementById('audio-unlock-overlay');
   if (overlay) {
     overlay.classList.remove('show');
+    overlay.style.pointerEvents = 'none';
     debugLog('[Audio] タップして視聴オーバーレイを非表示', 'info');
   }
 }
@@ -293,8 +296,29 @@ function initAudioUnlockOverlay() {
   const overlay = document.getElementById('audio-unlock-overlay');
   if (overlay && !overlay.dataset.initialized) {
     overlay.dataset.initialized = 'true';
-    overlay.addEventListener('click', async () => {
+    
+    // スタイルを確実に設定
+    overlay.style.cursor = 'pointer';
+    
+    overlay.addEventListener('click', async (e) => {
+      e.stopPropagation();
       debugLog('[Audio] オーバーレイがクリックされました', 'info');
+      
+      await unlockAudioForIOS();
+      
+      audioUnlocked = true;
+      hideAudioUnlockOverlay();
+      
+      if (speakerCount > 0 && !isSpeaker && !isAgoraJoinedAsListener) {
+        joinAgoraAsListener();
+      }
+    });
+    
+    // タッチイベントも追加（iOS対応）
+    overlay.addEventListener('touchend', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      debugLog('[Audio] オーバーレイがタッチされました', 'info');
       
       await unlockAudioForIOS();
       
@@ -828,7 +852,7 @@ function updateSpeakerList(speakers) {
 }
 
 // --------------------------------------------
-// Agora共通イベントリスナー設定（Web Audio API版）
+// Agora共通イベントリスナー設定（Web Audio API版・音量増幅付き）
 // --------------------------------------------
 function setupAgoraEventListeners() {
   if (!agoraClient) return;
@@ -841,32 +865,33 @@ function setupAgoraEventListeners() {
       if (audioTrack) {
         let playedViaWebAudio = false;
         
-        // Web Audio API経由で再生を試みる（スピーカー出力を強制）
+        // Web Audio API経由で再生を試みる（スピーカー出力を強制 + 音量増幅）
         try {
-          // AudioContextがなければ作成
           if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
           }
           
-          // suspendedならresumeする
           if (audioContext.state === 'suspended') {
             await audioContext.resume();
           }
           
-          // Agoraのトラックから MediaStreamTrack を取得
           const mediaStreamTrack = audioTrack.getMediaStreamTrack();
           if (mediaStreamTrack) {
             const mediaStream = new MediaStream([mediaStreamTrack]);
             const source = audioContext.createMediaStreamSource(mediaStream);
             
-            // 出力先に接続
-            source.connect(audioContext.destination);
+            // 音量を上げるためのGainNode追加
+            const gainNode = audioContext.createGain();
+            gainNode.gain.value = 5.0;  // 5倍に増幅
             
-            // userに紐づけて後で管理できるようにする
+            source.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
             user._webAudioSource = source;
+            user._webAudioGain = gainNode;
             
             playedViaWebAudio = true;
-            debugLog(`[Agora] ${user.uid} Web Audio API経由で再生開始`, 'success');
+            debugLog(`[Agora] ${user.uid} Web Audio API経由で再生開始（音量5倍）`, 'success');
           }
         } catch (e) {
           debugLog(`[Agora] Web Audio API経由失敗: ${e?.message}`, 'warn');
@@ -895,7 +920,6 @@ function setupAgoraEventListeners() {
             }
           } catch (e2) {
             debugLog(`[Agora] audio要素経由も失敗、通常再生へ: ${e2?.message}`, 'warn');
-            // 最終フォールバック：Agoraのデフォルト再生
             audioTrack.play();
           }
         }
@@ -914,6 +938,12 @@ function setupAgoraEventListeners() {
           user._webAudioSource.disconnect();
         } catch (_) {}
         user._webAudioSource = null;
+      }
+      if (user._webAudioGain) {
+        try {
+          user._webAudioGain.disconnect();
+        } catch (_) {}
+        user._webAudioGain = null;
       }
       if (user._audioElement) {
         try {
@@ -934,6 +964,11 @@ function setupAgoraEventListeners() {
     if (user._webAudioSource) {
       try {
         user._webAudioSource.disconnect();
+      } catch (_) {}
+    }
+    if (user._webAudioGain) {
+      try {
+        user._webAudioGain.disconnect();
       } catch (_) {}
     }
     if (user._audioElement) {
@@ -1052,6 +1087,11 @@ async function leaveAgoraChannel() {
       if (user._webAudioSource) {
         try {
           user._webAudioSource.disconnect();
+        } catch (_) {}
+      }
+      if (user._webAudioGain) {
+        try {
+          user._webAudioGain.disconnect();
         } catch (_) {}
       }
       if (user._audioElement) {

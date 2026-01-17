@@ -2,7 +2,7 @@
 // ✅ 主催者判定はサーバ結果だけで確定する（ローカル照合しない）
 // ✅ connection.js から setHostAuthResult(ok, reason) が呼ばれる想定
 
-import { getAgoraMode, setAgoraMode } from './connection.js';
+import { getAgoraMode, setAgoraMode, setDebugEnabled, getDebugEnabled } from './connection.js';
 
 const STAGE_BACKGROUNDS = [
   { name: 'デフォルト', file: 'IMG_3206.jpeg', isRoot: true },
@@ -76,7 +76,6 @@ function isHostMode() {
 }
 
 // ✅ connection.js から呼ばれて主催者状態を確定する
-// ※ 通知はmain.js側で出すので、ここでは出さない
 function setHostAuthResult(ok, reason = '') {
   hostLoginPending = false;
   setHostModeUI(!!ok);
@@ -105,18 +104,17 @@ function setHostModeUI(enabled) {
     if (pw) pw.value = '';
   }
 
-  // bodyクラスの更新（ピン留めボタン表示用）
   if (isHost) {
     document.body.classList.add('host-mode');
   } else {
     document.body.classList.remove('host-mode');
   }
 
-  // 音声モード表示を更新
   updateAgoraModeUI();
+  updateDebugToggleUI();
 }
 
-// 秘密会議モードのUI更新（外部から呼ばれる）
+// 秘密会議モードのUI更新
 function setSecretModeUI(enabled) {
   currentSecretMode = !!enabled;
   const toggle = document.getElementById('secret-mode-toggle');
@@ -132,22 +130,18 @@ function setSecretModeUI(enabled) {
 
 // 音声モードUI更新
 function updateAgoraModeUI() {
-  const modeText = document.getElementById('agora-mode-text');
-  const modeBtn = document.getElementById('agora-mode-btn');
-  
-  if (!modeText || !modeBtn) return;
+  const modeSelect = document.getElementById('agora-mode-select');
+  if (!modeSelect) return;
   
   const mode = getAgoraMode();
-  if (mode === 'rtc') {
-    modeText.textContent = '📞 通話モード';
-    modeText.style.color = '#66ffff';
-    modeBtn.textContent = '配信モードに切替';
-    modeBtn.style.background = 'linear-gradient(135deg, #ff6600 0%, #ff9900 100%)';
-  } else {
-    modeText.textContent = '📡 配信モード';
-    modeText.style.color = '#ff9900';
-    modeBtn.textContent = '通話モードに切替';
-    modeBtn.style.background = 'linear-gradient(135deg, #0066ff 0%, #00ccff 100%)';
+  modeSelect.value = mode;
+}
+
+// デバッグ表示UI更新
+function updateDebugToggleUI() {
+  const toggle = document.getElementById('debug-toggle');
+  if (toggle) {
+    toggle.checked = getDebugEnabled();
   }
 }
 
@@ -405,10 +399,6 @@ function createSettingsUI() {
           font-weight:bold;
           cursor:pointer;
         ">認証</button>
-
-        <div style="margin-top:8px; font-size:11px; color:#aaa; line-height:1.4;">
-          ※ 認証の合否はサーバ判定です（この端末だけで主催者化しません）
-        </div>
       </div>
 
       <div id="host-controls" style="display:none;">
@@ -416,36 +406,44 @@ function createSettingsUI() {
           <span style="color:#ffaa00; font-weight:bold;">👑 主催者モード有効</span>
         </div>
 
+        <!-- 音声モード -->
         <div style="margin-bottom: 15px; padding:12px; background:rgba(0,100,255,0.1); border:1px solid rgba(100,200,255,0.3); border-radius:8px;">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-            <span style="font-size:14px; font-weight:bold; color:#66ccff;">🔊 音声モード</span>
-            <span id="agora-mode-text" style="font-size:12px;">📞 通話モード</span>
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:13px; color:#66ccff;">🔊 音声モード</span>
+            <select id="agora-mode-select" style="
+              padding:6px 12px;
+              background: rgba(255,255,255,0.1);
+              border: 1px solid rgba(255,255,255,0.3);
+              border-radius:4px;
+              color:white;
+              font-size:13px;
+              cursor:pointer;
+            ">
+              <option value="rtc" style="background:#222;">📞 通話</option>
+              <option value="live" style="background:#222;">📡 配信</option>
+            </select>
           </div>
-          <div style="font-size:11px; color:#aaa; margin-bottom:10px;">
-            通話: 双方向会話向け / 配信: 一方向配信向け（大人数対応）
-          </div>
-          <button id="agora-mode-btn" style="
-            width:100%;
-            padding:8px;
-            border:none;
-            border-radius:4px;
-            color:white;
-            font-weight:bold;
-            cursor:pointer;
-            transition: all 0.3s ease;
-          ">配信モードに切替</button>
         </div>
 
+        <!-- デバッグ表示 -->
+        <div style="margin-bottom: 15px; padding:12px; background:rgba(0,255,0,0.05); border:1px solid rgba(0,255,0,0.2); border-radius:8px;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:13px; color:#66ff66;">🐛 デバッグ表示</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="debug-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 秘密会議モード -->
         <div style="margin-bottom: 15px; padding:12px; background:rgba(255,0,0,0.1); border:1px solid rgba(255,100,100,0.3); border-radius:8px;">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-            <span style="font-size:14px; font-weight:bold; color:#ff6666;">🔒 秘密会議モード</span>
+            <span style="font-size:13px; color:#ff6666;">🔒 秘密会議モード</span>
             <span id="secret-mode-status" style="font-size:12px; color:#66ff66;">🔓 OFF</span>
           </div>
-          <div style="font-size:11px; color:#aaa; margin-bottom:10px;">
-            ONにすると全員がログアウトされ、入室パスワードが必要になります
-          </div>
           <div style="display:flex; align-items:center; justify-content:space-between;">
-            <span style="font-size:12px; color:#ccc;">有効にする</span>
+            <span style="font-size:11px; color:#aaa;">有効にする</span>
             <label class="toggle-switch">
               <input type="checkbox" id="secret-mode-toggle">
               <span class="toggle-slider"></span>
@@ -457,7 +455,7 @@ function createSettingsUI() {
           <label style="font-size:12px; color:#aaa;">🔆 部屋の明るさ</label>
           <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
             <input type="range" id="brightness-slider" min="0" max="200" value="60" style="flex:1;">
-            <span id="brightness-value" style="width:80px; text-align:center; font-size:14px; color:#66ffff; background: rgba(102,255,255,0.1); padding:4px 8px; border-radius:4px;">60%</span>
+            <span id="brightness-value" style="width:50px; text-align:center; font-size:13px; color:#66ffff;">60%</span>
           </div>
         </div>
 
@@ -468,14 +466,14 @@ function createSettingsUI() {
 
         <div style="margin-bottom: 15px;">
           <label style="font-size:12px; color:#aaa;">📋 登壇リクエスト</label>
-          <div id="speak-requests-list" style="margin-top:8px; max-height:150px; overflow-y:auto;">
+          <div id="speak-requests-list" style="margin-top:8px; max-height:120px; overflow-y:auto;">
             <div style="color:#888; font-size:12px;">リクエストなし</div>
           </div>
         </div>
 
         <div style="margin-bottom: 15px;">
           <label style="font-size:12px; color:#aaa;">🎤 現在の登壇者</label>
-          <div id="current-speakers-list" style="margin-top:8px; max-height:150px; overflow-y:auto;">
+          <div id="current-speakers-list" style="margin-top:8px; max-height:120px; overflow-y:auto;">
             <div style="color:#888; font-size:12px;">登壇者なし</div>
           </div>
         </div>
@@ -573,15 +571,15 @@ function createSettingsUI() {
     bgSelection.appendChild(bgOption);
   });
 
-  // --- 開閉（名前タグの表示/非表示も制御）
+  // --- 開閉
   const nameTagLayer = document.getElementById('name-tag-layer');
 
   settingsBtn.onclick = () => {
     overlay.style.display = 'block';
     panel.style.right = '0';
     if (nameTagLayer) nameTagLayer.style.display = 'none';
-    // 設定パネルを開いた時に音声モードUIを更新
     updateAgoraModeUI();
+    updateDebugToggleUI();
   };
 
   overlay.onclick = () => {
@@ -665,16 +663,17 @@ function createSettingsUI() {
     showNotification('ログアウトしました', 'info');
   };
 
-  // --- 音声モード切り替え
-  document.getElementById('agora-mode-btn').onclick = () => {
-    const currentMode = getAgoraMode();
-    const newMode = currentMode === 'rtc' ? 'live' : 'rtc';
-    
+  // --- 音声モード切り替え（セレクトボックス）
+  document.getElementById('agora-mode-select').onchange = (e) => {
+    const newMode = e.target.value;
     setAgoraMode(newMode);
-    updateAgoraModeUI();
-    
     const modeName = newMode === 'rtc' ? '通話モード' : '配信モード';
     showNotification(`${modeName}に切り替えました`, 'success');
+  };
+
+  // --- デバッグ表示切り替え
+  document.getElementById('debug-toggle').onchange = (e) => {
+    setDebugEnabled(e.target.checked);
   };
 
   // --- 秘密会議モード
@@ -722,12 +721,11 @@ function createSettingsUI() {
     .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
     .avatar-option:hover { transform: scale(1.05); box-shadow: 0 0 10px rgba(255,102,255,0.5); }
     .bg-option:hover { transform: scale(1.05); box-shadow: 0 0 10px rgba(102,255,255,0.5); }
+    #agora-mode-select option { background: #222; }
   `;
   document.head.appendChild(style);
 
   setHostModeUI(false);
-  
-  // 初期表示時に音声モードUIを設定
   updateAgoraModeUI();
 }
 

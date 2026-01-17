@@ -73,6 +73,7 @@ let beforeUnloadRegistered = false;
 // デバッグパネル
 let debugPanel = null;
 let debugModeDisplay = null;
+let debugEnabled = false;
 
 function canAccessContent() {
   return !secretMode || isAuthed;
@@ -140,7 +141,7 @@ export function getEmojiCategories() {
 }
 
 // --------------------------------------------
-// 主催者用デバッグパネル（右上配置）
+// 主催者用デバッグパネル（右上配置・表示切替可能）
 // --------------------------------------------
 function createDebugPanel() {
   if (debugPanel) return;
@@ -185,15 +186,34 @@ function createDebugPanel() {
 
 function updateModeDisplay() {
   if (!debugModeDisplay) return;
-  const modeText = agoraMode === 'rtc' ? '📞 通話モード (RTC)' : '📡 配信モード (Live)';
+  const modeText = agoraMode === 'rtc' ? '📞 通話' : '📡 配信';
   const color = agoraMode === 'rtc' ? '#0ff' : '#f0f';
   debugModeDisplay.innerHTML = `<span style="color:${color}">${modeText}</span>`;
 }
 
+// デバッグ表示ON/OFF（settings.jsから呼ばれる）
+export function setDebugEnabled(enabled) {
+  debugEnabled = enabled;
+  if (!debugPanel) createDebugPanel();
+  
+  if (enabled && hostAuthed) {
+    debugPanel.style.display = 'block';
+    updateModeDisplay();
+  } else {
+    debugPanel.style.display = 'none';
+  }
+}
+
+export function getDebugEnabled() {
+  return debugEnabled;
+}
+
 function showDebugPanel() {
   if (!debugPanel) createDebugPanel();
-  debugPanel.style.display = 'block';
-  updateModeDisplay();
+  if (debugEnabled && hostAuthed) {
+    debugPanel.style.display = 'block';
+    updateModeDisplay();
+  }
 }
 
 function hideDebugPanel() {
@@ -203,7 +223,7 @@ function hideDebugPanel() {
 function hostDebugLog(message, type = 'info') {
   console.log(`[${type}] ${message}`);
   
-  if (!hostAuthed || !debugPanel) return;
+  if (!debugEnabled || !hostAuthed || !debugPanel) return;
   
   const colors = {
     info: '#0ff',
@@ -224,8 +244,7 @@ function hostDebugLog(message, type = 'info') {
   debugPanel.appendChild(line);
   debugPanel.scrollTop = debugPanel.scrollHeight;
   
-  // 最大50行まで
-  while (debugPanel.children.length > 51) { // モード表示 + 50行
+  while (debugPanel.children.length > 51) {
     debugPanel.removeChild(debugPanel.children[1]);
   }
 }
@@ -245,7 +264,6 @@ export function setAgoraMode(mode) {
   
   const oldMode = agoraMode;
   if (oldMode === mode) {
-    hostDebugLog(`モード変更なし: ${mode}`, 'info');
     return true;
   }
   
@@ -256,17 +274,15 @@ export function setAgoraMode(mode) {
   agoraMode = mode;
   localStorage.setItem('agoraMode', mode);
   
-  // デバッグ表示更新
   updateModeDisplay();
-  hostDebugLog(`モード変更: ${oldMode} → ${mode}`, 'success');
+  hostDebugLog(`モード: ${oldMode} → ${mode}`, 'success');
   
   if (callbacks.onAgoraModeChange) {
     callbacks.onAgoraModeChange(mode);
   }
   
-  // チャンネルに参加中なら再接続
   if (wasInChannel) {
-    hostDebugLog('モード変更のため再接続...', 'info');
+    hostDebugLog('再接続中...', 'info');
     leaveAgoraChannel().then(() => {
       if (wasSpeaker) {
         joinAgoraChannel();
@@ -339,31 +355,29 @@ function safeSend(obj) {
 }
 
 // --------------------------------------------
-// iOS音声アンロック（シンプル版 - getUserMedia削除）
+// iOS音声アンロック（超シンプル版）
 // --------------------------------------------
 async function unlockAudioForIOS() {
   hostDebugLog('音声アンロック開始', 'info');
   
   try {
-    // AudioContextの初期化
+    // AudioContextの初期化のみ
     if (!audioContext) {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      hostDebugLog('AudioContext作成', 'info');
     }
     
     if (audioContext.state === 'suspended') {
       await audioContext.resume();
-      hostDebugLog('AudioContext再開', 'success');
     }
     
-    // ダミー音声の再生でアンロック
-    const audio = new Audio();
-    audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-    audio.volume = 0.01;
-    audio.playsInline = true;
-    
-    await audio.play();
-    audio.pause();
+    // 無音を鳴らすだけ
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = 0;
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.001);
     
     hostDebugLog('音声アンロック完了', 'success');
     return true;
@@ -384,7 +398,6 @@ function showAudioUnlockOverlay() {
     return;
   }
   
-  // スタイルを直接設定（CSSを上書き）
   overlay.style.cssText = `
     display: flex !important;
     position: fixed !important;
@@ -428,8 +441,6 @@ function initAudioUnlockOverlay() {
   }
   
   overlayInitialized = true;
-  
-  // 初期状態は非表示
   overlay.style.display = 'none';
   
   const handleTap = async (e) => {
@@ -445,16 +456,14 @@ function initAudioUnlockOverlay() {
     hideAudioUnlockOverlay();
     
     if (speakerCount > 0 && !isSpeaker && !isAgoraJoinedAsListener) {
-      hostDebugLog('視聴者としてAgora参加', 'info');
+      hostDebugLog('視聴者参加開始', 'info');
       joinAgoraAsListener();
     }
   };
   
-  // イベントリスナー登録
   overlay.addEventListener('click', handleTap, true);
   overlay.addEventListener('touchend', handleTap, { capture: true, passive: false });
   
-  // 内部コンテンツにも
   const content = overlay.querySelector('.audio-unlock-content');
   if (content) {
     content.addEventListener('click', handleTap, true);
@@ -507,7 +516,7 @@ export function connectToPartyKit(userName) {
   try {
     socket = new WebSocket(wsUrl);
   } catch (e) {
-    hostDebugLog(`WS作成エラー: ${e?.message}`, 'error');
+    hostDebugLog(`WS作成エラー`, 'error');
     scheduleReconnect();
     return;
   }
@@ -515,7 +524,7 @@ export function connectToPartyKit(userName) {
   socket.onopen = () => {
     connected = true;
     reconnectAttempt = 0;
-    hostDebugLog('PartyKit接続成功', 'success');
+    hostDebugLog('接続成功', 'success');
     if (callbacks.onConnectedChange) callbacks.onConnectedChange(true);
 
     createDebugPanel();
@@ -533,7 +542,7 @@ export function connectToPartyKit(userName) {
       }
       handleServerMessage(data);
     } catch (e) {
-      hostDebugLog(`解析エラー: ${e?.message}`, 'error');
+      hostDebugLog(`解析エラー`, 'error');
     }
   };
 
@@ -700,7 +709,6 @@ function handleServerMessage(data) {
 
       if (ok) {
         showDebugPanel();
-        hostDebugLog(`現在モード: ${agoraMode}`, 'info');
       } else {
         hideDebugPanel();
       }
@@ -866,7 +874,7 @@ function handleServerMessage(data) {
       const speakerJoinedId = data.odUserId || data.userId;
       const speakerJoinedName = data.userName || 'ゲスト';
 
-      hostDebugLog(`登壇者参加: ${speakerJoinedName}`, 'info');
+      hostDebugLog(`登壇者: ${speakerJoinedName}`, 'info');
 
       if (!currentSpeakers.find((s) => s.userId === speakerJoinedId)) {
         currentSpeakers.push({ userId: speakerJoinedId, userName: speakerJoinedName });
@@ -929,7 +937,7 @@ function handleServerMessage(data) {
     }
 
     case 'error': {
-      hostDebugLog(`サーバーエラー: ${data.code || data.message}`, 'error');
+      hostDebugLog(`エラー: ${data.code || data.message}`, 'error');
       break;
     }
 
@@ -944,7 +952,7 @@ function handleServerMessage(data) {
 // --------------------------------------------
 function checkAndShowAudioOverlay() {
   if (speakerCount > 0 && !isSpeaker && !audioUnlocked && !isAgoraJoinedAsListener) {
-    hostDebugLog(`オーバーレイ表示: speakers=${speakerCount}`, 'info');
+    hostDebugLog(`オーバーレイ表示`, 'info');
     showAudioUnlockOverlay();
   }
 }
@@ -1005,13 +1013,12 @@ function setupAgoraEventListeners() {
   agoraClient.on('user-published', async (user, mediaType) => {
     if (mediaType === 'audio') {
       await agoraClient.subscribe(user, mediaType);
-      hostDebugLog(`音声購読: uid=${user.uid}`, 'success');
+      hostDebugLog(`購読: ${user.uid}`, 'success');
       
       const audioTrack = user.audioTrack;
       if (audioTrack) {
         let playedViaWebAudio = false;
         
-        // Web Audio API経由で再生（音量80倍増幅）
         try {
           if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1026,7 +1033,6 @@ function setupAgoraEventListeners() {
             const mediaStream = new MediaStream([mediaStreamTrack]);
             const source = audioContext.createMediaStreamSource(mediaStream);
             
-            // 音量80倍に増幅
             const gainNode = audioContext.createGain();
             gainNode.gain.value = 80.0;
             
@@ -1037,13 +1043,12 @@ function setupAgoraEventListeners() {
             user._webAudioGain = gainNode;
             
             playedViaWebAudio = true;
-            hostDebugLog(`WebAudio再生(80x): ${user.uid}`, 'success');
+            hostDebugLog(`WebAudio(80x): ${user.uid}`, 'success');
           }
         } catch (e) {
-          hostDebugLog(`WebAudio失敗: ${e?.message}`, 'warn');
+          hostDebugLog(`WebAudio失敗`, 'warn');
         }
         
-        // フォールバック
         if (!playedViaWebAudio) {
           try {
             const mediaStreamTrack = audioTrack.getMediaStreamTrack();
@@ -1061,12 +1066,11 @@ function setupAgoraEventListeners() {
               await audioEl.play();
               user._audioElement = audioEl;
               
-              hostDebugLog(`Audio要素再生: ${user.uid}`, 'success');
+              hostDebugLog(`Audio要素: ${user.uid}`, 'success');
             }
           } catch (e2) {
-            hostDebugLog(`Audio要素失敗: ${e2?.message}`, 'warn');
             audioTrack.play();
-            hostDebugLog(`デフォルト再生: ${user.uid}`, 'info');
+            hostDebugLog(`デフォルト: ${user.uid}`, 'info');
           }
         }
       }
@@ -1095,7 +1099,6 @@ function setupAgoraEventListeners() {
       }
       
       remoteUsers.delete(user.uid);
-      hostDebugLog(`音声停止: ${user.uid}`, 'info');
     }
   });
 
@@ -1115,7 +1118,6 @@ function setupAgoraEventListeners() {
     }
     
     remoteUsers.delete(user.uid);
-    hostDebugLog(`退出: ${user.uid}`, 'info');
   });
 }
 
@@ -1123,12 +1125,12 @@ function setupAgoraEventListeners() {
 // Agora音声通話（登壇者用）
 // --------------------------------------------
 async function joinAgoraChannel() {
-  hostDebugLog(`Agora参加(登壇者, ${agoraMode})`, 'info');
+  hostDebugLog(`Agora(登壇者, ${agoraMode})`, 'info');
 
   try {
     const AgoraRTC = window.AgoraRTC;
     if (!AgoraRTC) {
-      hostDebugLog('AgoraRTC未読み込み', 'error');
+      hostDebugLog('SDK未読み込み', 'error');
       return;
     }
 
@@ -1141,11 +1143,10 @@ async function joinAgoraChannel() {
 
     if (agoraMode === 'live') {
       await agoraClient.setClientRole('host');
-      hostDebugLog('ロール: host', 'info');
     }
 
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
-    hostDebugLog(`Agora参加成功: uid=${uid}`, 'success');
+    hostDebugLog(`参加成功: ${uid}`, 'success');
 
     localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
       encoderConfig: 'high_quality_stereo',
@@ -1155,13 +1156,12 @@ async function joinAgoraChannel() {
     });
     
     await agoraClient.publish([localAudioTrack]);
-    hostDebugLog('音声配信開始', 'success');
+    hostDebugLog('配信開始', 'success');
 
     isAgoraJoinedAsListener = false;
 
   } catch (e) {
-    hostDebugLog(`Agoraエラー: ${e?.message}`, 'error');
-    console.error('[Agora] 詳細:', e);
+    hostDebugLog(`エラー: ${e?.message}`, 'error');
   }
 }
 
@@ -1171,12 +1171,12 @@ async function joinAgoraChannel() {
 async function joinAgoraAsListener() {
   if (isAgoraJoinedAsListener || isSpeaker) return;
 
-  hostDebugLog(`Agora参加(視聴者, ${agoraMode})`, 'info');
+  hostDebugLog(`Agora(視聴者, ${agoraMode})`, 'info');
 
   try {
     const AgoraRTC = window.AgoraRTC;
     if (!AgoraRTC) {
-      hostDebugLog('AgoraRTC未読み込み', 'error');
+      hostDebugLog('SDK未読み込み', 'error');
       return;
     }
 
@@ -1189,17 +1189,15 @@ async function joinAgoraAsListener() {
 
     if (agoraMode === 'live') {
       await agoraClient.setClientRole('audience');
-      hostDebugLog('ロール: audience', 'info');
     }
 
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
-    hostDebugLog(`視聴者参加成功: uid=${uid}`, 'success');
+    hostDebugLog(`視聴者参加: ${uid}`, 'success');
 
     isAgoraJoinedAsListener = true;
 
   } catch (e) {
-    hostDebugLog(`視聴者参加エラー: ${e?.message}`, 'error');
-    console.error('[Agora] 詳細:', e);
+    hostDebugLog(`エラー: ${e?.message}`, 'error');
   }
 }
 
@@ -1207,8 +1205,6 @@ async function joinAgoraAsListener() {
 // Agoraチャンネル退出
 // --------------------------------------------
 async function leaveAgoraChannel() {
-  hostDebugLog('Agora退出', 'info');
-
   try {
     if (localAudioTrack) {
       localAudioTrack.stop();
@@ -1239,10 +1235,9 @@ async function leaveAgoraChannel() {
 
     remoteUsers.clear();
     isAgoraJoinedAsListener = false;
-    hostDebugLog('Agora退出完了', 'success');
 
   } catch (e) {
-    hostDebugLog(`退出エラー: ${e?.message}`, 'error');
+    hostDebugLog(`退出エラー`, 'error');
   }
 }
 
@@ -1251,18 +1246,13 @@ async function leaveAgoraChannel() {
 // --------------------------------------------
 export function requestSpeak() {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
-
-  if (!canAccessContent()) {
-    hostDebugLog('未認証', 'warn');
-    return;
-  }
+  if (!canAccessContent()) return;
 
   if (isSpeaker) {
     stopSpeaking();
     return;
   }
 
-  hostDebugLog('登壇リクエスト送信', 'info');
   socket.send(JSON.stringify({ type: 'requestSpeak' }));
 }
 
@@ -1313,7 +1303,6 @@ export function toggleMic() {
     const newEnabled = !localAudioTrack.enabled;
     localAudioTrack.setEnabled(newEnabled);
     isMicMuted = !newEnabled;
-    hostDebugLog(`マイク: ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
     return newEnabled;
   }
   return false;

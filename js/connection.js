@@ -240,31 +240,57 @@ function safeSend(obj) {
 }
 
 // --------------------------------------------
-// iOS音声アンロック用ダミー再生 + AudioContext初期化
+// iOS音声アンロック（AudioSession API対応版）
 // --------------------------------------------
 async function unlockAudioForIOS() {
+  console.log('[Audio] iOS音声アンロック開始');
+  
   try {
-    // ダミー音声再生
+    // 1. AudioSession APIが使える場合（iOS Safari 17+対応）
+    if (navigator.audioSession) {
+      console.log('[Audio] AudioSession API 使用');
+      navigator.audioSession.type = 'auto';
+      
+      // ダミーのgetUserMediaを呼び出してマイク権限を取得
+      try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tempStream.getTracks().forEach(track => track.stop());
+        
+        // play-and-recordモードに設定してスピーカー出力を有効化
+        navigator.audioSession.type = 'play-and-record';
+        console.log('[Audio] AudioSession を play-and-record に設定');
+      } catch (e) {
+        console.log('[Audio] getUserMedia失敗、playbackモードで試行:', e.message);
+        navigator.audioSession.type = 'playback';
+      }
+    }
+    
+    // 2. AudioContextの初期化
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+    console.log(`[Audio] AudioContext初期化完了: state=${audioContext.state}`);
+    
+    // 3. ダミー音声の再生でアンロック
     const audio = new Audio();
     audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
     audio.volume = 0.01;
     audio.playsInline = true;
+    
     await audio.play();
     audio.pause();
     audio.remove();
-    debugLog('[Audio] iOSダミー音声再生成功', 'success');
-
-    // AudioContextを初期化（ユーザージェスチャー内で）
-    if (!audioContext) {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
-    }
-    debugLog(`[Audio] AudioContext初期化完了: state=${audioContext.state}`, 'success');
-
+    
+    console.log('[Audio] iOS音声アンロック完了');
+    debugLog('[Audio] iOS音声アンロック完了', 'success');
     return true;
+    
   } catch (e) {
+    console.error('[Audio] iOS音声アンロック失敗:', e);
     debugLog(`[Audio] iOSスピーカーアンロック失敗: ${e?.message || e}`, 'warn');
     return false;
   }
@@ -279,6 +305,7 @@ function showAudioUnlockOverlay() {
     overlay.classList.add('show');
     overlay.style.pointerEvents = 'auto';
     overlay.style.zIndex = '9999';
+    console.log('[Audio] オーバーレイ表示');
     debugLog('[Audio] タップして視聴オーバーレイを表示', 'info');
   }
 }
@@ -288,6 +315,7 @@ function hideAudioUnlockOverlay() {
   if (overlay) {
     overlay.classList.remove('show');
     overlay.style.pointerEvents = 'none';
+    console.log('[Audio] オーバーレイ非表示');
     debugLog('[Audio] タップして視聴オーバーレイを非表示', 'info');
   }
 }
@@ -300,35 +328,44 @@ function initAudioUnlockOverlay() {
     // スタイルを確実に設定
     overlay.style.cursor = 'pointer';
     
-    overlay.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      debugLog('[Audio] オーバーレイがクリックされました', 'info');
-      
-      await unlockAudioForIOS();
-      
-      audioUnlocked = true;
-      hideAudioUnlockOverlay();
-      
-      if (speakerCount > 0 && !isSpeaker && !isAgoraJoinedAsListener) {
-        joinAgoraAsListener();
-      }
-    });
-    
-    // タッチイベントも追加（iOS対応）
-    overlay.addEventListener('touchend', async (e) => {
+    const handleTap = async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      debugLog('[Audio] オーバーレイがタッチされました', 'info');
       
-      await unlockAudioForIOS();
+      console.log('[Audio] オーバーレイタップ検出');
+      debugLog('[Audio] オーバーレイがタップされました', 'info');
       
-      audioUnlocked = true;
-      hideAudioUnlockOverlay();
+      // 視覚的フィードバック
+      overlay.style.opacity = '0.5';
       
-      if (speakerCount > 0 && !isSpeaker && !isAgoraJoinedAsListener) {
-        joinAgoraAsListener();
+      const success = await unlockAudioForIOS();
+      
+      if (success) {
+        audioUnlocked = true;
+        hideAudioUnlockOverlay();
+        
+        if (speakerCount > 0 && !isSpeaker && !isAgoraJoinedAsListener) {
+          joinAgoraAsListener();
+        }
+      } else {
+        overlay.style.opacity = '1';
       }
-    });
+    };
+    
+    // 複数のイベントタイプでリスン（capture: true でiOS対応）
+    overlay.addEventListener('click', handleTap, { capture: true });
+    overlay.addEventListener('touchend', handleTap, { capture: true, passive: false });
+    
+    // 内部コンテンツにもイベントを追加
+    const content = overlay.querySelector('.audio-unlock-content');
+    if (content) {
+      content.style.cursor = 'pointer';
+      content.addEventListener('click', handleTap, { capture: true });
+      content.addEventListener('touchend', handleTap, { capture: true, passive: false });
+    }
+    
+    console.log('[Audio] オーバーレイイベント登録完了');
+    debugLog('[Audio] オーバーレイイベント登録完了', 'info');
   }
 }
 
@@ -860,6 +897,7 @@ function setupAgoraEventListeners() {
   agoraClient.on('user-published', async (user, mediaType) => {
     if (mediaType === 'audio') {
       await agoraClient.subscribe(user, mediaType);
+      console.log(`[Agora] 音声購読完了: ${user.uid}`);
       
       const audioTrack = user.audioTrack;
       if (audioTrack) {
@@ -880,9 +918,9 @@ function setupAgoraEventListeners() {
             const mediaStream = new MediaStream([mediaStreamTrack]);
             const source = audioContext.createMediaStreamSource(mediaStream);
             
-            // 音量を上げるためのGainNode追加
+            // 音量を上げるためのGainNode追加（20倍に増幅）
             const gainNode = audioContext.createGain();
-            gainNode.gain.value = 5.0;  // 5倍に増幅
+            gainNode.gain.value = 20.0;
             
             source.connect(gainNode);
             gainNode.connect(audioContext.destination);
@@ -891,9 +929,11 @@ function setupAgoraEventListeners() {
             user._webAudioGain = gainNode;
             
             playedViaWebAudio = true;
-            debugLog(`[Agora] ${user.uid} Web Audio API経由で再生開始（音量5倍）`, 'success');
+            console.log(`[Agora] ${user.uid} Web Audio API経由で再生開始（音量20倍）`);
+            debugLog(`[Agora] ${user.uid} Web Audio API経由で再生開始（音量20倍）`, 'success');
           }
         } catch (e) {
+          console.log(`[Agora] Web Audio API経由失敗: ${e?.message}`);
           debugLog(`[Agora] Web Audio API経由失敗: ${e?.message}`, 'warn');
         }
         
@@ -916,9 +956,11 @@ function setupAgoraEventListeners() {
               
               user._audioElement = audioEl;
               
+              console.log(`[Agora] ${user.uid} audio要素経由で再生開始`);
               debugLog(`[Agora] ${user.uid} audio要素経由で再生開始`, 'success');
             }
           } catch (e2) {
+            console.log(`[Agora] audio要素経由も失敗、通常再生へ: ${e2?.message}`);
             debugLog(`[Agora] audio要素経由も失敗、通常再生へ: ${e2?.message}`, 'warn');
             audioTrack.play();
           }
@@ -1010,6 +1052,7 @@ async function joinAgoraChannel() {
     }
 
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
+    console.log(`[Agora] 登壇者としてチャンネル参加成功: uid=${uid}, mode=${agoraMode}`);
     debugLog(`[Agora] 登壇者としてチャンネル参加成功: uid=${uid}, mode=${agoraMode}`, 'success');
 
     // 音楽用高音質設定
@@ -1059,6 +1102,7 @@ async function joinAgoraAsListener() {
     }
 
     const uid = await agoraClient.join(AGORA_APP_ID, AGORA_CHANNEL, null, null);
+    console.log(`[Agora] 視聴者としてチャンネル参加成功: uid=${uid}, mode=${agoraMode}`);
     debugLog(`[Agora] 視聴者としてチャンネル参加成功: uid=${uid}, mode=${agoraMode}`, 'success');
 
     isAgoraJoinedAsListener = true;

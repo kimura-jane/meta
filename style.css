@@ -87,7 +87,6 @@ body {
     letter-spacing: 0.1em;
 }
 
-/* 縄文模様の装飾（上下のライン） */
 #room-title::before,
 #room-title::after {
     content: '〰〰〰';
@@ -231,7 +230,6 @@ body {
     z-index: 100;
 }
 
-/* ピン留めコメント */
 #pinned-comment {
     background: linear-gradient(135deg, rgba(139, 105, 20, 0.3), rgba(89, 62, 42, 0.3));
     border: 2px solid rgba(139, 105, 20, 0.6);
@@ -285,7 +283,6 @@ body {
     background: rgba(139, 105, 20, 0.5);
 }
 
-/* チャットメッセージ */
 #chat-messages {
     max-height: 150px;
     overflow-y: auto;
@@ -340,7 +337,6 @@ body {
     color: white;
 }
 
-/* チャット入力フォーム */
 #chat-form {
     display: flex;
     align-items: center;
@@ -486,7 +482,6 @@ body {
     box-shadow: 0 0 15px rgba(139, 105, 20, 0.5);
 }
 
-/* 設定ボタン（右上固定） */
 #settings-btn {
     position: fixed;
     top: 15px;
@@ -554,7 +549,6 @@ body {
     display: none !important;
 }
 
-/* 絵文字カテゴリタブ */
 #emoji-tabs,
 .emoji-tabs {
     display: flex;
@@ -585,7 +579,6 @@ body {
     border-bottom: 2px solid #a07830;
 }
 
-/* 絵文字グリッド */
 #emoji-grid,
 .emoji-grid {
     display: grid;
@@ -662,33 +655,46 @@ body {
 }
 
 /* ========================================
-   音声視聴オーバーレイ
+   音声視聴オーバーレイ（全画面・タップ可能）
 ======================================== */
 #audio-unlock-overlay {
     position: fixed;
-    bottom: 200px;
-    left: 50%;
-    transform: translateX(-50%) scale(0.9);
-    z-index: 15000;
-    background: linear-gradient(135deg, rgba(160, 120, 48, 0.95), rgba(139, 105, 20, 0.95));
-    border-radius: 20px;
-    border: 2px solid #a07830;
-    padding: 20px 40px;
-    box-shadow: 0 8px 32px rgba(139, 105, 20, 0.4);
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 99999;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    /* 初期状態：非表示 */
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 
 #audio-unlock-overlay.show {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
-    transform: translateX(-50%) scale(1);
+}
+
+.audio-unlock-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: #e8d4b8;
+    text-align: center;
+    background: linear-gradient(135deg, rgba(160, 120, 48, 0.95), rgba(139, 105, 20, 0.95));
+    border-radius: 20px;
+    border: 2px solid #a07830;
+    padding: 30px 50px;
+    box-shadow: 0 8px 32px rgba(139, 105, 20, 0.4);
     animation: pulse-glow-jomon 2s ease-in-out infinite;
+    cursor: pointer;
 }
 
 @keyframes pulse-glow-jomon {
@@ -700,34 +706,25 @@ body {
     }
 }
 
-.audio-unlock-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    color: #e8d4b8;
-    text-align: center;
-}
-
 .audio-unlock-icon {
-    font-size: 36px;
+    font-size: 48px;
     animation: bounce 1s ease-in-out infinite;
 }
 
 @keyframes bounce {
     0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-5px); }
+    50% { transform: translateY(-8px); }
 }
 
 .audio-unlock-title {
     font-family: 'Zen Antique', serif;
-    font-size: 20px;
+    font-size: 24px;
     font-weight: 400;
     letter-spacing: 0.1em;
 }
 
 .audio-unlock-text {
-    font-size: 14px;
+    font-size: 16px;
     opacity: 0.9;
 }
 
@@ -780,7 +777,6 @@ body {
     display: none !important;
 }
 
-/* スクロールバー */
 ::-webkit-scrollbar {
     width: 4px;
     height: 4px;
@@ -800,7 +796,6 @@ body {
     background: rgba(139, 105, 20, 0.7);
 }
 
-/* 選択 */
 ::selection {
     background: rgba(139, 105, 20, 0.5);
     color: white;
@@ -945,21 +940,20 @@ body {
         font-size: 40px;
     }
     
-    #audio-unlock-overlay {
-        bottom: 180px;
-        padding: 16px 30px;
+    .audio-unlock-content {
+        padding: 24px 40px;
     }
     
     .audio-unlock-icon {
-        font-size: 28px;
+        font-size: 36px;
     }
     
     .audio-unlock-title {
-        font-size: 16px;
+        font-size: 20px;
     }
     
     .audio-unlock-text {
-        font-size: 12px;
+        font-size: 14px;
     }
 }
 
@@ -1002,10 +996,6 @@ body {
     
     #emoji-panel {
         width: 230px;
-        bottom: 190px;
-    }
-    
-    #audio-unlock-overlay {
         bottom: 190px;
     }
 }
@@ -1130,20 +1120,19 @@ body {
         font-size: 32px;
     }
     
-    #audio-unlock-overlay {
-        bottom: 130px;
-        padding: 12px 24px;
+    .audio-unlock-content {
+        padding: 16px 32px;
     }
     
     .audio-unlock-icon {
-        font-size: 24px;
+        font-size: 28px;
     }
     
     .audio-unlock-title {
-        font-size: 14px;
+        font-size: 16px;
     }
     
     .audio-unlock-text {
-        font-size: 11px;
+        font-size: 12px;
     }
 }

@@ -167,12 +167,14 @@ const CHARA_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/
 
 // 背景設定
 const STAGE_BACKGROUNDS = [
-  { name: 'デフォルト', file: 'IMG_9719.jpeg' },
-  { name: 'IMG_3206', file: 'IMG_3206.jpeg', isRoot: true },
+  { name: 'デフォルト', file: 'IMG_3206.jpeg', isRoot: true },
   { name: 'IMG_0967', file: 'IMG_0967.png' },
   { name: 'IMG_3273', file: 'IMG_3273.jpeg' },
   { name: 'IMG_3274', file: 'IMG_3274.jpeg' },
-  { name: 'IMG_3275', file: 'IMG_3275.jpeg' }
+  { name: 'IMG_3275', file: 'IMG_3275.jpeg' },
+  { name: 'IMG_9719', file: 'IMG_9719.jpeg' },
+  { name: 'IMG_3905', file: 'IMG_3905.png' },
+  { name: 'IMG_3906', file: 'IMG_3906.jpeg' }
 ];
 const STAGE_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/stage/';
 const ROOT_BASE_URL = 'https://raw.githubusercontent.com/kimura-jane/meta/main/';
